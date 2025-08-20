@@ -1,0 +1,114 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notification-service
+    
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_notifications
+    username: ${DB_USERNAME:trademaster}
+    password: ${DB_PASSWORD:trademaster123}
+    driver-class-name: org.postgresql.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    open-in-view: false
+    
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.trademaster.*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:noreply@trademaster.com}
+    password: ${SMTP_PASSWORD:your_app_password}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+            
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:}
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+
+# Twilio Configuration
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:your_account_sid}
+  auth-token: ${TWILIO_AUTH_TOKEN:your_auth_token}
+  phone-number: ${TWILIO_PHONE_NUMBER:+1234567890}
+
+# Notification Configuration
+notification:
+  email:
+    enabled: ${EMAIL_NOTIFICATIONS_ENABLED:true}
+    templates-path: classpath:templates/email/
+    default-sender: ${DEFAULT_EMAIL_SENDER:noreply@trademaster.com}
+    retry:
+      max-attempts: 3
+      backoff-delay: 5000
+  sms:
+    enabled: ${SMS_NOTIFICATIONS_ENABLED:true}
+    retry:
+      max-attempts: 3
+      backoff-delay: 5000
+  rate-limit:
+    email:
+      requests-per-minute: 100
+      requests-per-hour: 1000
+    sms:
+      requests-per-minute: 10
+      requests-per-hour: 100
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.trademaster: DEBUG
+    org.springframework.kafka: INFO
+    org.springframework.mail: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,0 +1,351 @@
+# Kong API Gateway Master Configuration for TradeMaster Platform
+# Version: 1.0.0
+# Description: Unified API Gateway setup for all TradeMaster microservices
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  # Authentication Service
+  - name: trademaster-auth-service
+    url: http://auth-service:8080
+    protocol: http
+    host: auth-service
+    port: 8080
+    path: /api/v1
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 3
+    
+    routes:
+      # Public authentication endpoints
+      - name: auth-public
+        paths:
+          - /api/v1/auth/register
+          - /api/v1/auth/login
+          - /api/v1/auth/forgot-password
+          - /api/v1/auth/reset-password
+          - /api/v1/auth/verify-email
+          - /api/v1/auth/health
+        methods: [GET, POST, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 100
+              hour: 1000
+              day: 5000
+              policy: local
+              fault_tolerant: true
+              
+          - name: cors
+            config:
+              origins:
+                - "http://localhost:3000"
+                - "https://trademaster.com"
+                - "https://*.trademaster.com"
+              methods: [GET, POST, PUT, DELETE, OPTIONS]
+              headers: [Accept, Content-Type, Authorization, X-Request-ID]
+              credentials: true
+              max_age: 3600
+
+      # Protected authentication endpoints
+      - name: auth-protected
+        paths:
+          - /api/v1/auth/refresh
+          - /api/v1/auth/logout
+          - /api/v1/auth/profile
+          - /api/v1/auth/change-password
+        methods: [GET, POST, PUT, DELETE, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: jwt
+            config:
+              header_names: [authorization]
+              claims_to_verify: [exp, sub]
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          - name: rate-limiting
+            config:
+              minute: 1000
+              hour: 10000
+              day: 50000
+              policy: local
+              fault_tolerant: true
+
+  # User Profile Service
+  - name: trademaster-user-profile-service
+    url: http://user-profile-service:8082
+    protocol: http
+    host: user-profile-service
+    port: 8082
+    path: /api/v1
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 3
+    
+    routes:
+      # Health check endpoints
+      - name: user-profile-health
+        paths:
+          - /api/v1/profiles/actuator/health
+          - /api/v1/profiles/actuator/info
+        methods: [GET, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 60
+              hour: 1000
+              policy: local
+              fault_tolerant: true
+
+      # User profile endpoints (authenticated users)
+      - name: user-profile-authenticated
+        paths:
+          - /api/v1/profiles/me
+          - /api/v1/profiles
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: jwt
+            config:
+              header_names: [authorization]
+              claims_to_verify: [exp, sub]
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          - name: rate-limiting
+            config:
+              minute: 500
+              hour: 5000
+              day: 50000
+              policy: local
+              fault_tolerant: true
+              
+          - name: request-size-limiting
+            config:
+              allowed_payload_size: 15  # 15MB for file uploads
+              
+          - name: cors
+            config:
+              origins:
+                - "http://localhost:3000"
+                - "https://trademaster.com"
+                - "https://*.trademaster.com"
+              methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+              headers: [Accept, Content-Type, Authorization, X-Request-ID]
+              credentials: true
+              max_age: 3600
+
+      # Document management endpoints
+      - name: document-management
+        paths:
+          - /api/v1/documents/me
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: jwt
+            config:
+              header_names: [authorization]
+              claims_to_verify: [exp, sub]
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          - name: rate-limiting
+            config:
+              minute: 100  # Lower limit for file operations
+              hour: 1000
+              day: 10000
+              policy: local
+              fault_tolerant: true
+              
+          - name: request-size-limiting
+            config:
+              allowed_payload_size: 15  # 15MB for document uploads
+
+      # Admin endpoints
+      - name: user-profile-admin
+        paths:
+          - /api/v1/profiles/search
+          - /api/v1/profiles/by-kyc-status
+          - /api/v1/profiles/statistics
+          - /api/v1/profiles/kyc-renewal-needed
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: jwt
+            config:
+              header_names: [authorization]
+              claims_to_verify: [exp, sub, roles]
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          - name: rate-limiting
+            config:
+              minute: 1000
+              hour: 10000
+              day: 100000
+              policy: local
+              fault_tolerant: true
+              
+          # Audit logging for admin actions
+          - name: file-log
+            config:
+              path: /var/log/kong/admin-actions.log
+              reopen: true
+
+      # Compliance endpoints
+      - name: user-profile-compliance
+        paths:
+          - /api/v1/documents/verify
+          - /api/v1/documents/pending-verification
+          - /api/v1/documents/verification-history
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          - name: jwt
+            config:
+              header_names: [authorization]
+              claims_to_verify: [exp, sub, roles]
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          - name: rate-limiting
+            config:
+              minute: 200
+              hour: 2000
+              day: 20000
+              policy: local
+              fault_tolerant: true
+              
+          # Audit logging for compliance actions
+          - name: file-log
+            config:
+              path: /var/log/kong/compliance-actions.log
+              reopen: true
+
+# Global plugins applied to all services
+plugins:
+  # Request correlation ID
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid
+      echo_downstream: true
+      
+  # Security headers
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Content-Type-Options:nosniff"
+          - "X-Frame-Options:DENY"
+          - "X-XSS-Protection:1; mode=block"
+          - "Strict-Transport-Security:max-age=31536000; includeSubDomains"
+          - "X-Gateway-Version:1.0.0"
+      remove:
+        headers:
+          - "X-Internal-Token"
+          - "Server"
+  
+  # Prometheus metrics
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+      
+  # Request logging
+  - name: file-log
+    config:
+      path: /var/log/kong/access.log
+      reopen: true
+
+# Consumer configuration
+consumers:
+  - username: trademaster-frontend
+    keyauth_credentials:
+      - key: frontend-api-key-2024
+    jwt_secrets:
+      - key: trademaster-auth-service
+        secret: your-256-bit-secret-key-here-change-in-production
+        
+  - username: trademaster-mobile
+    keyauth_credentials:
+      - key: mobile-api-key-2024
+    jwt_secrets:
+      - key: trademaster-auth-service
+        secret: your-256-bit-secret-key-here-change-in-production
+        
+  - username: trademaster-admin-panel
+    keyauth_credentials:
+      - key: admin-api-key-2024
+    jwt_secrets:
+      - key: trademaster-auth-service
+        secret: your-256-bit-secret-key-here-change-in-production
+
+# Upstreams configuration
+upstreams:
+  - name: auth-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        type: http
+        timeout: 10
+        concurrency: 5
+        http_path: /api/v1/auth/health
+        healthy:
+          interval: 30
+          http_statuses: [200]
+          successes: 3
+        unhealthy:
+          interval: 30
+          http_statuses: [429, 500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 3
+    targets:
+      - target: auth-service:8080
+        weight: 100
+        
+  - name: user-profile-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        type: http
+        timeout: 10
+        concurrency: 5
+        http_path: /api/v1/profiles/actuator/health
+        healthy:
+          interval: 30
+          http_statuses: [200]
+          successes: 3
+        unhealthy:
+          interval: 30
+          http_statuses: [429, 500, 502, 503, 504]
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 3
+    targets:
+      - target: user-profile-service:8082
+        weight: 100

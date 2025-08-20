@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(md-tree:*)",
+      "Bash(mkdir:*)",
+      "Bash(./gradlew:*)",
+      "Bash(gradle test)",
+      "Bash(gradle:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(docker:*)",
+      "Bash(find:*)",
+      "mcp__shadcn-ui__list_components",
+      "mcp__shadcn-ui__get_component",
+      "WebFetch(domain:react-hook-form.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)"
+    ],
+    "deny": []
+  },
+  "statusLine": {
+    "type": "command", 
+    "command": "npx -y @owloops/claude-powerline@latest --style=powerline",
+  
+  }
+}

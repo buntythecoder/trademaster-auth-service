@@ -1,0 +1,40 @@
+# Simplified Docker Compose for frontend development
+# Usage: docker-compose -f docker-compose.frontend-simple.yml up
+
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend.simple
+    container_name: trademaster-frontend-simple
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:8080/api/v1
+      VITE_APP_NAME: TradeMaster
+      VITE_APP_VERSION: 1.0.0-dev
+    ports:
+      - "6006:6006"  # Storybook
+      - "5173:5173"  # Vite dev server
+    volumes:
+      # Mount source for hot reload
+      - ./src:/app/src:cached
+      - ./.storybook:/app/.storybook:cached
+      - ./tailwind.config.js:/app/tailwind.config.js:cached
+      - ./vite.config.ts:/app/vite.config.ts:cached
+      # Preserve node_modules
+      - /app/node_modules
+    networks:
+      - frontend-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6006 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  frontend-network:
+    driver: bridge

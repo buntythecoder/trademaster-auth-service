@@ -1,0 +1,69 @@
+# Multi-stage Dockerfile for TradeMaster Frontend
+FROM node:18-alpine AS base
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Install dependencies only when needed
+FROM base AS deps
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies (use npm install if no lock file exists)
+RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --only=production; fi && npm cache clean --force
+
+# Development dependencies for Storybook
+FROM base AS dev-deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+
+# Install all dependencies including dev dependencies
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi && npm cache clean --force
+
+# Development stage for Storybook
+FROM dev-deps AS development
+WORKDIR /app
+
+# Copy source files
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p src/components src/lib src/types
+
+# Expose ports for both dev server and Storybook
+EXPOSE 5173 6006
+
+# Default command runs Storybook for component development
+CMD ["npm", "run", "storybook", "--", "--host", "0.0.0.0", "--port", "6006"]
+
+# Production build stage
+FROM dev-deps AS builder
+WORKDIR /app
+
+# Copy source files
+COPY . .
+
+# Build the application
+RUN npm run build
+RUN npm run build-storybook
+
+# Production stage
+FROM nginx:alpine AS production
+
+# Copy built files
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/storybook-static /usr/share/nginx/html/storybook
+
+# Copy nginx configuration
+COPY nginx.frontend.conf /etc/nginx/conf.d/default.conf
+
+# Expose port
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

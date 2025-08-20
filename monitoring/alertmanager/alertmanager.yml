@@ -1,0 +1,163 @@
+# AlertManager configuration for TradeMaster
+global:
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@trademaster.com'
+  smtp_auth_username: 'alerts@trademaster.com'
+  smtp_auth_password: 'your_app_password'
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default-receiver'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 5m
+    
+    - match:
+        team: security
+      receiver: 'security-team'
+      group_wait: 10s
+      repeat_interval: 30m
+    
+    - match:
+        team: trading
+      receiver: 'trading-team'
+      group_wait: 30s
+      repeat_interval: 1h
+    
+    - match:
+        team: compliance
+      receiver: 'compliance-team'
+      group_wait: 1m
+      repeat_interval: 2h
+    
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+      group_wait: 5m
+      repeat_interval: 24h
+
+# Inhibition rules
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+
+# Receiver configuration
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'platform-team@trademaster.com'
+        subject: '[TradeMaster] {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          Starts At: {{ .StartsAt }}
+          {{ end }}
+
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@trademaster.com,platform-lead@trademaster.com'
+        subject: '[CRITICAL] TradeMaster Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          🚨 CRITICAL ALERT 🚨
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Service: {{ .Labels.job }}
+          Instance: {{ .Labels.instance }}
+          Starts At: {{ .StartsAt }}
+          
+          {{ end }}
+          
+          Please investigate immediately!
+    webhook_configs:
+      - url: 'http://notification-service:8084/api/alerts/webhook'
+        send_resolved: true
+
+  - name: 'security-team'
+    email_configs:
+      - to: 'security-team@trademaster.com,ciso@trademaster.com'
+        subject: '[SECURITY] TradeMaster Security Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          🔒 SECURITY ALERT 🔒
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Service: {{ .Labels.job }}
+          Instance: {{ .Labels.instance }}
+          Starts At: {{ .StartsAt }}
+          
+          {{ end }}
+          
+          Security team attention required.
+
+  - name: 'trading-team'
+    email_configs:
+      - to: 'trading-team@trademaster.com,trading-lead@trademaster.com'
+        subject: '[TRADING] TradeMaster Trading Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          📈 TRADING ALERT 📈
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Service: {{ .Labels.job }}
+          Starts At: {{ .StartsAt }}
+          
+          {{ end }}
+          
+          Trading operations may be affected.
+
+  - name: 'compliance-team'
+    email_configs:
+      - to: 'compliance@trademaster.com,legal@trademaster.com'
+        subject: '[COMPLIANCE] TradeMaster Compliance Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          ⚖️ COMPLIANCE ALERT ⚖️
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.job }}
+          Starts At: {{ .StartsAt }}
+          
+          {{ end }}
+          
+          Compliance review required.
+
+  - name: 'info-alerts'
+    email_configs:
+      - to: 'platform-team@trademaster.com'
+        subject: '[INFO] TradeMaster Information: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          ℹ️ INFORMATION ALERT ℹ️
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.job }}
+          Starts At: {{ .StartsAt }}
+          
+          {{ end }}
+          
+          This is for your information.
+
+# Templates for custom formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

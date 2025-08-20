@@ -1,0 +1,33 @@
+# Simplified Dockerfile for TradeMaster Frontend
+FROM node:18-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    curl \
+    git \
+    && rm -rf /var/cache/apk/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies (fallback to npm install if npm ci fails)
+RUN npm install || npm ci
+
+# Copy source code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p src/components src/lib src/types public
+
+# Expose ports
+EXPOSE 5173 6006
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:6006/health || curl -f http://localhost:6006 || exit 1
+
+# Default command for Storybook
+CMD ["npm", "run", "storybook", "--", "--host", "0.0.0.0", "--port", "6006", "--no-open"]

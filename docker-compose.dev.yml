@@ -1,0 +1,30 @@
+# Development environment overrides
+services:
+  auth-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,dev
+      # Enable development logging
+      LOGGING_LEVEL_COM_TRADEMASTER: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: DEBUG
+    volumes:
+      # Mount logs for easy access during development
+      - ./auth-service/logs:/app/logs
+    ports:
+      # Direct access to Spring Boot actuator for development
+      - "8080:8080"
+
+  postgres:
+    ports:
+      # Expose PostgreSQL port for direct database access
+      - "5432:5432"
+    volumes:
+      # Mount additional development SQL scripts if needed
+      - ./dev-scripts:/docker-entrypoint-initdb.d/dev
+
+  redis:
+    ports:
+      # Expose Redis port for direct access
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass trademaster_redis_pass --loglevel verbose
+
+# Development tools will be enabled by default in dev environment

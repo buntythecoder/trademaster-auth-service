@@ -1,0 +1,103 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: trademaster-auth-service-test
+    
+  # H2 Database Configuration
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: 
+    driver-class-name: org.h2.Driver
+    
+  # JPA Configuration for H2
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+      # Remove the problematic naming strategy
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+        
+  # Disable Redis and Flyway for tests
+  flyway:
+    enabled: false
+    
+  # Disable Redis auto-configuration
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
+    
+  session:
+    store-type: none
+    
+  security:
+    require-ssl: false
+    
+  cache:
+    type: none
+
+# Minimal logging for tests
+logging:
+  level:
+    com.trademaster: INFO
+    org.springframework.security: WARN
+    org.springframework.web: WARN
+    org.hibernate: WARN
+    root: WARN
+
+# Test-specific configuration
+trademaster:
+  jwt:
+    secret: myTestSecretKeyThatIsAtLeast256BitsLongForHMACSHA256SecurityTestingPurpose
+    expiration: 900000
+    refresh-expiration: 86400000
+    issuer: trademaster-auth-service-test
+    
+  security:
+    rate-limit:
+      authenticated: 1000
+      free-tier: 100
+      premium: 5000
+    session:
+      max-concurrent: 5
+      timeout: 1440
+      
+  encryption:
+    algorithm: AES/GCM/NoPadding
+    key-length: 256
+    
+  mfa:
+    enabled: false  # Disable MFA for tests
+    token-validity: 300
+    
+  aws:
+    region: us-east-1
+    kms:
+      key-id: alias/test-key
+      
+  audit:
+    enabled: false
+    
+  compliance:
+    sebi:
+      enabled: false
+      
+  frontend:
+    base-url: http://localhost:3000
+    
+  verification:
+    email:
+      expiration-hours: 24
+    password-reset:
+      expiration-hours: 1

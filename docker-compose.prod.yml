@@ -1,0 +1,65 @@
+# Production environment overrides
+services:
+  auth-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,prod
+      # Production-optimized settings
+      JAVA_OPTS: -Xms1024m -Xmx2048m -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0
+      # Enhanced security
+      JWT_SECRET: ${JWT_SECRET_PROD}
+      # Production database credentials
+      DB_PASSWORD: ${DB_PASSWORD_PROD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD_PROD}
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: always
+    # Remove direct port exposure (access through nginx only)
+    ports: []
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD_PROD}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    restart: always
+    # Remove direct port exposure for security
+    ports: []
+
+  redis:
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD_PROD} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: always
+    # Remove direct port exposure for security
+    ports: []
+
+  nginx:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: always
+
+# Production services configuration

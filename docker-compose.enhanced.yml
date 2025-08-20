@@ -1,0 +1,480 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trademaster-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trademaster_auth
+      POSTGRES_USER: trademaster_user
+      POSTGRES_PASSWORD: trademaster_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trademaster_user -d trademaster_auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Redis Cache & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: trademaster-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass trademaster_redis_pass
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Kong Database (PostgreSQL for Kong)
+  kong-database:
+    image: postgres:15-alpine
+    container_name: kong-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong_password
+    volumes:
+      - kong_postgres_data:/var/lib/postgresql/data
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong -d kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Kong Database Migration
+  kong-migration:
+    image: kong:latest
+    container_name: kong-migration
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_PORT: 5432
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong_password
+    command: kong migrations bootstrap
+    networks:
+      - trademaster-network
+    depends_on:
+      kong-database:
+        condition: service_healthy
+    profiles:
+      - setup
+
+  # Kong API Gateway
+  kong:
+    image: kong:latest
+    container_name: trademaster-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_PORT: 5432
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong_password
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_PLUGINS: bundled,prometheus
+    ports:
+      - "8000:8000"  # Kong Proxy
+      - "8001:8001"  # Kong Admin API
+    networks:
+      - trademaster-network
+    depends_on:
+      kong-database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # TradeMaster Authentication Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: trademaster-auth-service
+    restart: unless-stopped
+    environment:
+      # Spring Profiles
+      SPRING_PROFILES_ACTIVE: docker
+      
+      # Database Configuration
+      DB_USERNAME: trademaster_user
+      DB_PASSWORD: trademaster_password
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trademaster_auth
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: trademaster_redis_pass
+      
+      # JWT Configuration
+      JWT_SECRET: your-super-secret-jwt-key-for-production-change-this-to-256-bit-key
+      JWT_EXPIRATION: 900000
+      JWT_REFRESH_EXPIRATION: 86400000
+      
+      # Rate Limiting Configuration
+      LOGIN_RATE_LIMIT: 5
+      LOGIN_RATE_WINDOW: 1
+      REGISTRATION_RATE_LIMIT: 3
+      REGISTRATION_RATE_WINDOW: 60
+      
+      # Monitoring
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
+      
+      # JVM Options
+      JAVA_OPTS: -Xms512m -Xmx1024m -XX:+UseG1GC -XX:+UseContainerSupport
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - trademaster-network
+    volumes:
+      - auth_logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # TradeMaster User Profile Service
+  user-profile-service:
+    build:
+      context: ./user-profile-service
+      dockerfile: Dockerfile
+    container_name: trademaster-user-profile-service
+    restart: unless-stopped
+    environment:
+      # Spring Profiles
+      SPRING_PROFILES_ACTIVE: docker
+      
+      # Database Configuration
+      DB_USERNAME: trademaster_user
+      DB_PASSWORD: trademaster_password
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trademaster_profiles
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: trademaster_redis_pass
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      
+      # JWT Configuration (shared with auth service)
+      JWT_SECRET: your-super-secret-jwt-key-for-production-change-this-to-256-bit-key
+      
+      # MinIO Configuration
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: trademaster_admin
+      MINIO_SECRET_KEY: trademaster_minio_pass_2024
+      MINIO_BUCKET_DOCUMENTS: trademaster-documents
+      MINIO_BUCKET_KYC: trademaster-kyc-docs
+      MINIO_BUCKET_PROFILES: trademaster-profile-pics
+      
+      # Monitoring
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
+      
+      # JVM Options
+      JAVA_OPTS: -Xms512m -Xmx1024m -XX:+UseG1GC -XX:+UseContainerSupport
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    profiles:
+      - services
+    networks:
+      - trademaster-network
+    volumes:
+      - user_profile_logs:/app/logs
+      - user_profile_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8082/api/v1/profiles/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: trademaster-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    profiles:
+      - messaging
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: trademaster-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_DELETE_TOPIC_ENABLE: true
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824  # 1GB
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"   # Kafka broker
+      - "29092:29092" # External access
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - messaging
+
+  # Kafka Control Center (Optional - for development)
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.4.0
+    container_name: trademaster-control-center
+    restart: unless-stopped
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: kafka:9092
+      CONTROL_CENTER_ZOOKEEPER_CONNECT: zookeeper:2181
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      PORT: 9021
+    ports:
+      - "9021:9021"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - trademaster-network
+    profiles:
+      - messaging
+      - development
+
+  # Schema Registry for Kafka
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: trademaster-schema-registry
+    restart: unless-stopped
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - trademaster-network
+    profiles:
+      - messaging
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: trademaster-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - trademaster-network
+    profiles:
+      - monitoring
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: trademaster-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - trademaster-network
+    profiles:
+      - monitoring
+
+  # TradeMaster Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: development
+    container_name: trademaster-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:8000/api/v1  # Through Kong Gateway
+      VITE_APP_NAME: TradeMaster
+      VITE_APP_VERSION: 1.0.0
+    ports:
+      - "6006:6006"  # Storybook
+      - "5173:5173"  # Vite dev server
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - frontend_node_modules:/app/node_modules
+    networks:
+      - trademaster-network
+    profiles:
+      - development
+      - frontend
+
+  # Development Tools (Optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: trademaster-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@trademaster.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - trademaster-network
+    profiles:
+      - development
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: trademaster-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: redis:redis:6379:0:trademaster_redis_pass
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - trademaster-network
+    profiles:
+      - development
+
+# Named volumes for data persistence
+volumes:
+  postgres_data:
+    driver: local
+  kong_postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+  auth_logs:
+    driver: local
+  user_profile_logs:
+    driver: local
+  user_profile_uploads:
+    driver: local
+  frontend_node_modules:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Custom network
+networks:
+  trademaster-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
