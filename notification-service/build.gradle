@@ -1,14 +1,18 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.2.0'
-    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.6'
 }
 
 group = 'com.trademaster'
 version = '0.0.1-SNAPSHOT'
 
 java {
-    sourceCompatibility = '21'
+    sourceCompatibility = '24'
+    targetCompatibility = '24'
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
 }
 
 configurations {
@@ -22,7 +26,7 @@ repositories {
 }
 
 ext {
-    set('springCloudVersion', "2023.0.0")
+    set('springCloudVersion', "2023.0.4")
 }
 
 dependencies {
@@ -67,4 +71,22 @@ dependencyManagement {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// JVM arguments for virtual threads
+applicationDefaultJvmArgs = [
+    "-Dspring.threads.virtual.enabled=true",
+    "--enable-preview"
+]
+
+compileJava {
+    options.compilerArgs += [
+        '--enable-preview'
+    ]
+}
+
+// Spring Boot configuration
+springBoot {
+    mainClass = 'com.trademaster.notification.NotificationServiceApplication'
+    buildInfo()
 }

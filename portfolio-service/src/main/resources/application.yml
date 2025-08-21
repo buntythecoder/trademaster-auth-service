@@ -1,0 +1,325 @@
+server:
+  port: 8083
+  compression:
+    enabled: true
+  http2:
+    enabled: true
+
+spring:
+  application:
+    name: portfolio-service
+    
+  profiles:
+    active: development
+    
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_portfolio
+    username: ${DB_USERNAME:trademaster}
+    password: ${DB_PASSWORD:trademaster123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        show_sql: false
+        jdbc:
+          batch_size: 25
+          order_inserts: true
+          order_updates: true
+        cache:
+          use_second_level_cache: true
+          use_query_cache: true
+          region:
+            factory_class: org.hibernate.cache.jcache.JCacheRegionFactory
+    open-in-view: false
+    
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+    
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000 # 5 minutes
+      
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+    
+  security:
+    enabled: true
+    
+# Management & Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+      percentiles:
+        "[http.server.requests]": 0.5, 0.95, 0.99
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.portfolio: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+  file:
+    name: logs/portfolio-service.log
+    max-size: 100MB
+    max-history: 30
+
+# Portfolio Service Configuration
+trademaster:
+  portfolio:
+    # P&L Calculation Settings
+    pnl:
+      calculation-interval: PT1M # 1 minute
+      batch-size: 100
+      enable-real-time-updates: true
+      
+    # Risk Management Settings
+    risk:
+      var-confidence-level: 0.95
+      stress-test-scenarios: 
+        - MARKET_CRASH
+        - INTEREST_RATE_SHOCK
+        - CURRENCY_DEVALUATION
+      concentration-limit: 0.20 # 20% max position
+      
+    # Performance Settings
+    performance:
+      enable-virtual-threads: true
+      max-concurrent-calculations: 1000
+      calculation-timeout: PT30S # 30 seconds
+      
+    # Cache Settings
+    cache:
+      portfolio-ttl: PT5M # 5 minutes
+      position-ttl: PT1M # 1 minute
+      analytics-ttl: PT15M # 15 minutes
+      
+    # Integration Settings
+    integration:
+      trading-service:
+        url: ${TRADING_SERVICE_URL:http://localhost:8082}
+        timeout: PT10S
+        retry-attempts: 3
+      market-data-service:
+        url: ${MARKET_DATA_SERVICE_URL:http://localhost:8081}
+        timeout: PT5S
+        retry-attempts: 2
+      auth-service:
+        url: ${AUTH_SERVICE_URL:http://localhost:8080}
+        timeout: PT5S
+        
+  # JWT Configuration
+  jwt:
+    secret: ${JWT_SECRET:TradeMasterPortfolioServiceSecretKey2024!}
+    expiration: 86400000 # 24 hours in milliseconds
+    issuer: trademaster-portfolio-service
+    
+  # Security Configuration
+  security:
+    cors:
+      allowed-origins: 
+        - http://localhost:3000
+        - http://localhost:8080
+      allowed-methods: 
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowed-headers: "*"
+      allow-credentials: true
+      max-age: 3600
+
+# SpringDoc OpenAPI Configuration
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  info:
+    title: "TradeMaster Portfolio Management API"
+    description: "Comprehensive portfolio management service with real-time position tracking, P&L calculations, and risk analytics"
+    version: "2.0.0"
+    contact:
+      name: "TradeMaster Development Team"
+      email: "dev@trademaster.com"
+    license:
+      name: "Proprietary"
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: development
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        show_sql: false
+        format_sql: true
+  cache:
+    type: simple # Use simple cache for development
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+logging:
+  level:
+    com.trademaster.portfolio: DEBUG
+    org.springframework.security: DEBUG
+
+trademaster:
+  portfolio:
+    cache:
+      portfolio-ttl: PT30S # 30 seconds for faster development
+      position-ttl: PT10S # 10 seconds for faster development
+
+---
+# Test Profile
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  cache:
+    type: simple
+    
+logging:
+  level:
+    com.trademaster.portfolio: DEBUG
+    
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+  jpa:
+    properties:
+      hibernate:
+        show_sql: false
+        format_sql: false
+  cache:
+    redis:
+      time-to-live: 600000 # 10 minutes in production
+
+logging:
+  level:
+    com.trademaster.portfolio: INFO
+    org.springframework.security: WARN
+    
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+trademaster:
+  portfolio:
+    performance:
+      max-concurrent-calculations: 5000 # Higher for production
+    cache:
+      portfolio-ttl: PT10M # 10 minutes
+      position-ttl: PT2M # 2 minutes
+      analytics-ttl: PT30M # 30 minutes
+
+---
+# Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/trademaster_portfolio
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+trademaster:
+  portfolio:
+    integration:
+      trading-service:
+        url: http://trading-service:8082
+      market-data-service:
+        url: http://market-data-service:8081
+      auth-service:
+        url: http://auth-service:8080

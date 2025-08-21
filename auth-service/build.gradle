@@ -1,13 +1,20 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.2.0'
-    id 'io.spring.dependency-management' version '1.1.4'
-    id 'org.flywaydb.flyway' version '9.22.3'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.flywaydb.flyway' version '10.0.0'
 }
 
 group = 'com.trademaster'
 version = '1.0.0'
-sourceCompatibility = '21'
+
+java {
+    sourceCompatibility = '24'
+    targetCompatibility = '24'
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
 
 configurations {
     compileOnly {
@@ -58,6 +65,11 @@ dependencies {
     // Monitoring & Observability
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'io.micrometer:micrometer-tracing-bridge-brave'
+    
+    // Structured Logging
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+    implementation 'ch.qos.logback:logback-classic'
+    implementation 'ch.qos.logback:logback-core'
     
     // Utilities
     implementation 'org.apache.commons:commons-lang3'
@@ -110,12 +122,11 @@ flyway {
     validateOnMigrate = true
 }
 
-// JVM configuration for Java 21
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-}
+// JVM arguments for virtual threads
+applicationDefaultJvmArgs = [
+    "-Dspring.threads.virtual.enabled=true",
+    "--enable-preview"
+]
 
 compileJava {
     options.compilerArgs += [

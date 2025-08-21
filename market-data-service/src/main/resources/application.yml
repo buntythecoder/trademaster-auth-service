@@ -1,0 +1,319 @@
+# TradeMaster Market Data Service Configuration
+# Version: 1.0.0
+# Description: Real-time market data processing and streaming service
+
+server:
+  port: 8084
+  servlet:
+    context-path: /api/v1
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    min-response-size: 1024
+  http2:
+    enabled: true
+
+spring:
+  application:
+    name: trademaster-market-data-service
+  
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:development}
+  
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:trademaster_marketdata}
+    username: ${DB_USERNAME:trademaster_user}
+    password: ${DB_PASSWORD:trademaster_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        use_sql_comments: false
+        jdbc:
+          batch_size: 50
+          order_inserts: true
+          order_updates: true
+        cache:
+          use_second_level_cache: true
+          region:
+            factory_class: org.hibernate.cache.ehcache.EhCacheRegionFactory
+  
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 1
+      timeout: 2000
+      lettuce:
+        pool:
+          max-active: 20
+          max-wait: -1
+          max-idle: 8
+          min-idle: 2
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      acks: all
+      retries: 2147483647
+      max-in-flight-requests-per-connection: 1
+      enable-idempotence: true
+      batch-size: 16384
+      linger-ms: 5
+      buffer-memory: 33554432
+      compression-type: lz4
+      properties:
+        schema.registry.url: ${KAFKA_SCHEMA_REGISTRY_URL:http://localhost:8081}
+    consumer:
+      group-id: market-data-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      max-poll-records: 1000
+      fetch-min-bytes: 1048576
+      fetch-max-wait: 500
+      properties:
+        schema.registry.url: ${KAFKA_SCHEMA_REGISTRY_URL:http://localhost:8081}
+        specific.avro.reader: true
+    streams:
+      application-id: market-data-streams
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      default-key-serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+      default-value-serde: io.confluent.kafka.streams.serdes.avro.SpecificAvroSerde
+      replication-factor: 1
+      num-stream-threads: 4
+      properties:
+        schema.registry.url: ${KAFKA_SCHEMA_REGISTRY_URL:http://localhost:8081}
+        processing.guarantee: exactly_once_v2
+        topology.optimization: all
+  
+  # Security Configuration
+  security:
+    user:
+      name: market-data-admin
+      password: ${ADMIN_PASSWORD:secure-admin-password}
+  
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000 # 5 minutes
+      cache-null-values: false
+      key-prefix: "market-data:"
+  
+  # Actuator Configuration
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics,prometheus,kafka
+        base-path: /actuator
+    endpoint:
+      health:
+        show-details: when-authorized
+        probes:
+          enabled: true
+    metrics:
+      export:
+        prometheus:
+          enabled: true
+      distribution:
+        percentiles-histogram:
+          http.server.requests: true
+        percentiles:
+          http.server.requests: 0.5,0.95,0.99
+        sla:
+          http.server.requests: 50ms,100ms,200ms,500ms
+
+# Application Specific Configuration
+app:
+  market-data:
+    # WebSocket Configuration
+    websocket:
+      endpoint: /ws/market-data
+      allowed-origins: 
+        - "http://localhost:3000"
+        - "https://trademaster.com"
+        - "https://*.trademaster.com"
+      heartbeat-interval: 25000
+      connection-limit: 10000
+      
+    # Market Data Sources
+    sources:
+      nse:
+        enabled: true
+        base-url: ${NSE_API_URL:https://www.nseindia.com/api}
+        api-key: ${NSE_API_KEY:}
+        rate-limit: 100
+        timeout: 5000
+        retry-attempts: 3
+        symbols:
+          - NIFTY
+          - BANKNIFTY
+          - SENSEX
+          - RELIANCE
+          - TCS
+          - INFY
+      
+      bse:
+        enabled: true
+        base-url: ${BSE_API_URL:https://api.bseindia.com}
+        api-key: ${BSE_API_KEY:}
+        rate-limit: 50
+        timeout: 5000
+        retry-attempts: 3
+        
+    # Data Processing
+    processing:
+      batch-size: 1000
+      flush-interval: 1000
+      max-latency: 100
+      parallel-threads: 8
+      enable-compression: true
+      
+    # Circuit Breaker Configuration
+    circuit-breaker:
+      failure-threshold: 5
+      recovery-timeout: 30000
+      timeout: 10000
+      
+# InfluxDB Configuration
+influxdb:
+  url: ${INFLUXDB_URL:http://localhost:8086}
+  token: ${INFLUXDB_TOKEN:your-influxdb-token}
+  org: ${INFLUXDB_ORG:trademaster}
+  bucket: ${INFLUXDB_BUCKET:market-data}
+  connection:
+    timeout: 10000
+    read-timeout: 30000
+    write-timeout: 30000
+  write:
+    batch-size: 5000
+    flush-interval: 1000
+    retry-interval: 5000
+    max-retries: 3
+    max-retry-delay: 30000
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-change-in-production}
+  expiration: 900000 # 15 minutes
+  refresh-expiration: 86400000 # 24 hours
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.marketdata: ${LOG_LEVEL:INFO}
+    org.springframework.kafka: WARN
+    org.apache.kafka: WARN
+    com.influxdb: WARN
+    org.springframework.web.socket: INFO
+    org.springframework.security: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+  file:
+    name: logs/market-data-service.log
+    max-size: 100MB
+    max-history: 30
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: development
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_marketdata_dev
+  
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    com.trademaster.marketdata: DEBUG
+    org.springframework.web.socket: DEBUG
+
+app:
+  market-data:
+    sources:
+      nse:
+        base-url: http://localhost:8090/mock-nse
+      bse:
+        base-url: http://localhost:8091/mock-bse
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+  
+  datasource:
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+  
+  cache:
+    redis:
+      time-to-live: 60000 # 1 minute in production
+
+logging:
+  level:
+    com.trademaster.marketdata: WARN
+    org.springframework.web.socket: WARN
+
+app:
+  market-data:
+    websocket:
+      connection-limit: 50000
+    processing:
+      parallel-threads: 16
+      batch-size: 2000
+
+---
+# Test Profile
+spring:
+  config:
+    activate:
+      on-profile: test
+  
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: password
+  
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+
+logging:
+  level:
+    com.trademaster.marketdata: DEBUG

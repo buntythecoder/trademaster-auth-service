@@ -1,0 +1,200 @@
+server:
+  port: 8083
+  # Removed Netty configuration (not needed for Spring MVC)
+
+spring:
+  application:
+    name: trading-service
+  
+  # JPA/Hibernate Configuration for PostgreSQL with Virtual Threads
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_trading
+    username: ${POSTGRES_USER:trademaster_user}
+    password: ${POSTGRES_PASSWORD:trademaster_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: TradingServiceCP
+      maximum-pool-size: 50
+      minimum-idle: 10
+      idle-timeout: 600000
+      connection-timeout: 20000
+      validation-timeout: 5000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration optimized for Virtual Threads
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        use_sql_comments: false
+        jdbc:
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+        cache:
+          use_second_level_cache: true
+          use_query_cache: true
+        connection:
+          handling_mode: delayed_acquisition_and_release_after_transaction
+  
+  # Redis Configuration for caching
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 3  # Different database for trading cache
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 25
+          min-idle: 5
+          max-wait: 10s
+  
+  # Flyway Configuration for database migrations
+  flyway:
+    url: jdbc:postgresql://localhost:5432/trademaster_trading
+    user: ${POSTGRES_USER:trademaster_user}
+    password: ${POSTGRES_PASSWORD:trademaster_pass}
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  
+  # Virtual Threads Configuration
+  threads:
+    virtual:
+      enabled: true
+  
+  # Caching Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300s  # 5 minutes default TTL
+      cache-null-values: false
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+        order.processing: 0.5, 0.95, 0.99
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.trading: INFO
+    org.springframework.orm.jpa: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+    org.postgresql: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
+
+# TradeMaster Trading Configuration
+trademaster:
+  trading:
+    # Order Management Configuration
+    orders:
+      max-open-orders-per-user: 1000
+      order-id-prefix: "TM"
+      default-order-validity: "DAY"
+      
+    # Risk Management Configuration
+    risk:
+      enabled: true
+      max-position-value: 10000000  # ₹1 Crore
+      max-single-order-value: 1000000  # ₹10 Lakh
+      max-daily-trades: 500
+      pattern-day-trader-threshold: 25000  # $25K USD equivalent
+      
+    # Performance Configuration
+    performance:
+      order-processing-timeout: 50ms
+      risk-check-timeout: 25ms
+      portfolio-update-timeout: 10ms
+      cache-warming-enabled: true
+      
+    # Broker Integration Configuration
+    brokers:
+      enabled: true
+      timeout: 5s
+      retry-attempts: 3
+      circuit-breaker:
+        failure-threshold: 5
+        timeout: 30s
+        reset-timeout: 60s
+    
+    # WebSocket Configuration  
+    websocket:
+      enabled: true
+      max-connections: 10000
+      heartbeat-interval: 30s
+      message-size-limit: 1MB
+
+# JWT Configuration (from Epic 1 auth service)
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-for-development-only}
+  expiration: 86400000  # 24 hours in milliseconds
+  issuer: trademaster-auth-service
+
+# API Documentation
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+---
+# Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/trademaster_trading
+  data:
+    redis:
+      host: redis
+  flyway:
+    url: jdbc:postgresql://postgres:5432/trademaster_trading
+
+---
+# Test Profile
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6370  # Different port for test Redis
+  flyway:
+    url: jdbc:h2:mem:testdb
+
+trademaster:
+  trading:
+    risk:
+      enabled: false  # Disable risk checks in tests
+    brokers:
+      enabled: false  # Disable broker integration in tests
