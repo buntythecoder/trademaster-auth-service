@@ -29,14 +29,9 @@ import java.util.List;
  * @version 1.0.0
  */
 @Entity
-@Table(name = "mfa_configurations",
-       indexes = {
-           @Index(name = "idx_mfa_configurations_user_id", columnList = "userId"),
-           @Index(name = "idx_mfa_configurations_type", columnList = "mfaType"),
-           @Index(name = "idx_mfa_configurations_enabled", columnList = "isEnabled")
-       },
+@Table(name = "mfa_configuration",
        uniqueConstraints = {
-           @UniqueConstraint(columnNames = {"user_id", "mfa_type"})
+           @UniqueConstraint(name = "unique_user_mfa_type", columnNames = {"user_id", "mfa_type"})
        })
 @EntityListeners(AuditingEntityListener.class)
 @Data
@@ -47,31 +42,35 @@ import java.util.List;
 public class MfaConfiguration {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue
     @EqualsAndHashCode.Include
-    private Long id;
+    private java.util.UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
+    @Column(name = "user_id", nullable = false, length = 50)
+    private String userId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "mfa_type", nullable = false, length = 20)
     private MfaType mfaType;
 
     @JsonIgnore
-    @Column(name = "secret_key", length = 512)
+    @Column(name = "secret_key", length = 500)
     private String secretKey;
 
     @Type(JsonType.class)
     @Column(name = "backup_codes", columnDefinition = "text[]")
     private List<String> backupCodes;
 
-    @Column(name = "is_enabled")
+    @Column(name = "enabled")
     @Builder.Default
-    private Boolean isEnabled = false;
+    private Boolean enabled = false;
 
-    @Column(name = "verified_at")
-    private LocalDateTime verifiedAt;
+    @Column(name = "last_used")
+    private LocalDateTime lastUsed;
+
+    @Column(name = "failed_attempts")
+    @Builder.Default
+    private Integer failedAttempts = 0;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -88,26 +87,33 @@ public class MfaConfiguration {
     private User user;
 
     // Business logic methods
-    public boolean isVerified() {
-        return verifiedAt != null;
+    public boolean isEnabled() {
+        return Boolean.TRUE.equals(this.enabled);
     }
 
     public void enable() {
-        this.isEnabled = true;
-        if (this.verifiedAt == null) {
-            this.verifiedAt = LocalDateTime.now();
-        }
+        this.enabled = true;
     }
 
     public void disable() {
-        this.isEnabled = false;
+        this.enabled = false;
     }
 
-    public void verify() {
-        this.verifiedAt = LocalDateTime.now();
-        if (this.isEnabled == null || !this.isEnabled) {
-            this.isEnabled = true;
-        }
+    public void incrementFailedAttempts() {
+        this.failedAttempts = (this.failedAttempts == null ? 0 : this.failedAttempts) + 1;
+    }
+
+    public void resetFailedAttempts() {
+        this.failedAttempts = 0;
+    }
+
+    public void markAsUsed() {
+        this.lastUsed = LocalDateTime.now();
+        resetFailedAttempts();
+    }
+
+    public boolean isLocked() {
+        return this.failedAttempts != null && this.failedAttempts >= 3;
     }
 
     public boolean hasBackupCodes() {
@@ -168,7 +174,7 @@ public class MfaConfiguration {
 
     // Helper method for audit logging
     public String toAuditString() {
-        return String.format("MfaConfiguration{id=%d, userId=%d, mfaType=%s, isEnabled=%s, isVerified=%s}", 
-                           id, userId, mfaType, isEnabled, isVerified());
+        return String.format("MfaConfiguration{id=%s, userId=%s, mfaType=%s, enabled=%s}", 
+                           id, userId, mfaType, enabled);
     }
 }

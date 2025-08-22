@@ -84,25 +84,14 @@ export function ThemeToggle({ className, variant = 'button', showLabel = false }
     <button
       onClick={toggleTheme}
       className={cn(
-        "flex items-center justify-center gap-2 p-3 rounded-xl transition-all duration-200",
-        "bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 hover:border-slate-600",
-        "text-slate-300 hover:text-white cyber-glow-hover",
+        "p-2 rounded-lg transition-colors",
+        "text-slate-400 hover:text-white hover:bg-slate-800/50",
         currentConfig.color,
         className
       )}
       title={`Current theme: ${currentConfig.label} (${actualTheme})`}
     >
-      <CurrentIcon className="w-5 h-5" />
-      {showLabel && (
-        <span className="text-sm font-medium">
-          {currentConfig.label}
-          {theme === 'auto' && (
-            <span className="ml-1 text-xs text-slate-400">
-              ({actualTheme})
-            </span>
-          )}
-        </span>
-      )}
+      <CurrentIcon className="w-4 h-4" />
     </button>
   );
 }

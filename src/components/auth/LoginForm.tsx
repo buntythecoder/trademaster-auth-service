@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useAuthStore } from '../../stores/auth.store'
 import { Eye, EyeOff, Mail, Lock, CheckCircle, XCircle, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { MFALogin } from './MFALogin'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -15,6 +16,9 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 export function LoginForm() {
   const [showPassword, setShowPassword] = React.useState(false)
+  const [showMFA, setShowMFA] = React.useState(false)
+  const [loginEmail, setLoginEmail] = React.useState('')
+  const [loginPassword, setLoginPassword] = React.useState('')
   const { login, isLoading } = useAuthStore()
 
   const {
@@ -30,10 +34,31 @@ export function LoginForm() {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
-      await login(data.email, data.password)
+      // Simulate first step login - check credentials
+      // In real app, this would validate credentials on server
+      console.log('Validating credentials for:', data.email)
+      
+      // For demo, assume all users have MFA enabled
+      setLoginEmail(data.email)
+      setLoginPassword(data.password) // Store the actual password
+      setShowMFA(true)
     } catch (error) {
       console.error('Login failed:', error)
     }
+  }
+
+  const handleMFAComplete = async () => {
+    try {
+      await login(loginEmail, loginPassword) // Use the actual password
+    } catch (error) {
+      console.error('Login failed:', error)
+    }
+  }
+
+  const handleBackToLogin = () => {
+    setShowMFA(false)
+    setLoginEmail('')
+    setLoginPassword('')
   }
 
   const getFieldStatus = (fieldName: keyof LoginFormData) => {
@@ -43,6 +68,17 @@ export function LoginForm() {
     if (hasError) return 'error'
     if (hasValue && !hasError) return 'success'
     return 'default'
+  }
+
+  // Show MFA form if MFA step is active
+  if (showMFA) {
+    return (
+      <MFALogin 
+        email={loginEmail}
+        onMFAComplete={handleMFAComplete}
+        onBack={handleBackToLogin}
+      />
+    )
   }
 
   return (

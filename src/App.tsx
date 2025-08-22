@@ -7,10 +7,20 @@ import { TraderDashboard } from './components/dashboard/TraderDashboard'
 import { ProfileDashboard } from './components/profile/ProfileDashboard'
 import { HeroSection } from './components/landing/HeroSection'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import { MarketDataDashboard } from './components/market/MarketDataDashboard'
+import { TradingInterface } from './components/trading/TradingInterface'
+import { PortfolioAnalytics } from './components/portfolio/PortfolioAnalytics'
+import { NotFoundPage } from './components/error/NotFoundPage'
+import { UnauthorizedPage } from './components/error/UnauthorizedPage'
+import { ForbiddenPage } from './components/error/ForbiddenPage'
+import { ServerErrorPage } from './components/error/ServerErrorPage'
+import { NetworkErrorPage } from './components/error/NetworkErrorPage'
 import { useAuthStore } from './stores/auth.store'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { ThemeToggle } from './components/ui/ThemeToggle'
-import { LogOut, User } from 'lucide-react'
+import { PageLayout } from './components/layout/PageLayout'
+import { LogOut, User, TrendingUp, PieChart, BarChart3 } from 'lucide-react'
 import './index.css'
 
 function App() {
@@ -18,7 +28,8 @@ function App() {
 
   return (
     <ThemeProvider>
-      <Router>
+      <ToastProvider>
+        <Router>
         <div className="min-h-screen">
         <Routes>
           {/* Landing Page */}
@@ -87,50 +98,49 @@ function App() {
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <div className="min-h-screen bg-slate-900">
-                  {/* Dashboard Header */}
-                  <header className="glass-card-dark border-b border-slate-700/50">
-                    <div className="container mx-auto flex h-16 items-center justify-between px-6">
-                      <div className="flex items-center space-x-4">
-                        <h1 className="text-xl font-bold gradient-text">TradeMaster</h1>
-                        {user && (
-                          <span className="text-sm text-slate-400">
-                            Welcome back, <span className="text-purple-400">{user.firstName}</span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <ThemeToggle />
-                        <Link
-                          to="/profile"
-                          className="flex items-center space-x-2 text-slate-400 hover:text-purple-400 transition-colors p-2 rounded-lg hover:bg-slate-800/50"
-                        >
-                          <User className="w-4 h-4" />
-                          <span className="text-sm">Profile</span>
-                        </Link>
-                        <div className="flex items-center space-x-2 text-slate-400">
-                          <span className="text-sm">{user?.role}</span>
-                        </div>
-                        <button
-                          onClick={() => useAuthStore.getState().logout()}
-                          className="flex items-center space-x-2 text-slate-400 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-slate-800/50"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span className="text-sm">Logout</span>
-                        </button>
-                      </div>
-                    </div>
-                  </header>
+                <PageLayout showWelcome={true}>
+                  {user?.role === 'ADMIN' ? (
+                    <AdminDashboard />
+                  ) : (
+                    <TraderDashboard />
+                  )}
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
 
-                  {/* Dashboard Content */}
-                  <main className="container mx-auto px-6 py-8">
-                    {user?.role === 'ADMIN' ? (
-                      <AdminDashboard />
-                    ) : (
-                      <TraderDashboard />
-                    )}
-                  </main>
-                </div>
+          {/* Epic 2: Market Data Route */}
+          <Route
+            path="/market-data"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <MarketDataDashboard />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Epic 2: Trading Interface Route */}
+          <Route
+            path="/trading"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <TradingInterface />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Epic 2: Portfolio Analytics Route */}
+          <Route
+            path="/portfolio"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <PortfolioAnalytics />
+                </PageLayout>
               </ProtectedRoute>
             }
           />
@@ -140,60 +150,25 @@ function App() {
             path="/profile"
             element={
               <ProtectedRoute>
-                <div className="min-h-screen bg-slate-900">
-                  {/* Dashboard Header */}
-                  <header className="glass-card-dark border-b border-slate-700/50">
-                    <div className="container mx-auto flex h-16 items-center justify-between px-6">
-                      <div className="flex items-center space-x-4">
-                        <Link to="/dashboard" className="text-xl font-bold gradient-text hover:opacity-80 transition-opacity">
-                          TradeMaster
-                        </Link>
-                        {user && (
-                          <span className="text-sm text-slate-400">
-                            Welcome back, <span className="text-purple-400">{user.firstName}</span>
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <ThemeToggle />
-                        <Link
-                          to="/dashboard"
-                          className="flex items-center space-x-2 text-slate-400 hover:text-cyan-400 transition-colors p-2 rounded-lg hover:bg-slate-800/50"
-                        >
-                          <span className="text-sm">Dashboard</span>
-                        </Link>
-                        <Link
-                          to="/profile"
-                          className="flex items-center space-x-2 text-purple-400 bg-slate-800/50 p-2 rounded-lg"
-                        >
-                          <User className="w-4 h-4" />
-                          <span className="text-sm">Profile</span>
-                        </Link>
-                        <div className="flex items-center space-x-2 text-slate-400">
-                          <span className="text-sm">{user?.role}</span>
-                        </div>
-                        <button
-                          onClick={() => useAuthStore.getState().logout()}
-                          className="flex items-center space-x-2 text-slate-400 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-slate-800/50"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span className="text-sm">Logout</span>
-                        </button>
-                      </div>
-                    </div>
-                  </header>
-
-                  {/* Profile Content */}
-                  <main className="container mx-auto px-6 py-8">
-                    <ProfileDashboard />
-                  </main>
-                </div>
+                <PageLayout showWelcome={true}>
+                  <ProfileDashboard />
+                </PageLayout>
               </ProtectedRoute>
             }
           />
+
+          {/* Error Pages */}
+          <Route path="/401" element={<UnauthorizedPage />} />
+          <Route path="/403" element={<ForbiddenPage />} />
+          <Route path="/500" element={<ServerErrorPage />} />
+          <Route path="/network-error" element={<NetworkErrorPage />} />
+          
+          {/* 404 - Must be last */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </div>
       </Router>
+      </ToastProvider>
     </ThemeProvider>
   )
 }

@@ -22,8 +22,14 @@ import {
   Clock,
   FileText,
   Download,
-  Trash2
+  Trash2,
+  Activity
 } from 'lucide-react'
+import { MFASetup } from '../auth/MFASetup'
+import { DeviceTrust } from '../auth/DeviceTrust'
+import { SessionManagement } from '../auth/SessionManagement'
+import { SecurityAuditLogs } from '../auth/SecurityAuditLogs'
+import { KYCDocuments } from '../auth/KYCDocuments'
 
 interface ProfileData {
   personalInfo: {
@@ -64,6 +70,8 @@ interface ProfileData {
 
 export function ProfileDashboard() {
   const [activeTab, setActiveTab] = useState('personal')
+  const [activeSecurityTab, setActiveSecurityTab] = useState('account')
+  const [activeDocumentTab, setActiveDocumentTab] = useState('overview')
   const [editMode, setEditMode] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   
@@ -374,53 +382,90 @@ export function ProfileDashboard() {
 
         {activeTab === 'documents' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white flex items-center">
-                <FileText className="w-5 h-5 mr-2 text-cyan-400" />
-                Document Management
-              </h3>
-              <button className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2">
-                <Upload className="w-4 h-4" />
-                <span>Upload Document</span>
-              </button>
-            </div>
+            <h3 className="text-xl font-bold text-white mb-6 flex items-center">
+              <FileText className="w-5 h-5 mr-2 text-cyan-400" />
+              Document Management
+            </h3>
             
-            <div className="space-y-4">
-              {profileData.documents.map((doc) => {
-                const status = getDocumentStatus(doc.status)
-                return (
-                  <div key={doc.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
-                    <div className="flex items-center space-x-4">
-                      <div className={`p-2 rounded-lg ${status.bg}`}>
-                        <FileText className="w-5 h-5 text-slate-400" />
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-white">{doc.name}</h4>
-                        <p className="text-sm text-slate-400">{doc.type} • {doc.size} • {doc.uploadDate}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-4">
-                      <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${status.bg}`}>
-                        {status.icon}
-                        <span className={`text-sm font-medium ${status.color}`}>
-                          {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <button className="p-2 text-slate-400 hover:text-purple-400 transition-colors">
-                          <Download className="w-4 h-4" />
-                        </button>
-                        <button className="p-2 text-slate-400 hover:text-red-400 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+            {/* Document Sub-Tabs */}
+            <div className="flex items-center space-x-6 mb-6 border-b border-slate-700/50">
+              {[
+                { key: 'overview', label: 'Document Overview', icon: FileText },
+                { key: 'kyc', label: 'KYC Verification', icon: CheckCircle },
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveDocumentTab(key)}
+                  className={`flex items-center space-x-2 px-4 py-3 border-b-2 transition-all ${
+                    activeDocumentTab === key
+                      ? 'border-cyan-400 text-cyan-400'
+                      : 'border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="hidden sm:block font-medium">{label}</span>
+                </button>
+              ))}
             </div>
+
+            {/* Document Tab Content */}
+            {activeDocumentTab === 'overview' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-lg font-semibold text-white">Uploaded Documents</h4>
+                  <button className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2">
+                    <Upload className="w-4 h-4" />
+                    <span>Upload Document</span>
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  {profileData.documents.map((doc) => {
+                    const status = getDocumentStatus(doc.status)
+                    return (
+                      <div key={doc.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
+                        <div className="flex items-center space-x-4">
+                          <div className={`p-2 rounded-lg ${status.bg}`}>
+                            <FileText className="w-5 h-5 text-slate-400" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-white">{doc.name}</h4>
+                            <p className="text-sm text-slate-400">{doc.type} • {doc.size} • {doc.uploadDate}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4">
+                          <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${status.bg}`}>
+                            {status.icon}
+                            <span className={`text-sm font-medium ${status.color}`}>
+                              {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center space-x-2">
+                            <button className="p-2 text-slate-400 hover:text-purple-400 transition-colors">
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button className="p-2 text-slate-400 hover:text-red-400 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeDocumentTab === 'kyc' && (
+              <div>
+                <KYCDocuments 
+                  onComplete={(verified) => console.log('KYC completed:', verified)}
+                  onCancel={() => console.log('KYC cancelled')}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -431,8 +476,32 @@ export function ProfileDashboard() {
               Security Settings
             </h3>
             
-            <div className="space-y-6">
-              {/* Password Change */}
+            {/* Security Sub-Tabs */}
+            <div className="flex items-center space-x-6 mb-6 border-b border-slate-700/50">
+              {[
+                { key: 'account', label: 'Account Security', icon: Lock },
+                { key: 'mfa', label: 'Multi-Factor Auth', icon: Shield },
+                { key: 'devices', label: 'Trusted Devices', icon: Phone },
+                { key: 'sessions', label: 'Active Sessions', icon: Activity },
+                { key: 'audit', label: 'Security Logs', icon: FileText },
+              ].map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveSecurityTab(key)}
+                  className={`flex items-center space-x-2 px-4 py-3 border-b-2 transition-all ${
+                    activeSecurityTab === key
+                      ? 'border-purple-400 text-purple-400'
+                      : 'border-transparent text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="text-sm font-medium">{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Account Security Tab */}
+            {activeSecurityTab === 'account' && (
               <div className="p-6 rounded-xl bg-slate-800/30">
                 <h4 className="text-lg font-semibold text-white mb-4">Change Password</h4>
                 <div className="space-y-4">
@@ -478,21 +547,30 @@ export function ProfileDashboard() {
                   </button>
                 </div>
               </div>
-              
-              {/* Two-Factor Authentication */}
-              <div className="p-6 rounded-xl bg-slate-800/30">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h4 className="text-lg font-semibold text-white">Two-Factor Authentication</h4>
-                    <p className="text-slate-400 text-sm">Add an extra layer of security to your account</p>
-                  </div>
-                  <div className="relative inline-block w-12 mr-2 align-middle select-none">
-                    <input type="checkbox" name="toggle" id="toggle-2fa" className="cyber-input focus:outline-none focus:shadow-outline" />
-                    <label htmlFor="toggle-2fa" className="block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                  </div>
-                </div>
-              </div>
-            </div>
+            )}
+
+            {/* Multi-Factor Authentication Tab */}
+            {activeSecurityTab === 'mfa' && (
+              <MFASetup 
+                onComplete={() => console.log('MFA setup completed')}
+                onCancel={() => console.log('MFA setup cancelled')}
+              />
+            )}
+
+            {/* Device Management Tab */}
+            {activeSecurityTab === 'devices' && (
+              <DeviceTrust />
+            )}
+
+            {/* Session Management Tab */}
+            {activeSecurityTab === 'sessions' && (
+              <SessionManagement />
+            )}
+
+            {/* Security Audit Logs Tab */}
+            {activeSecurityTab === 'audit' && (
+              <SecurityAuditLogs />
+            )}
           </div>
         )}
       </div>

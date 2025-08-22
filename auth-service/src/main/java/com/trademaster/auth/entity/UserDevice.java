@@ -10,6 +10,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.net.InetAddress;
@@ -30,14 +31,8 @@ import java.util.Map;
  */
 @Entity
 @Table(name = "user_devices",
-       indexes = {
-           @Index(name = "idx_user_devices_user_id", columnList = "userId"),
-           @Index(name = "idx_user_devices_fingerprint", columnList = "deviceFingerprint"),
-           @Index(name = "idx_user_devices_trusted", columnList = "isTrusted"),
-           @Index(name = "idx_user_devices_last_seen", columnList = "lastSeenAt")
-       },
        uniqueConstraints = {
-           @UniqueConstraint(columnNames = {"user_id", "device_fingerprint"})
+           @UniqueConstraint(name = "unique_user_device", columnNames = {"user_id", "device_fingerprint"})
        })
 @EntityListeners(AuditingEntityListener.class)
 @Data
@@ -48,201 +43,100 @@ import java.util.Map;
 public class UserDevice {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue
     @EqualsAndHashCode.Include
-    private Long id;
+    private java.util.UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
+    @Column(name = "user_id", nullable = false, length = 50)
+    private String userId;
 
-    @Column(name = "device_fingerprint", nullable = false, length = 512)
+    @Column(name = "device_fingerprint", nullable = false, length = 255)
     private String deviceFingerprint;
 
-    @Column(name = "device_name", length = 200)
+    @Column(name = "device_name", length = 255)
     private String deviceName;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "device_type", length = 50)
-    private DeviceType deviceType;
 
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
 
-    @Column(name = "ip_address")
+    @Column(name = "ip_address", columnDefinition = "inet")
     private InetAddress ipAddress;
 
-    @Type(JsonType.class)
-    @Column(name = "location", columnDefinition = "jsonb")
-    private Map<String, Object> location;
+    @Column(name = "location", length = 255)
+    private String location;
 
-    @Column(name = "is_trusted")
+    @Column(name = "trusted")
     @Builder.Default
-    private Boolean isTrusted = false;
+    private Boolean trusted = false;
 
-    @Column(name = "first_seen_at", nullable = false, updatable = false)
-    private LocalDateTime firstSeenAt;
+    @Column(name = "first_seen")
+    private LocalDateTime firstSeen;
 
-    @Column(name = "last_seen_at")
-    private LocalDateTime lastSeenAt;
+    @Column(name = "last_seen")
+    private LocalDateTime lastSeen;
+
+    @Column(name = "trust_expiry")
+    private LocalDateTime trustExpiry;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    // Relationships
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", referencedColumnName = "id", insertable = false, updatable = false)
-    @JsonIgnore
-    private User user;
+    @LastModifiedDate
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     // Business logic methods
+    public boolean isTrusted() {
+        return Boolean.TRUE.equals(this.trusted) && 
+               (this.trustExpiry == null || this.trustExpiry.isAfter(LocalDateTime.now()));
+    }
+
+    public void trust(int durationDays) {
+        this.trusted = true;
+        this.trustExpiry = LocalDateTime.now().plusDays(durationDays);
+    }
+
+    public void revokeTrust() {
+        this.trusted = false;
+        this.trustExpiry = null;
+    }
+
     public void updateLastSeen() {
-        this.lastSeenAt = LocalDateTime.now();
+        this.lastSeen = LocalDateTime.now();
     }
 
-    public void trust() {
-        this.isTrusted = true;
+    public boolean isExpired() {
+        return this.trustExpiry != null && this.trustExpiry.isBefore(LocalDateTime.now());
     }
 
-    public void untrust() {
-        this.isTrusted = false;
+    public boolean isNewDevice() {
+        return this.firstSeen == null || this.firstSeen.isAfter(LocalDateTime.now().minusHours(1));
     }
 
     public boolean isRecentlyActive() {
-        return lastSeenAt != null && 
-               lastSeenAt.isAfter(LocalDateTime.now().minusDays(30));
+        return lastSeen != null && 
+               lastSeen.isAfter(LocalDateTime.now().minusDays(30));
     }
 
     public boolean isStaleDevice() {
-        return lastSeenAt != null && 
-               lastSeenAt.isBefore(LocalDateTime.now().minusDays(90));
+        return lastSeen != null && 
+               lastSeen.isBefore(LocalDateTime.now().minusDays(90));
     }
 
     public long getDaysSinceLastSeen() {
-        if (lastSeenAt == null) {
+        if (lastSeen == null) {
             return Long.MAX_VALUE;
         }
-        return java.time.Duration.between(lastSeenAt, LocalDateTime.now()).toDays();
+        return java.time.Duration.between(lastSeen, LocalDateTime.now()).toDays();
     }
 
     public String getLocationString() {
-        if (location == null || location.isEmpty()) {
-            return "Unknown";
-        }
-        
-        String city = (String) location.get("city");
-        String country = (String) location.get("country");
-        
-        if (city != null && country != null) {
-            return city + ", " + country;
-        } else if (country != null) {
-            return country;
-        } else if (city != null) {
-            return city;
-        }
-        
-        return "Unknown";
+        return location != null ? location : "Unknown";
     }
 
-    public void updateLocation(String city, String country, String region, Double latitude, Double longitude) {
-        if (location == null) {
-            location = new java.util.HashMap<>();
-        }
-        
-        if (city != null) location.put("city", city);
-        if (country != null) location.put("country", country);
-        if (region != null) location.put("region", region);
-        if (latitude != null) location.put("latitude", latitude);
-        if (longitude != null) location.put("longitude", longitude);
-        location.put("updated_at", LocalDateTime.now().toString());
-    }
-
-    // Device Type enum
-    public enum DeviceType {
-        MOBILE("mobile"),
-        DESKTOP("desktop"),
-        TABLET("tablet"),
-        API("api");
-
-        private final String value;
-
-        DeviceType(String value) {
-            this.value = value;
-        }
-
-        public String getValue() {
-            return value;
-        }
-
-        public static DeviceType fromUserAgent(String userAgent) {
-            if (userAgent == null) {
-                return API;
-            }
-            
-            String ua = userAgent.toLowerCase();
-            
-            if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
-                return MOBILE;
-            } else if (ua.contains("tablet") || ua.contains("ipad")) {
-                return TABLET;
-            } else if (ua.contains("mozilla") || ua.contains("chrome") || ua.contains("safari") || ua.contains("firefox")) {
-                return DESKTOP;
-            } else {
-                return API;
-            }
-        }
-    }
-
-    // Device classification methods
-    public boolean isMobileDevice() {
-        return DeviceType.MOBILE.equals(deviceType);
-    }
-
-    public boolean isDesktopDevice() {
-        return DeviceType.DESKTOP.equals(deviceType);
-    }
-
-    public boolean isTabletDevice() {
-        return DeviceType.TABLET.equals(deviceType);
-    }
-
-    public boolean isApiDevice() {
-        return DeviceType.API.equals(deviceType);
-    }
-
-    // Security risk assessment
-    public int calculateRiskScore() {
-        int riskScore = 0;
-        
-        // Trust factor
-        if (!isTrusted) {
-            riskScore += 20;
-        }
-        
-        // Activity factor
-        long daysSinceLastSeen = getDaysSinceLastSeen();
-        if (daysSinceLastSeen > 90) {
-            riskScore += 30; // Very stale device
-        } else if (daysSinceLastSeen > 30) {
-            riskScore += 15; // Somewhat stale device
-        }
-        
-        // Device type factor
-        if (isApiDevice()) {
-            riskScore += 10; // API access slightly more risky
-        }
-        
-        // Location factor
-        if (location == null || location.isEmpty()) {
-            riskScore += 5; // Unknown location slightly risky
-        }
-        
-        return Math.min(100, riskScore);
-    }
-
-    // Helper method for audit logging
     public String toAuditString() {
-        return String.format("UserDevice{id=%d, userId=%d, deviceType=%s, isTrusted=%s, location='%s', riskScore=%d}", 
-                           id, userId, deviceType, isTrusted, getLocationString(), calculateRiskScore());
+        return String.format("UserDevice{id=%s, userId=%s, deviceName=%s, trusted=%s, location=%s}", 
+                           id, userId, deviceName, trusted, location);
     }
 }
