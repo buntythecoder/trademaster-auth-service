@@ -1,485 +1,422 @@
-import React, { useState } from 'react'
-import { 
-  PieChart, 
-  TrendingUp, 
+import React, { useState, useMemo } from 'react'
+import { motion } from 'framer-motion'
+import {
+  TrendingUp,
   TrendingDown,
-  DollarSign,
-  Target,
-  Activity,
+  PieChart,
   BarChart3,
+  Activity,
+  Target,
   Calendar,
-  Download,
   Filter,
-  RefreshCw,
-  AlertTriangle,
-  Shield,
-  Zap
+  ArrowUpCircle,
+  ArrowDownCircle,
+  DollarSign,
+  Percent,
+  Clock
 } from 'lucide-react'
-import { RiskMeter } from './RiskMeter'
-import { PriceAlerts } from '../market/PriceAlerts'
-import { TaxReporting } from './TaxReporting'
+import { usePortfolio, useMarketData } from '@/hooks/useWebSocket'
+import { PerformanceChart } from '../charts/PerformanceChart'
+import { PositionBreakdown } from './PositionBreakdown'
+import { cn } from '@/lib/utils'
 
-interface HoldingData {
-  symbol: string
-  name: string
-  quantity: number
-  avgPrice: number
-  currentPrice: number
-  totalValue: number
-  dayChange: number
-  dayChangePercent: number
-  totalGainLoss: number
-  totalGainLossPercent: number
-  allocation: number
+interface TimeRange {
+  label: string
+  value: '1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL'
+  days: number
+}
+
+interface PortfolioInsight {
+  id: string
+  title: string
+  value: string
+  change: number
+  changeType: 'positive' | 'negative' | 'neutral'
+  description: string
+  icon: React.ReactNode
+}
+
+interface AllocationData {
   sector: string
+  value: number
+  percentage: number
+  color: string
 }
 
-interface PerformanceMetric {
-  period: string
-  returns: number
-  benchmark: number
-  alpha: number
-  volatility: number
-}
+export const PortfolioAnalytics: React.FC = () => {
+  const { portfolio, totalValue, dayPnL, dayPnLPercent, positions } = usePortfolio()
+  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange['value']>('1M')
+  const [selectedView, setSelectedView] = useState<'overview' | 'allocation' | 'performance' | 'insights'>('overview')
 
-const mockHoldings: HoldingData[] = [
-  {
-    symbol: 'RELIANCE',
-    name: 'Reliance Industries Limited',
-    quantity: 10,
-    avgPrice: 2520.50,
-    currentPrice: 2547.30,
-    totalValue: 25473,
-    dayChange: 234,
-    dayChangePercent: 0.93,
-    totalGainLoss: 268,
-    totalGainLossPercent: 1.06,
-    allocation: 35.2,
-    sector: 'Energy'
-  },
-  {
-    symbol: 'TCS',
-    name: 'Tata Consultancy Services',
-    quantity: 5,
-    avgPrice: 3680.20,
-    currentPrice: 3642.80,
-    totalValue: 18214,
-    dayChange: -95,
-    dayChangePercent: -0.52,
-    totalGainLoss: -187,
-    totalGainLossPercent: -1.02,
-    allocation: 25.1,
-    sector: 'IT'
-  },
-  {
-    symbol: 'HDFCBANK',
-    name: 'HDFC Bank Limited',
-    quantity: 15,
-    avgPrice: 1545.30,
-    currentPrice: 1567.25,
-    totalValue: 23509,
-    dayChange: 192,
-    dayChangePercent: 0.82,
-    totalGainLoss: 329,
-    totalGainLossPercent: 1.42,
-    allocation: 32.4,
-    sector: 'Banking'
-  },
-  {
-    symbol: 'INFY',
-    name: 'Infosys Limited',
-    quantity: 8,
-    avgPrice: 1420.35,
-    currentPrice: 1423.60,
-    totalValue: 11389,
-    dayChange: 66,
-    dayChangePercent: 0.58,
-    totalGainLoss: 26,
-    totalGainLossPercent: 0.23,
-    allocation: 7.3,
-    sector: 'IT'
+  const timeRanges: TimeRange[] = [
+    { label: '1D', value: '1D', days: 1 },
+    { label: '1W', value: '1W', days: 7 },
+    { label: '1M', value: '1M', days: 30 },
+    { label: '3M', value: '3M', days: 90 },
+    { label: '1Y', value: '1Y', days: 365 },
+    { label: 'ALL', value: 'ALL', days: 1000 }
+  ]
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount)
   }
-]
 
-const performanceData: PerformanceMetric[] = [
-  { period: '1D', returns: 1.2, benchmark: 0.8, alpha: 0.4, volatility: 2.1 },
-  { period: '1W', returns: 3.8, benchmark: 2.9, alpha: 0.9, volatility: 1.8 },
-  { period: '1M', returns: 7.2, benchmark: 5.1, alpha: 2.1, volatility: 2.3 },
-  { period: '3M', returns: 15.6, benchmark: 12.3, alpha: 3.3, volatility: 2.7 },
-  { period: '1Y', returns: 24.8, benchmark: 18.9, alpha: 5.9, volatility: 3.2 }
-]
+  const formatNumber = (num: number, decimals: number = 2) => {
+    return num.toLocaleString('en-IN', { 
+      minimumFractionDigits: decimals, 
+      maximumFractionDigits: decimals 
+    })
+  }
 
-export function PortfolioAnalytics() {
-  const [selectedPeriod, setSelectedPeriod] = useState('1M')
-  const [viewMode, setViewMode] = useState<'overview' | 'holdings' | 'performance' | 'risk' | 'alerts' | 'taxes'>('overview')
+  // Mock sector allocation data
+  const sectorAllocation: AllocationData[] = useMemo(() => [
+    { sector: 'Technology', value: 75000, percentage: 35, color: '#3B82F6' },
+    { sector: 'Banking & Finance', value: 50000, percentage: 25, color: '#10B981' },
+    { sector: 'Healthcare', value: 35000, percentage: 18, color: '#8B5CF6' },
+    { sector: 'Consumer Goods', value: 25000, percentage: 12, color: '#F59E0B' },
+    { sector: 'Energy', value: 15000, percentage: 7, color: '#EF4444' },
+    { sector: 'Others', value: 10000, percentage: 3, color: '#6B7280' }
+  ], [])
 
-  const totalValue = mockHoldings.reduce((sum, holding) => sum + holding.totalValue, 0)
-  const totalDayChange = mockHoldings.reduce((sum, holding) => sum + holding.dayChange, 0)
-  const totalDayChangePercent = (totalDayChange / (totalValue - totalDayChange)) * 100
-  const totalGainLoss = mockHoldings.reduce((sum, holding) => sum + holding.totalGainLoss, 0)
-  const totalGainLossPercent = (totalGainLoss / (totalValue - totalGainLoss)) * 100
-
-  const sectorAllocation = mockHoldings.reduce((acc, holding) => {
-    const sector = holding.sector
-    acc[sector] = (acc[sector] || 0) + holding.allocation
-    return acc
-  }, {} as Record<string, number>)
-
-  const getSectorColor = (sector: string) => {
-    const colors = {
-      'Energy': '#F59E0B',
-      'IT': '#8B5CF6',
-      'Banking': '#06B6D4',
-      'Healthcare': '#EF4444',
-      'Consumer': '#10B981'
+  // Calculate portfolio insights
+  const portfolioInsights: PortfolioInsight[] = useMemo(() => [
+    {
+      id: 'totalReturn',
+      title: 'Total Return',
+      value: totalValue > 0 ? `${dayPnL >= 0 ? '+' : ''}${formatNumber(dayPnLPercent)}%` : '+12.5%',
+      change: dayPnL || 12.5,
+      changeType: (dayPnL || 12.5) >= 0 ? 'positive' : 'negative',
+      description: 'Since inception',
+      icon: <TrendingUp className="w-5 h-5" />
+    },
+    {
+      id: 'bestPerformer',
+      title: 'Best Performer',
+      value: positions.length > 0 
+        ? positions.reduce((best, pos) => pos.pnlPercent > best.pnlPercent ? pos : best, positions[0])?.symbol || 'RELIANCE'
+        : 'RELIANCE',
+      change: positions.length > 0 
+        ? positions.reduce((best, pos) => pos.pnlPercent > best.pnlPercent ? pos : best, positions[0])?.pnlPercent || 24.5
+        : 24.5,
+      changeType: 'positive',
+      description: 'Top gaining stock',
+      icon: <ArrowUpCircle className="w-5 h-5" />
+    },
+    {
+      id: 'worstPerformer',
+      title: 'Worst Performer',
+      value: positions.length > 0 
+        ? positions.reduce((worst, pos) => pos.pnlPercent < worst.pnlPercent ? pos : worst, positions[0])?.symbol || 'HDFC'
+        : 'HDFC',
+      change: positions.length > 0 
+        ? positions.reduce((worst, pos) => pos.pnlPercent < worst.pnlPercent ? pos : worst, positions[0])?.pnlPercent || -8.2
+        : -8.2,
+      changeType: 'negative',
+      description: 'Underperforming stock',
+      icon: <ArrowDownCircle className="w-5 h-5" />
+    },
+    {
+      id: 'volatility',
+      title: 'Portfolio Beta',
+      value: '1.24',
+      change: 24,
+      changeType: 'neutral',
+      description: 'Market correlation',
+      icon: <Activity className="w-5 h-5" />
     }
-    return colors[sector as keyof typeof colors] || '#6B7280'
-  }
+  ], [positions, totalValue, dayPnL, dayPnLPercent])
+
+  const viewTabs = [
+    { id: 'overview', label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'allocation', label: 'Allocation', icon: <PieChart className="w-4 h-4" /> },
+    { id: 'performance', label: 'Performance', icon: <TrendingUp className="w-4 h-4" /> },
+    { id: 'insights', label: 'Insights', icon: <Target className="w-4 h-4" /> }
+  ]
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold gradient-text mb-2">Portfolio Analytics</h1>
-          <p className="text-slate-400">Comprehensive portfolio analysis and insights</p>
+          <h2 className="text-2xl font-bold gradient-text mb-2">Portfolio Analytics</h2>
+          <p className="text-slate-400">Comprehensive insights and performance analysis</p>
         </div>
-        <div className="flex items-center space-x-4">
-          <button className="flex items-center space-x-2 glass-card px-4 py-2 rounded-xl text-slate-400 hover:text-white transition-colors">
-            <Download className="w-4 h-4" />
-            <span>Export</span>
-          </button>
-          <button className="flex items-center space-x-2 cyber-button px-4 py-2 rounded-xl">
-            <RefreshCw className="w-4 h-4" />
-            <span>Refresh</span>
-          </button>
+        
+        {/* Time Range Selector */}
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-slate-400" />
+          <div className="flex rounded-xl glass-card p-1">
+            {timeRanges.map((range) => (
+              <button
+                key={range.value}
+                onClick={() => setSelectedTimeRange(range.value)}
+                className={cn(
+                  "px-3 py-1.5 text-sm font-medium rounded-lg transition-all",
+                  selectedTimeRange === range.value
+                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                    : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+                )}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Portfolio Summary Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20">
-              <DollarSign className="h-6 w-6 text-purple-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-white">₹{totalValue.toLocaleString()}</div>
-              <div className={`text-sm flex items-center justify-end ${
-                totalDayChange >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {totalDayChange >= 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
-                {totalDayChangePercent >= 0 ? '+' : ''}{totalDayChangePercent.toFixed(2)}%
-              </div>
-            </div>
-          </div>
-          <h3 className="text-purple-400 font-semibold mb-1">Total Value</h3>
-          <p className="text-slate-400 text-sm">Today's change: ₹{totalDayChange.toLocaleString()}</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-gradient-to-br from-green-500/20 to-green-600/20">
-              <TrendingUp className="h-6 w-6 text-green-400" />
-            </div>
-            <div className="text-right">
-              <div className={`text-2xl font-bold ${
-                totalGainLoss >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {totalGainLoss >= 0 ? '+' : ''}₹{totalGainLoss.toLocaleString()}
-              </div>
-              <div className={`text-sm ${
-                totalGainLoss >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {totalGainLossPercent >= 0 ? '+' : ''}{totalGainLossPercent.toFixed(2)}%
-              </div>
-            </div>
-          </div>
-          <h3 className="text-green-400 font-semibold mb-1">Total Returns</h3>
-          <p className="text-slate-400 text-sm">unrealized gains</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/20">
-              <Target className="h-6 w-6 text-cyan-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-white">{mockHoldings.length}</div>
-              <div className="text-sm text-slate-400">
-                across {Object.keys(sectorAllocation).length} sectors
-              </div>
-            </div>
-          </div>
-          <h3 className="text-cyan-400 font-semibold mb-1">Holdings</h3>
-          <p className="text-slate-400 text-sm">diversified portfolio</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/20">
-              <Activity className="h-6 w-6 text-orange-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-white">24.8%</div>
-              <div className="text-sm text-green-400">
-                vs 18.9% benchmark
-              </div>
-            </div>
-          </div>
-          <h3 className="text-orange-400 font-semibold mb-1">Annual Return</h3>
-          <p className="text-slate-400 text-sm">outperforming market</p>
-        </div>
-      </div>
-
-      {/* View Mode Tabs */}
-      <div className="flex items-center space-x-2 mb-6">
-        {[
-          { key: 'overview', label: 'Overview', icon: PieChart },
-          { key: 'holdings', label: 'Holdings', icon: BarChart3 },
-          { key: 'performance', label: 'Performance', icon: TrendingUp },
-          { key: 'risk', label: 'Risk Analysis', icon: Shield },
-          { key: 'alerts', label: 'Price Alerts', icon: AlertTriangle },
-          { key: 'taxes', label: 'Tax Reporting', icon: Calendar }
-        ].map(({ key, label, icon: Icon }) => (
+      {/* View Tabs */}
+      <div className="flex gap-1 glass-card p-1 rounded-xl w-fit">
+        {viewTabs.map((tab) => (
           <button
-            key={key}
-            onClick={() => setViewMode(key as any)}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all ${
-              viewMode === key
-                ? 'bg-purple-500/20 text-purple-400'
-                : 'text-slate-400 hover:text-white'
-            }`}
+            key={tab.id}
+            onClick={() => setSelectedView(tab.id as any)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all",
+              selectedView === tab.id
+                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+            )}
           >
-            <Icon className="w-4 h-4" />
-            <span>{label}</span>
+            {tab.icon}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main Content */}
-        <div className="lg:col-span-2">
-          {viewMode === 'overview' && (
-            <div className="space-y-6">
-              {/* Asset Allocation Chart */}
-              <div className="glass-card rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-6">Asset Allocation</h3>
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div className="space-y-4">
-                    {mockHoldings.map((holding) => (
-                      <div key={holding.symbol} className="flex items-center justify-between p-3 rounded-xl bg-slate-800/30">
-                        <div className="flex items-center space-x-3">
-                          <div 
-                            className="w-4 h-4 rounded-full"
-                            style={{ backgroundColor: getSectorColor(holding.sector) }}
-                          />
-                          <div>
-                            <div className="font-semibold text-white">{holding.symbol}</div>
-                            <div className="text-sm text-slate-400">{holding.sector}</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-white font-semibold">{holding.allocation.toFixed(1)}%</div>
-                          <div className="text-sm text-slate-400">₹{holding.totalValue.toLocaleString()}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-center">
-                    <div className="w-48 h-48 rounded-full border-8 border-purple-500/20 flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-white">₹{(totalValue / 1000).toFixed(0)}K</div>
-                        <div className="text-sm text-slate-400">Total Value</div>
-                      </div>
+      {/* Content based on selected view */}
+      <motion.div
+        key={selectedView}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        {selectedView === 'overview' && (
+          <div className="grid gap-6">
+            {/* Key Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {portfolioInsights.map((insight) => (
+                <div key={insight.id} className="glass-card p-6 rounded-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={cn(
+                      "p-2 rounded-lg",
+                      insight.changeType === 'positive' && "bg-green-500/20 text-green-400",
+                      insight.changeType === 'negative' && "bg-red-500/20 text-red-400",
+                      insight.changeType === 'neutral' && "bg-blue-500/20 text-blue-400"
+                    )}>
+                      {insight.icon}
                     </div>
+                    <div className={cn(
+                      "text-sm font-medium",
+                      insight.changeType === 'positive' && "text-green-400",
+                      insight.changeType === 'negative' && "text-red-400",
+                      insight.changeType === 'neutral' && "text-blue-400"
+                    )}>
+                      {insight.changeType === 'positive' && '+'}
+                      {insight.changeType !== 'neutral' && `${insight.change}%`}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xl font-bold text-white mb-1">{insight.value}</div>
+                    <div className="text-sm text-slate-400">{insight.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">{insight.description}</div>
                   </div>
                 </div>
-              </div>
+              ))}
+            </div>
 
-              {/* Recent Performance */}
-              <div className="glass-card rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-6">Performance Overview</h3>
-                <div className="grid gap-4 md:grid-cols-5">
-                  {performanceData.map((metric) => (
-                    <div key={metric.period} className="text-center p-4 rounded-xl bg-slate-800/30">
-                      <div className="text-lg font-bold text-white">{metric.period}</div>
-                      <div className={`text-xl font-bold mt-2 ${
-                        metric.returns >= 0 ? 'text-green-400' : 'text-red-400'
-                      }`}>
-                        {metric.returns >= 0 ? '+' : ''}{metric.returns}%
-                      </div>
-                      <div className="text-sm text-slate-400 mt-1">vs {metric.benchmark}%</div>
-                    </div>
-                  ))}
+            {/* Quick Portfolio Summary */}
+            <div className="glass-card p-6 rounded-xl">
+              <h3 className="text-lg font-semibold text-white mb-4">Portfolio Summary</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">
+                    {totalValue > 0 ? formatCurrency(totalValue) : formatCurrency(245847)}
+                  </div>
+                  <div className="text-sm text-slate-400">Total Value</div>
+                </div>
+                <div className="text-center">
+                  <div className={cn(
+                    "text-2xl font-bold",
+                    (dayPnL || 3247) >= 0 ? "text-green-400" : "text-red-400"
+                  )}>
+                    {(dayPnL || 3247) >= 0 ? '+' : ''}{formatCurrency(dayPnL || 3247)}
+                  </div>
+                  <div className="text-sm text-slate-400">Today's P&L</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-white">
+                    {positions.length || 12}
+                  </div>
+                  <div className="text-sm text-slate-400">Active Positions</div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {viewMode === 'holdings' && (
-            <div className="glass-card rounded-2xl p-6">
-              <h3 className="text-xl font-bold text-white mb-6">Holdings Details</h3>
-              <div className="space-y-4">
-                {mockHoldings.map((holding) => (
-                  <div key={holding.symbol} className="p-4 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
-                    <div className="grid gap-4 md:grid-cols-6">
+        {selectedView === 'allocation' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Sector Allocation Chart Placeholder */}
+            <div className="glass-card p-6 rounded-xl">
+              <h3 className="text-lg font-semibold text-white mb-4">Sector Allocation</h3>
+              <div className="space-y-3">
+                {sectorAllocation.map((sector) => (
+                  <div key={sector.sector} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: sector.color }}
+                      />
+                      <span className="text-white">{sector.sector}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-white font-medium">{formatCurrency(sector.value)}</div>
+                      <div className="text-slate-400 text-sm">{sector.percentage}%</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Top Holdings */}
+            <div className="glass-card p-6 rounded-xl">
+              <h3 className="text-lg font-semibold text-white mb-4">Top Holdings</h3>
+              <div className="space-y-3">
+                {positions.slice(0, 6).map((position, index) => (
+                  <div key={position.symbol} className="flex items-center justify-between py-2">
+                    <div className="flex items-center gap-3">
+                      <div className="text-slate-400 text-sm w-6">{index + 1}</div>
                       <div>
-                        <div className="font-semibold text-white">{holding.symbol}</div>
-                        <div className="text-sm text-slate-400">{holding.sector}</div>
+                        <div className="text-white font-medium">{position.symbol}</div>
+                        <div className="text-slate-400 text-sm">{position.quantity} shares</div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-white">{holding.quantity}</div>
-                        <div className="text-sm text-slate-400">Qty</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-white">₹{holding.avgPrice}</div>
-                        <div className="text-sm text-slate-400">Avg Price</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-white">₹{holding.currentPrice}</div>
-                        <div className="text-sm text-slate-400">LTP</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-white font-semibold">₹{holding.totalValue.toLocaleString()}</div>
-                        <div className="text-sm text-slate-400">Value</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`font-semibold ${
-                          holding.totalGainLoss >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}>
-                          {holding.totalGainLoss >= 0 ? '+' : ''}₹{holding.totalGainLoss}
-                        </div>
-                        <div className={`text-sm ${
-                          holding.totalGainLossPercent >= 0 ? 'text-green-400' : 'text-red-400'
-                        }`}>
-                          {holding.totalGainLossPercent >= 0 ? '+' : ''}{holding.totalGainLossPercent.toFixed(2)}%
-                        </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-white">{formatCurrency(position.currentPrice * position.quantity)}</div>
+                      <div className={cn(
+                        "text-sm",
+                        position.pnlPercent >= 0 ? "text-green-400" : "text-red-400"
+                      )}>
+                        {position.pnlPercent >= 0 ? '+' : ''}{formatNumber(position.pnlPercent)}%
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {viewMode === 'performance' && (
-            <div className="glass-card rounded-2xl p-6">
-              <h3 className="text-xl font-bold text-white mb-6">Performance Analysis</h3>
-              <div className="bg-slate-800/50 rounded-2xl p-8 h-80 flex items-center justify-center">
-                <div className="text-center">
-                  <BarChart3 className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-white mb-2">Performance Chart</h3>
-                  <p className="text-slate-400">Interactive performance visualization</p>
+        {selectedView === 'performance' && (
+          <div className="grid gap-6">
+            {/* Performance Chart */}
+            <PerformanceChart
+              timeRange={selectedTimeRange}
+              onTimeRangeChange={setSelectedTimeRange}
+              height={400}
+            />
+
+            {/* Performance Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="glass-card p-4 rounded-xl">
+                <div className="text-slate-400 text-sm mb-1">Annualized Return</div>
+                <div className="text-xl font-bold text-green-400">+18.5%</div>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <div className="text-slate-400 text-sm mb-1">Volatility</div>
+                <div className="text-xl font-bold text-white">12.3%</div>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <div className="text-slate-400 text-sm mb-1">Sharpe Ratio</div>
+                <div className="text-xl font-bold text-cyan-400">1.42</div>
+              </div>
+              <div className="glass-card p-4 rounded-xl">
+                <div className="text-slate-400 text-sm mb-1">Max Drawdown</div>
+                <div className="text-xl font-bold text-red-400">-8.7%</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedView === 'insights' && (
+          <div className="grid gap-6">
+            {/* AI Insights */}
+            <div className="glass-card p-6 rounded-xl">
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-cyan-400" />
+                AI-Powered Insights
+              </h3>
+              <div className="grid gap-4">
+                <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <TrendingUp className="w-5 h-5 text-green-400 mt-0.5" />
+                    <div>
+                      <div className="text-green-400 font-medium mb-1">Portfolio Optimization</div>
+                      <div className="text-slate-300 text-sm">
+                        Consider rebalancing your technology allocation. Current 35% exposure may be overweight.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Target className="w-5 h-5 text-blue-400 mt-0.5" />
+                    <div>
+                      <div className="text-blue-400 font-medium mb-1">Diversification Score</div>
+                      <div className="text-slate-300 text-sm">
+                        Your portfolio shows good sector diversification (8.2/10). Consider adding international exposure.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Clock className="w-5 h-5 text-yellow-400 mt-0.5" />
+                    <div>
+                      <div className="text-yellow-400 font-medium mb-1">Rebalancing Alert</div>
+                      <div className="text-slate-300 text-sm">
+                        HDFC position is down 8.2%. Consider reviewing fundamentals or dollar-cost averaging.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          )}
 
-          {viewMode === 'risk' && (
-            <div className="space-y-6">
-              <div className="glass-card rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-6">Risk Analysis</h3>
-                <div className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="p-4 rounded-xl bg-slate-800/30">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Shield className="w-5 h-5 text-green-400" />
-                        <span className="font-semibold text-white">Portfolio Beta</span>
-                      </div>
-                      <div className="text-2xl font-bold text-green-400">0.85</div>
-                      <div className="text-sm text-slate-400">Lower than market risk</div>
+            {/* Risk Metrics */}
+            <div className="glass-card p-6 rounded-xl">
+              <h3 className="text-lg font-semibold text-white mb-4">Risk Analysis</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-slate-400 text-sm mb-2">Risk Level</div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 bg-slate-700 rounded-full h-2">
+                      <div className="bg-gradient-to-r from-green-400 to-yellow-400 h-2 rounded-full w-3/5"></div>
                     </div>
-                    <div className="p-4 rounded-xl bg-slate-800/30">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <AlertTriangle className="w-5 h-5 text-yellow-400" />
-                        <span className="font-semibold text-white">Volatility</span>
-                      </div>
-                      <div className="text-2xl font-bold text-yellow-400">12.5%</div>
-                      <div className="text-sm text-slate-400">30-day volatility</div>
-                    </div>
+                    <span className="text-white text-sm">Moderate</span>
                   </div>
-                  
-                  <div className="p-4 rounded-xl bg-slate-800/30">
-                    <h4 className="font-semibold text-white mb-4">Risk Metrics</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Sharpe Ratio</span>
-                        <span className="text-white font-semibold">1.85</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Max Drawdown</span>
-                        <span className="text-red-400 font-semibold">-8.2%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">VaR (95%)</span>
-                        <span className="text-orange-400 font-semibold">-2.1%</span>
-                      </div>
-                    </div>
-                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-400 text-sm mb-2">Portfolio Beta</div>
+                  <div className="text-2xl font-bold text-white">1.24</div>
                 </div>
               </div>
-              
-              {/* Risk Management Tools */}
-              <RiskMeter />
             </div>
-          )}
 
-          {viewMode === 'alerts' && (
-            <div>
-              <PriceAlerts />
-            </div>
-          )}
-
-          {viewMode === 'taxes' && (
-            <div>
-              <TaxReporting />
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar - Sector Allocation */}
-        <div className="space-y-6">
-          <div className="glass-card rounded-2xl p-6">
-            <h3 className="text-lg font-bold text-white mb-6">Sector Allocation</h3>
-            <div className="space-y-4">
-              {Object.entries(sectorAllocation).map(([sector, allocation]) => (
-                <div key={sector} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-white font-medium">{sector}</span>
-                    <span className="text-slate-400">{allocation.toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full bg-slate-700 rounded-full h-2">
-                    <div 
-                      className="h-2 rounded-full transition-all duration-300"
-                      style={{ 
-                        width: `${allocation}%`,
-                        backgroundColor: getSectorColor(sector)
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* Position Breakdown */}
+            <PositionBreakdown showDetailed={true} />
           </div>
-
-          <div className="glass-card rounded-2xl p-6">
-            <h3 className="text-lg font-bold text-white mb-6">Quick Actions</h3>
-            <div className="space-y-3">
-              <button className="cyber-button w-full py-3 rounded-xl text-sm">
-                Rebalance Portfolio
-              </button>
-              <button className="glass-card border border-purple-500/50 hover:border-purple-400/70 text-purple-400 w-full py-3 rounded-xl text-sm transition-colors">
-                Generate Report
-              </button>
-              <button className="glass-card border border-cyan-500/50 hover:border-cyan-400/70 text-cyan-400 w-full py-3 rounded-xl text-sm transition-colors">
-                Tax Analysis
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
+        )}
+      </motion.div>
     </div>
   )
 }
+
+export default PortfolioAnalytics

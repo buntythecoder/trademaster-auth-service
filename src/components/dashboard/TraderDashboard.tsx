@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -11,13 +12,38 @@ import {
   Activity,
   Target
 } from 'lucide-react'
+import { usePortfolio, useMarketData, useOrders } from '@/hooks/useWebSocket'
+import { ConnectionStatus } from '@/components/realtime/ConnectionStatus'
 
 export function TraderDashboard() {
+  const { portfolio, totalValue, dayPnL, dayPnLPercent, positions } = usePortfolio()
+  const { orders, pendingOrders, filledOrders } = useOrders()
+  const { marketData } = useMarketData(['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'])
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount)
+  }
+
+  const formatNumber = (num: number, decimals: number = 2) => {
+    return num.toLocaleString('en-IN', { 
+      minimumFractionDigits: decimals, 
+      maximumFractionDigits: decimals 
+    })
+  }
+
   return (
-    <div className="space-y-8">
-      {/* Header */}
+    <div className="space-y-8" data-tour="dashboard-main">
+      {/* Header with Connection Status */}
       <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold gradient-text mb-4">Trading Dashboard</h1>
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <h1 className="text-4xl font-bold gradient-text">Trading Dashboard</h1>
+          <ConnectionStatus size="sm" />
+        </div>
         <p className="text-slate-400 text-lg">
           Monitor your portfolio and execute intelligent trading strategies
         </p>
@@ -44,26 +70,37 @@ export function TraderDashboard() {
               <div className="text-3xl font-bold text-orange-400 mb-1">75%</div>
               <div className="text-xs text-slate-400">Complete</div>
             </div>
-            <button className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2">
+            <Link 
+              to="/profile" 
+              className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2"
+            >
               <Upload className="w-4 h-4" />
               <span>Upload Documents</span>
-            </button>
+            </Link>
           </div>
         </div>
       </div>
 
       {/* Portfolio Stats */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4" data-tour="portfolio-summary">
         <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300 group">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 rounded-xl bg-gradient-to-br from-green-500/20 to-green-600/20">
               <DollarSign className="h-6 w-6 text-green-400" />
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-white">₹2,45,847</div>
-              <div className="text-sm text-green-400 flex items-center justify-end">
-                <TrendingUp className="h-3 w-3 mr-1" />
-                +5.2%
+              <div className="text-2xl font-bold text-white">
+                {totalValue > 0 ? formatCurrency(totalValue) : '₹2,45,847'}
+              </div>
+              <div className={`text-sm flex items-center justify-end ${
+                dayPnLPercent >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {dayPnLPercent >= 0 ? (
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                ) : (
+                  <TrendingDown className="h-3 w-3 mr-1" />
+                )}
+                {totalValue > 0 ? `${dayPnLPercent >= 0 ? '+' : ''}${formatNumber(dayPnLPercent)}%` : '+5.2%'}
               </div>
             </div>
           </div>
@@ -77,14 +114,22 @@ export function TraderDashboard() {
               <TrendingUp className="h-6 w-6 text-cyan-400" />
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-green-400">+₹3,247</div>
-              <div className="text-sm text-green-400">
-                +1.34% gain
+              <div className={`text-2xl font-bold ${
+                dayPnL >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {dayPnL !== 0 ? `${dayPnL >= 0 ? '+' : ''}${formatCurrency(dayPnL)}` : '+₹3,247'}
+              </div>
+              <div className={`text-sm ${
+                dayPnL >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {dayPnL !== 0 ? `${dayPnL >= 0 ? '+' : ''}${formatNumber(dayPnLPercent)}% gain` : '+1.34% gain'}
               </div>
             </div>
           </div>
           <h3 className="text-cyan-400 font-semibold mb-1">Today's P&L</h3>
-          <p className="text-slate-400 text-sm">profitable day</p>
+          <p className="text-slate-400 text-sm">
+            {dayPnL >= 0 ? 'profitable day' : 'loss day'}
+          </p>
         </div>
 
         <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300 group">
@@ -93,9 +138,14 @@ export function TraderDashboard() {
               <PieChart className="h-6 w-6 text-purple-400" />
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-white">12</div>
+              <div className="text-2xl font-bold text-white">
+                {positions.length || '12'}
+              </div>
               <div className="text-sm text-slate-400">
-                8 profit, 4 loss
+                {positions.length > 0 
+                  ? `${positions.filter(p => p.pnl >= 0).length} profit, ${positions.filter(p => p.pnl < 0).length} loss`
+                  : '8 profit, 4 loss'
+                }
               </div>
             </div>
           </div>

@@ -304,7 +304,7 @@ export function KYCDocuments({ onComplete, onCancel }: KYCDocumentsProps) {
             <>
               <button
                 onClick={() => setCurrentStep('upload')}
-                className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-slate-400 hover:text-white transition-colors"
+                className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70"
               >
                 Re-upload Documents
               </button>
@@ -432,14 +432,14 @@ export function KYCDocuments({ onComplete, onCancel }: KYCDocumentsProps) {
                 <div className="flex space-x-2">
                   <button
                     onClick={() => fileInputRefs.current[document.id]?.click()}
-                    className="flex-1 py-2 px-3 rounded-xl glass-card text-slate-400 hover:text-white transition-colors text-sm flex items-center justify-center space-x-2"
+                    className="flex-1 py-2 px-3 rounded-xl glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70 text-sm flex items-center justify-center space-x-2"
                   >
                     <Upload className="w-4 h-4" />
                     <span>Browse Files</span>
                   </button>
                   <button
                     onClick={() => info('Camera', 'Camera capture coming soon')}
-                    className="py-2 px-3 rounded-xl glass-card text-slate-400 hover:text-white transition-colors text-sm"
+                    className="py-2 px-3 rounded-xl glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70 text-sm"
                   >
                     <Camera className="w-4 h-4" />
                   </button>
@@ -472,7 +472,7 @@ export function KYCDocuments({ onComplete, onCancel }: KYCDocumentsProps) {
       <div className="flex space-x-4 mt-8">
         <button
           onClick={onCancel}
-          className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-slate-400 hover:text-white transition-colors"
+          className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70"
         >
           Skip for Now
         </button>

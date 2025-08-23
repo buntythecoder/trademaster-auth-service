@@ -12,10 +12,17 @@ import {
   Activity,
   ArrowUpDown,
   Minus,
-  Plus
+  Plus,
+  Brain,
+  Settings,
+  BarChart3
 } from 'lucide-react'
 import { BrokerSelector } from './BrokerSelector'
+import { CompactBrokerSelector } from './CompactBrokerSelector'
 import { OrderBook } from './OrderBook'
+import { AlgorithmicTradingPanel } from './AlgorithmicTradingPanel'
+import { AdvancedOrderPanel } from './AdvancedOrderPanel'
+import { useAuthStore } from '../../stores/auth.store'
 
 interface OrderFormData {
   symbol: string
@@ -112,7 +119,10 @@ const mockOrders: Order[] = [
 ]
 
 export function TradingInterface() {
-  const [activeTab, setActiveTab] = useState<'order' | 'positions' | 'orders' | 'orderbook'>('positions')
+  const { user } = useAuthStore()
+  const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'orderbook' | 'advanced' | 'algorithmic'>('positions')
+  const [activeOrderPanel, setActiveOrderPanel] = useState<'buy' | 'sell'>('buy')
+  const [availableBalance, setAvailableBalance] = useState(45230) // Default balance
   const [orderForm, setOrderForm] = useState<OrderFormData>({
     symbol: 'RELIANCE',
     orderType: 'market',
@@ -123,6 +133,10 @@ export function TradingInterface() {
   const [positions] = useState(mockPositions)
   const [orders] = useState(mockOrders)
   const [showOrderConfirmation, setShowOrderConfirmation] = useState(false)
+
+  const handleBrokerChange = (broker: any) => {
+    setAvailableBalance(broker.balance)
+  }
 
   const handleOrderSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -154,14 +168,18 @@ export function TradingInterface() {
           </div>
           <div className="glass-card px-4 py-2 rounded-xl">
             <div className="text-sm text-slate-400">
-              Available: <span className="text-white font-semibold">₹45,230</span>
+              Available: <span className="text-white font-semibold">₹{availableBalance.toLocaleString()}</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Broker Selection */}
-      <BrokerSelector />
+      {user?.role === 'ADMIN' ? (
+        <BrokerSelector />
+      ) : (
+        <CompactBrokerSelector onBrokerChange={handleBrokerChange} />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Order Form */}
@@ -285,7 +303,7 @@ export function TradingInterface() {
                 </div>
                 <div className="flex items-center justify-between text-sm mt-2">
                   <span className="text-slate-400">Available:</span>
-                  <span className="text-cyan-400 font-semibold">₹45,230</span>
+                  <span className="text-cyan-400 font-semibold">₹{availableBalance.toLocaleString()}</span>
                 </div>
               </div>
 
@@ -323,11 +341,13 @@ export function TradingInterface() {
         <div className="lg:col-span-2">
           <div className="glass-card rounded-2xl p-6">
             {/* Tab Navigation */}
-            <div className="flex items-center space-x-6 mb-6">
+            <div className="flex items-center space-x-4 mb-6 overflow-x-auto">
               {[
                 { key: 'positions', label: 'Positions', icon: Target },
                 { key: 'orders', label: 'Orders', icon: Clock },
                 { key: 'orderbook', label: 'Order Book', icon: ArrowUpDown },
+                { key: 'advanced', label: 'Advanced Orders', icon: Settings },
+                { key: 'algorithmic', label: 'Algo Trading', icon: Brain },
               ].map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
@@ -389,10 +409,38 @@ export function TradingInterface() {
                           </div>
                         </div>
                         <div className="flex items-center space-x-2 ml-4">
-                          <button className="p-2 rounded-xl bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors">
+                          <button 
+                            onClick={() => {
+                              setOrderForm(prev => ({
+                                ...prev,
+                                symbol: position.symbol,
+                                side: 'buy',
+                                quantity: 1,
+                                orderType: 'market'
+                              }));
+                              setActiveOrderPanel('buy');
+                              setActiveTab('order');
+                            }}
+                            className="p-2 rounded-xl bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+                            title="Buy more"
+                          >
                             <TrendingUp className="w-4 h-4" />
                           </button>
-                          <button className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
+                          <button 
+                            onClick={() => {
+                              setOrderForm(prev => ({
+                                ...prev,
+                                symbol: position.symbol,
+                                side: 'sell',
+                                quantity: Math.min(position.quantity, 1),
+                                orderType: 'market'
+                              }));
+                              setActiveOrderPanel('sell');
+                              setActiveTab('order');
+                            }}
+                            className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                            title="Sell position"
+                          >
                             <TrendingDown className="w-4 h-4" />
                           </button>
                         </div>
@@ -455,6 +503,20 @@ export function TradingInterface() {
             {activeTab === 'orderbook' && (
               <div>
                 <OrderBook />
+              </div>
+            )}
+
+            {/* Advanced Orders Tab */}
+            {activeTab === 'advanced' && (
+              <div>
+                <AdvancedOrderPanel />
+              </div>
+            )}
+
+            {/* Algorithmic Trading Tab */}
+            {activeTab === 'algorithmic' && (
+              <div>
+                <AlgorithmicTradingPanel />
               </div>
             )}
           </div>

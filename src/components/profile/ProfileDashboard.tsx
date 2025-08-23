@@ -30,6 +30,10 @@ import { DeviceTrust } from '../auth/DeviceTrust'
 import { SessionManagement } from '../auth/SessionManagement'
 import { SecurityAuditLogs } from '../auth/SecurityAuditLogs'
 import { KYCDocuments } from '../auth/KYCDocuments'
+import { useAuthStore } from '../../stores/auth.store'
+import { DocumentUploadManager } from './DocumentUploadManager'
+import { UserPreferences } from './UserPreferences'
+import { BrokerConfiguration } from './BrokerConfiguration'
 
 interface ProfileData {
   personalInfo: {
@@ -69,6 +73,8 @@ interface ProfileData {
 }
 
 export function ProfileDashboard() {
+  const { user } = useAuthStore()
+  const isAdmin = user?.role === 'ADMIN'
   const [activeTab, setActiveTab] = useState('personal')
   const [activeSecurityTab, setActiveSecurityTab] = useState('account')
   const [activeDocumentTab, setActiveDocumentTab] = useState('overview')
@@ -140,9 +146,14 @@ export function ProfileDashboard() {
 
   const tabs = [
     { id: 'personal', label: 'Personal Info', icon: <User className="w-4 h-4" /> },
-    { id: 'professional', label: 'Professional', icon: <Briefcase className="w-4 h-4" /> },
-    { id: 'trading', label: 'Trading Profile', icon: <TrendingUp className="w-4 h-4" /> },
-    { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
+    ...(isAdmin ? [] : [
+      { id: 'professional', label: 'Professional', icon: <Briefcase className="w-4 h-4" /> },
+      { id: 'trading', label: 'Trading Profile', icon: <TrendingUp className="w-4 h-4" /> },
+    ]),
+    { id: 'documents', label: isAdmin ? 'User KYC Review' : 'Documents', icon: <FileText className="w-4 h-4" /> },
+    ...(isAdmin ? [] : [
+      { id: 'brokers', label: 'Broker Config', icon: <Settings className="w-4 h-4" /> },
+    ]),
     { id: 'security', label: 'Security', icon: <Shield className="w-4 h-4" /> },
     { id: 'preferences', label: 'Preferences', icon: <Settings className="w-4 h-4" /> }
   ]
@@ -211,24 +222,26 @@ export function ProfileDashboard() {
           </button>
         </div>
 
-        {/* KYC Status Overview */}
+        {/* Status Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-slate-800/30 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-slate-400 text-sm">KYC Status</span>
-              <CheckCircle className="w-4 h-4 text-green-400" />
+          {!isAdmin && (
+            <div className="bg-slate-800/30 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-400 text-sm">KYC Status</span>
+                <CheckCircle className="w-4 h-4 text-green-400" />
+              </div>
+              <div className="text-lg font-bold text-white">75% Complete</div>
+              <div className="text-xs text-slate-400">3 of 4 documents approved</div>
             </div>
-            <div className="text-lg font-bold text-white">75% Complete</div>
-            <div className="text-xs text-slate-400">3 of 4 documents approved</div>
-          </div>
+          )}
           
           <div className="bg-slate-800/30 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-slate-400 text-sm">Account Level</span>
               <TrendingUp className="w-4 h-4 text-purple-400" />
             </div>
-            <div className="text-lg font-bold text-white">Verified</div>
-            <div className="text-xs text-slate-400">Full trading access</div>
+            <div className="text-lg font-bold text-white">{isAdmin ? 'Admin' : 'Verified'}</div>
+            <div className="text-xs text-slate-400">{isAdmin ? 'Administrative access' : 'Full trading access'}</div>
           </div>
           
           <div className="bg-slate-800/30 rounded-xl p-4">
@@ -237,8 +250,19 @@ export function ProfileDashboard() {
               <Calendar className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-lg font-bold text-white">Jan 2024</div>
-            <div className="text-xs text-slate-400">Active trader</div>
+            <div className="text-xs text-slate-400">{isAdmin ? 'System administrator' : 'Active trader'}</div>
           </div>
+
+          {isAdmin && (
+            <div className="bg-slate-800/30 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-400 text-sm">Pending Reviews</span>
+                <AlertTriangle className="w-4 h-4 text-yellow-400" />
+              </div>
+              <div className="text-lg font-bold text-white">12</div>
+              <div className="text-xs text-slate-400">KYC documents to review</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -389,10 +413,13 @@ export function ProfileDashboard() {
             
             {/* Document Sub-Tabs */}
             <div className="flex items-center space-x-6 mb-6 border-b border-slate-700/50">
-              {[
+              {(isAdmin ? [
+                { key: 'overview', label: 'Pending Reviews', icon: FileText },
+                { key: 'kyc', label: 'User KYC Status', icon: CheckCircle },
+              ] : [
                 { key: 'overview', label: 'Document Overview', icon: FileText },
                 { key: 'kyc', label: 'KYC Verification', icon: CheckCircle },
-              ].map(({ key, label, icon: Icon }) => (
+              ]).map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => setActiveDocumentTab(key)}
@@ -410,62 +437,197 @@ export function ProfileDashboard() {
 
             {/* Document Tab Content */}
             {activeDocumentTab === 'overview' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-lg font-semibold text-white">Uploaded Documents</h4>
-                  <button className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2">
-                    <Upload className="w-4 h-4" />
-                    <span>Upload Document</span>
-                  </button>
-                </div>
-                
-                <div className="space-y-4">
-                  {profileData.documents.map((doc) => {
-                    const status = getDocumentStatus(doc.status)
-                    return (
-                      <div key={doc.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
-                        <div className="flex items-center space-x-4">
-                          <div className={`p-2 rounded-lg ${status.bg}`}>
-                            <FileText className="w-5 h-5 text-slate-400" />
-                          </div>
-                          <div>
-                            <h4 className="font-medium text-white">{doc.name}</h4>
-                            <p className="text-sm text-slate-400">{doc.type} • {doc.size} • {doc.uploadDate}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-4">
-                          <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${status.bg}`}>
-                            {status.icon}
-                            <span className={`text-sm font-medium ${status.color}`}>
-                              {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center space-x-2">
-                            <button className="p-2 text-slate-400 hover:text-purple-400 transition-colors">
-                              <Download className="w-4 h-4" />
-                            </button>
-                            <button className="p-2 text-slate-400 hover:text-red-400 transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+              <div>
+                <DocumentUploadManager />
               </div>
             )}
 
             {activeDocumentTab === 'kyc' && (
               <div>
-                <KYCDocuments 
-                  onComplete={(verified) => console.log('KYC completed:', verified)}
-                  onCancel={() => console.log('KYC cancelled')}
-                />
+                {isAdmin ? (
+                  <div className="space-y-6">
+                    <div className="bg-slate-800/30 rounded-xl p-6">
+                      <h4 className="text-lg font-semibold text-white mb-4">KYC Review Dashboard</h4>
+                      <p className="text-slate-400 mb-6">Review and manage user KYC verification status. Admin users can view but not submit KYC documents.</p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div className="text-center p-4 bg-slate-700/30 rounded-lg">
+                          <div className="text-2xl font-bold text-yellow-400">12</div>
+                          <div className="text-sm text-slate-400">Pending Reviews</div>
+                        </div>
+                        <div className="text-center p-4 bg-slate-700/30 rounded-lg">
+                          <div className="text-2xl font-bold text-green-400">45</div>
+                          <div className="text-sm text-slate-400">Approved This Month</div>
+                        </div>
+                        <div className="text-center p-4 bg-slate-700/30 rounded-lg">
+                          <div className="text-2xl font-bold text-red-400">3</div>
+                          <div className="text-sm text-slate-400">Rejected</div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                        <div className="flex items-center space-x-2 text-blue-400">
+                          <CheckCircle className="w-5 h-5" />
+                          <span className="font-medium">Admin Status</span>
+                        </div>
+                        <p className="text-slate-400 mt-2">
+                          As an administrator, you don't need to complete KYC verification. You have full access to review and manage all user KYC submissions.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <KYCDocuments 
+                    onComplete={(verified) => console.log('KYC completed:', verified)}
+                    onCancel={() => console.log('KYC cancelled')}
+                  />
+                )}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'professional' && !isAdmin && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold text-white mb-6 flex items-center">
+              <Briefcase className="w-5 h-5 mr-2 text-orange-400" />
+              Professional Information
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Occupation</label>
+                <input
+                  type="text"
+                  value={profileData.professionalInfo.occupation}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Employer</label>
+                <input
+                  type="text"
+                  value={profileData.professionalInfo.employer}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Experience</label>
+                <select
+                  value={profileData.professionalInfo.experience}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                >
+                  <option value="0-1 years">0-1 years</option>
+                  <option value="1-3 years">1-3 years</option>
+                  <option value="3-5 years">3-5 years</option>
+                  <option value="5-10 years">5-10 years</option>
+                  <option value="10+ years">10+ years</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Annual Income</label>
+                <select
+                  value={profileData.professionalInfo.annualIncome}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                >
+                  <option value="₹0-5 Lakhs">₹0-5 Lakhs</option>
+                  <option value="₹5-10 Lakhs">₹5-10 Lakhs</option>
+                  <option value="₹10-15 Lakhs">₹10-15 Lakhs</option>
+                  <option value="₹15-25 Lakhs">₹15-25 Lakhs</option>
+                  <option value="₹25-50 Lakhs">₹25-50 Lakhs</option>
+                  <option value="₹50+ Lakhs">₹50+ Lakhs</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'trading' && !isAdmin && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-bold text-white mb-6 flex items-center">
+              <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
+              Trading Profile
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Risk Tolerance</label>
+                <select
+                  value={profileData.tradingProfile.riskTolerance}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                >
+                  <option value="conservative">Conservative</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Trading Experience</label>
+                <select
+                  value={profileData.tradingProfile.tradingExperience}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                >
+                  <option value="beginner">Beginner (0-1 year)</option>
+                  <option value="intermediate">Intermediate (1-3 years)</option>
+                  <option value="advanced">Advanced (3-5 years)</option>
+                  <option value="expert">Expert (5+ years)</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Preferred Investment</label>
+                <select
+                  value={profileData.tradingProfile.preferredInvestment}
+                  disabled={!editMode}
+                  className="cyber-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-400"
+                >
+                  <option value="equity">Equity</option>
+                  <option value="derivative">Derivatives</option>
+                  <option value="commodity">Commodity</option>
+                  <option value="currency">Currency</option>
+                  <option value="mixed">Mixed Portfolio</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Investment Goals</label>
+                <div className="space-y-2">
+                  {['Long-term Growth', 'Dividend Income', 'Capital Preservation', 'Speculation'].map((goal) => (
+                    <label key={goal} className="flex items-center space-x-2 text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={profileData.tradingProfile.investmentGoals.includes(goal)}
+                        disabled={!editMode}
+                        className="rounded bg-slate-700 border-slate-600"
+                      />
+                      <span>{goal}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'brokers' && !isAdmin && (
+          <div>
+            <BrokerConfiguration />
+          </div>
+        )}
+
+        {activeTab === 'preferences' && (
+          <div>
+            <UserPreferences />
           </div>
         )}
 

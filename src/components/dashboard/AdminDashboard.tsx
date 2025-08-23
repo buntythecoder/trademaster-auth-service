@@ -1,7 +1,10 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Users, FileText, TrendingUp, Shield, Bell, Settings, Activity, AlertTriangle, CheckCircle } from 'lucide-react'
 
 export function AdminDashboard() {
+  const [showNotifications, setShowNotifications] = useState(false)
+  
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -135,6 +138,8 @@ export function AdminDashboard() {
               { service: 'Authentication Service', status: 'healthy', uptime: '99.9%' },
               { service: 'Trading Engine', status: 'healthy', uptime: '99.8%' },
               { service: 'Market Data Feed', status: 'degraded', uptime: '98.2%' },
+              { service: 'Broker Gateway', status: 'healthy', uptime: '99.7%' },
+              { service: 'Multi-Broker Hub', status: 'healthy', uptime: '99.5%' },
               { service: 'File Storage', status: 'healthy', uptime: '99.9%' },
             ].map((service, index) => (
               <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
@@ -164,15 +169,60 @@ export function AdminDashboard() {
 
       {/* Action Buttons */}
       <div className="flex gap-4 justify-center">
-        <button className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2">
+        <button 
+          onClick={() => setShowNotifications(!showNotifications)}
+          className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2"
+        >
           <Bell className="w-4 h-4" />
           <span>View Notifications</span>
         </button>
-        <button className="glass-card px-6 py-3 rounded-xl font-semibold text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70 flex items-center space-x-2">
+        <Link 
+          to="/admin/system"
+          className="glass-card px-6 py-3 rounded-xl font-semibold text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70 flex items-center space-x-2"
+        >
           <Settings className="w-4 h-4" />
           <span>System Settings</span>
-        </button>
+        </Link>
       </div>
+
+      {/* Notifications Panel */}
+      {showNotifications && (
+        <div className="glass-card p-6 rounded-2xl">
+          <h3 className="text-xl font-bold text-white mb-6 flex items-center">
+            <Bell className="w-5 h-5 mr-2 text-blue-400" />
+            System Notifications
+          </h3>
+          <div className="space-y-4">
+            {[
+              { type: 'KYC', message: '12 new KYC documents pending review', priority: 'high', time: '5 min ago' },
+              { type: 'Security', message: 'Failed login attempts detected from IP 192.168.1.100', priority: 'medium', time: '15 min ago' },
+              { type: 'System', message: 'Market data feed service restored', priority: 'low', time: '1 hour ago' },
+              { type: 'User', message: '5 new user registrations today', priority: 'low', time: '2 hours ago' }
+            ].map((notification, index) => (
+              <div key={index} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/30 hover:bg-slate-700/30 transition-colors">
+                <div className="flex items-center space-x-3">
+                  <div className={`w-3 h-3 rounded-full ${
+                    notification.priority === 'high' ? 'bg-red-400' :
+                    notification.priority === 'medium' ? 'bg-yellow-400' :
+                    'bg-green-400'
+                  }`} />
+                  <div>
+                    <p className="text-sm font-medium text-white">{notification.message}</p>
+                    <p className="text-xs text-slate-400">{notification.type} • {notification.time}</p>
+                  </div>
+                </div>
+                <span className={`text-xs px-3 py-1 rounded-full font-medium ${
+                  notification.priority === 'high' ? 'bg-red-500/20 text-red-400' :
+                  notification.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                  'bg-green-500/20 text-green-400'
+                }`}>
+                  {notification.priority}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

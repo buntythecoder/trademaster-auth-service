@@ -10,6 +10,11 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { MarketDataDashboard } from './components/market/MarketDataDashboard'
 import { TradingInterface } from './components/trading/TradingInterface'
 import { PortfolioAnalytics } from './components/portfolio/PortfolioAnalytics'
+import { MultiBrokerInterface } from './components/trading/MultiBrokerInterface'
+import { RiskManagementDashboard } from './components/risk/RiskManagementDashboard'
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
+import { TutorialManager } from './components/onboarding/TutorialOverlay'
+import { AchievementSystem, ACHIEVEMENTS } from './components/onboarding/AchievementSystem'
 import { NotFoundPage } from './components/error/NotFoundPage'
 import { UnauthorizedPage } from './components/error/UnauthorizedPage'
 import { ForbiddenPage } from './components/error/ForbiddenPage'
@@ -26,11 +31,30 @@ import './index.css'
 function App() {
   const { isAuthenticated, user } = useAuthStore()
 
+  // Mock achievements data - in real app, this would come from a store/API
+  const mockAchievements = Object.values(ACHIEVEMENTS).map(achievement => ({
+    ...achievement,
+    unlocked: ['welcome-aboard', 'goal-setter', 'student'].includes(achievement.id),
+    unlockedAt: ['welcome-aboard', 'goal-setter', 'student'].includes(achievement.id) ? new Date() : undefined,
+    isNew: false
+  }))
+
   return (
     <ThemeProvider>
       <ToastProvider>
         <Router>
         <div className="min-h-screen">
+        {/* Tutorial Manager - Global */}
+        <TutorialManager />
+        
+        {/* Achievement System - Global */}
+        {isAuthenticated && (
+          <AchievementSystem 
+            achievements={mockAchievements}
+            onAchievementUnlock={(id) => console.log('Achievement unlocked:', id)}
+          />
+        )}
+        
         <Routes>
           {/* Landing Page */}
           <Route
@@ -81,7 +105,7 @@ function App() {
             path="/register"
             element={
               isAuthenticated ? (
-                <Navigate to="/dashboard" replace />
+                <Navigate to="/onboarding" replace />
               ) : (
                 <RegistrationForm 
                   onSubmit={async (data) => {
@@ -90,6 +114,16 @@ function App() {
                   }}
                 />
               )
+            }
+          />
+
+          {/* Epic 3: Onboarding Route */}
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <OnboardingWizard />
+              </ProtectedRoute>
             }
           />
 
@@ -152,6 +186,63 @@ function App() {
               <ProtectedRoute>
                 <PageLayout showWelcome={true}>
                   <ProfileDashboard />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Multi-Broker Interface Route */}
+          <Route
+            path="/brokers"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <MultiBrokerInterface />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Risk Management Route */}
+          <Route
+            path="/risk"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <RiskManagementDashboard />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Admin Routes */}
+          <Route
+            path="/admin/users"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <div className="space-y-6">
+                    <h1 className="text-3xl font-bold text-white">User Management</h1>
+                    <p className="text-slate-400">Manage user accounts and permissions</p>
+                    <div className="glass-card p-6 rounded-2xl">
+                      <p className="text-white">User management interface coming soon...</p>
+                    </div>
+                  </div>
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/system"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  <div className="space-y-6">
+                    <h1 className="text-3xl font-bold text-white">System Configuration</h1>
+                    <p className="text-slate-400">Configure system settings and broker connections</p>
+                    <MultiBrokerInterface />
+                  </div>
                 </PageLayout>
               </ProtectedRoute>
             }

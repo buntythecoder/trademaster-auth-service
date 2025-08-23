@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Building2, CheckCircle, AlertTriangle, Plus, Settings, Wifi, WifiOff } from 'lucide-react'
+import { Building2, CheckCircle, AlertTriangle, Plus, Settings, Wifi, WifiOff, Shield } from 'lucide-react'
 import { useToast } from '../../contexts/ToastContext'
+import { useAuthStore } from '../../stores/auth.store'
 
 interface BrokerAccount {
   id: string
@@ -88,6 +89,10 @@ export function BrokerSelector({ onBrokerSelect, selectedBrokerId, showBalances 
   const [selectedBroker, setSelectedBroker] = useState<string>(selectedBrokerId || brokers.find(b => b.isDefault)?.id || '')
   const [showAddBroker, setShowAddBroker] = useState(false)
   const { success, error, info } = useToast()
+  const { user } = useAuthStore()
+  
+  // Only active brokers are available for traders
+  const availableBrokers = user?.role === 'ADMIN' ? brokers : brokers.filter(b => b.status === 'active')
 
   useEffect(() => {
     // Simulate real-time connection status updates
@@ -194,24 +199,35 @@ export function BrokerSelector({ onBrokerSelect, selectedBrokerId, showBalances 
         <div>
           <h3 className="text-lg font-bold text-white flex items-center">
             <Building2 className="w-5 h-5 mr-2 text-cyan-400" />
-            Broker Accounts
+            {user?.role === 'ADMIN' ? 'Broker Management' : 'Select Trading Broker'}
           </h3>
           <p className="text-sm text-slate-400 mt-1">
-            {brokers.filter(b => b.status === 'active').length} active • {brokers.length} total
+            {user?.role === 'ADMIN' 
+              ? `${brokers.filter(b => b.status === 'active').length} active • ${brokers.length} total`
+              : `${availableBrokers.length} brokers available for trading`
+            }
           </p>
         </div>
-        <button
-          onClick={() => setShowAddBroker(true)}
-          className="cyber-button px-4 py-2 text-sm rounded-xl flex items-center space-x-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Broker</span>
-        </button>
+        {user?.role === 'ADMIN' && (
+          <button
+            onClick={() => setShowAddBroker(true)}
+            className="cyber-button px-4 py-2 text-sm rounded-xl flex items-center space-x-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Broker</span>
+          </button>
+        )}
+        {user?.role !== 'ADMIN' && (
+          <div className="flex items-center space-x-2 px-3 py-2 rounded-xl bg-slate-800/30 border border-slate-600/30">
+            <Shield className="w-4 h-4 text-purple-400" />
+            <span className="text-xs text-slate-400">Admin Configured</span>
+          </div>
+        )}
       </div>
 
       {/* Broker List */}
       <div className="space-y-3">
-        {brokers.map((broker) => (
+        {availableBrokers.map((broker) => (
           <div
             key={broker.id}
             className={`p-4 rounded-xl border transition-all cursor-pointer ${
@@ -311,7 +327,7 @@ export function BrokerSelector({ onBrokerSelect, selectedBrokerId, showBalances 
                   </button>
                 )}
                 
-                {!broker.isDefault && broker.status === 'active' && (
+                {!broker.isDefault && broker.status === 'active' && user?.role !== 'ADMIN' && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -324,16 +340,18 @@ export function BrokerSelector({ onBrokerSelect, selectedBrokerId, showBalances 
                   </button>
                 )}
                 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    info('Broker Settings', 'Broker configuration coming soon')
-                  }}
-                  className="p-2 rounded-lg hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
-                  title="Broker settings"
-                >
-                  <Settings className="w-4 h-4" />
-                </button>
+                {user?.role === 'ADMIN' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      info('Broker Settings', 'Broker configuration coming soon')
+                    }}
+                    className="p-2 rounded-lg hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
+                    title="Broker settings"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -384,22 +402,25 @@ export function BrokerSelector({ onBrokerSelect, selectedBrokerId, showBalances 
             <div className="text-center py-8">
               <Building2 className="w-16 h-16 text-slate-500 mx-auto mb-4" />
               <p className="text-slate-400 mb-4">
-                Connect your existing broker account to start trading
+                Configure broker connections for your organization
               </p>
               <div className="space-y-3">
                 <button className="w-full cyber-button py-3 rounded-xl text-sm">
-                  Connect Zerodha
+                  Configure Zerodha
                 </button>
                 <button className="w-full glass-card py-3 rounded-xl text-sm text-slate-400 hover:text-white transition-colors">
-                  Connect Angel One
+                  Configure Angel One
                 </button>
                 <button className="w-full glass-card py-3 rounded-xl text-sm text-slate-400 hover:text-white transition-colors">
-                  Connect ICICI Direct
+                  Configure ICICI Direct
                 </button>
                 <button className="w-full glass-card py-3 rounded-xl text-sm text-slate-400 hover:text-white transition-colors">
                   Other Brokers
                 </button>
               </div>
+              <p className="text-xs text-slate-500 mt-4">
+                Only admins can configure broker connections
+              </p>
             </div>
           </div>
         </div>

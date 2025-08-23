@@ -132,7 +132,7 @@ export function MFASetup({ onComplete, onCancel }: MFASetupProps) {
         <div className="flex space-x-4">
           <button
             onClick={onCancel}
-            className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-slate-400 hover:text-white transition-colors"
+            className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70"
           >
             Skip for Now
           </button>
@@ -269,7 +269,7 @@ export function MFASetup({ onComplete, onCancel }: MFASetupProps) {
           <div className="flex space-x-4">
             <button
               onClick={() => setStep('select')}
-              className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-slate-400 hover:text-white transition-colors"
+              className="flex-1 py-3 px-6 rounded-xl font-semibold glass-card text-white hover:text-purple-300 transition-colors border border-purple-500/50 hover:border-purple-400/70"
             >
               Back
             </button>
