@@ -1,8 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/auth.store'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { SymbolLookup } from '../common/SymbolLookup'
+import { NotificationBell } from '../notifications/NotificationBell'
+import { notificationService } from '../../services/notification.service'
+import type { Notification } from '../../types/notifications'
 import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield } from 'lucide-react'
 
 interface NavigationProps {
@@ -15,6 +18,27 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
   const { user } = useAuthStore()
   const location = useLocation()
   const navigate = useNavigate()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  
+  useEffect(() => {
+    const unsubscribe = notificationService.subscribe((newNotifications) => {
+      setNotifications(newNotifications)
+    })
+    
+    return unsubscribe
+  }, [])
+  
+  const handleNotificationAction = (action: 'read' | 'delete' | 'clear', id?: string) => {
+    if (action === 'read' && id) {
+      notificationService.markAsRead(id)
+    } else if (action === 'read' && !id) {
+      notificationService.markAllAsRead()
+    } else if (action === 'delete' && id) {
+      notificationService.deleteNotification(id)
+    } else if (action === 'clear') {
+      notificationService.clearAllNotifications()
+    }
+  }
   
   const isActive = (path: string) => location.pathname === path
   
@@ -163,6 +187,10 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
 
         {/* Right Section */}
         <div className="flex items-center space-x-3">
+          <NotificationBell 
+            notifications={notifications}
+            onNotificationAction={handleNotificationAction}
+          />
           <ThemeToggle />
           
           {/* Mobile Navigation Dropdown */}
