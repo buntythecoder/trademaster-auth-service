@@ -1,17 +1,20 @@
-import React from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import React, { useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/auth.store'
 import { ThemeToggle } from '../ui/ThemeToggle'
-import { LogOut, User, TrendingUp, PieChart, BarChart3, Home } from 'lucide-react'
+import { SymbolLookup } from '../common/SymbolLookup'
+import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield } from 'lucide-react'
 
 interface NavigationProps {
   title?: string
   showWelcome?: boolean
+  onSymbolSelect?: (symbol: string) => void
 }
 
-export function Navigation({ title = "TradeMaster", showWelcome = false }: NavigationProps) {
+export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbolSelect }: NavigationProps) {
   const { user } = useAuthStore()
   const location = useLocation()
+  const navigate = useNavigate()
   
   const isActive = (path: string) => location.pathname === path
   
@@ -31,7 +34,7 @@ export function Navigation({ title = "TradeMaster", showWelcome = false }: Navig
       },
       {
         path: '/trading',
-        label: 'Trade',
+        label: 'Trading',
         icon: BarChart3,
         color: 'green'
       },
@@ -40,8 +43,33 @@ export function Navigation({ title = "TradeMaster", showWelcome = false }: Navig
         label: 'Portfolio',
         icon: PieChart,
         color: 'orange'
+      },
+      {
+        path: '/brokers',
+        label: 'Brokers',
+        icon: Settings,
+        color: 'blue'
+      },
+      {
+        path: '/risk',
+        label: 'Risk',
+        icon: Shield,
+        color: 'red'
       }
-    ] : []),
+    ] : [
+      {
+        path: '/admin/users',
+        label: 'Users',
+        icon: User,
+        color: 'cyan'
+      },
+      {
+        path: '/admin/system',
+        label: 'System',
+        icon: Settings,
+        color: 'orange'
+      }
+    ]),
     {
       path: '/profile',
       label: 'Profile',
@@ -59,6 +87,7 @@ export function Navigation({ title = "TradeMaster", showWelcome = false }: Navig
         cyan: 'text-cyan-400 bg-cyan-500/20',
         green: 'text-green-400 bg-green-500/20',
         orange: 'text-orange-400 bg-orange-500/20',
+        blue: 'text-blue-400 bg-blue-500/20',
         indigo: 'text-indigo-400 bg-indigo-500/20'
       }
       return `${baseClasses} ${colorMap[item.color as keyof typeof colorMap]}`
@@ -69,6 +98,7 @@ export function Navigation({ title = "TradeMaster", showWelcome = false }: Navig
       cyan: 'text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10',
       green: 'text-slate-400 hover:text-green-400 hover:bg-green-500/10',
       orange: 'text-slate-400 hover:text-orange-400 hover:bg-orange-500/10',
+      blue: 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10',
       indigo: 'text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
     }
     
@@ -93,8 +123,29 @@ export function Navigation({ title = "TradeMaster", showWelcome = false }: Navig
           )}
         </div>
 
-        {/* Center Section - Navigation */}
-        <nav className="hidden md:flex items-center space-x-1">
+        {/* Center Section - Global Symbol Search */}
+        <div className="hidden md:block flex-1 max-w-md mx-8">
+          <SymbolLookup
+            placeholder="Search any symbol..."
+            className="w-full"
+            maxResults={5}
+            showDetails={false}
+            onSymbolSelect={(symbolData) => {
+              console.log('Global symbol selected:', symbolData.symbol)
+              // Navigate to market data with selected symbol
+              if (onSymbolSelect) {
+                onSymbolSelect(symbolData.symbol)
+              }
+              // Always navigate to market-data page when symbol is selected
+              if (location.pathname !== '/market-data') {
+                navigate('/market-data', { state: { selectedSymbol: symbolData.symbol } })
+              }
+            }}
+          />
+        </div>
+
+        {/* Navigation Items - Moved to Right */}
+        <nav className="hidden lg:flex items-center space-x-1">
           {navigationItems.map((item) => {
             const Icon = item.icon
             return (

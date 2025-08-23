@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { 
   TrendingUp, 
   TrendingDown,
@@ -104,12 +105,23 @@ const mockMarketData: MarketStock[] = [
 ]
 
 export function MarketDataDashboard() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE')
-  const [chartType, setChartType] = useState<'line' | 'candlestick' | 'area'>('line')
+  const [chartType, setChartType] = useState<'line' | 'candlestick' | 'area' | 'ohlc' | 'heikin-ashi' | 'renko' | 'volume-profile' | 'mountain' | 'point-figure' | 'kagi' | 'three-line-break' | 'footprint' | 'range-bars'>('candlestick')
   const [timeframe, setTimeframe] = useState('1D')
   const [marketData, setMarketData] = useState(mockMarketData)
   const [isMarketOpen, setIsMarketOpen] = useState(true)
   const [activeMarketTab, setActiveMarketTab] = useState('overview')
+
+  useEffect(() => {
+    // Handle symbol selection from global search
+    if (location.state?.selectedSymbol) {
+      setSelectedSymbol(location.state.selectedSymbol)
+      // Clear the state after using it
+      window.history.replaceState({}, document.title)
+    }
+  }, [location.state])
 
   useEffect(() => {
     // Simulate real-time price updates
@@ -232,31 +244,18 @@ export function MarketDataDashboard() {
                 >
                   <Star className={`w-5 h-5 ${selectedStock.isWatched ? 'fill-current' : ''}`} />
                 </button>
-                <button className="cyber-button px-4 py-2 text-sm rounded-xl">
+                <button 
+                  onClick={() => navigate('/trading')}
+                  className="cyber-button px-4 py-2 text-sm rounded-xl"
+                >
                   Trade
                 </button>
               </div>
             </div>
 
-            {/* Chart Type Controls */}
+
+            {/* Timeframe Controls */}
             <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-2">
-                {['line', 'candlestick', 'area'].map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setChartType(type as any)}
-                    className={`p-2 rounded-xl transition-colors ${
-                      chartType === type
-                        ? 'bg-purple-500/20 text-purple-400'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                    }`}
-                  >
-                    {type === 'line' && <LineChart className="w-4 h-4" />}
-                    {type === 'candlestick' && <Candlestick className="w-4 h-4" />}
-                    {type === 'area' && <BarChart3 className="w-4 h-4" />}
-                  </button>
-                ))}
-              </div>
               <div className="flex items-center space-x-2">
                 {['1D', '1W', '1M', '3M', '1Y'].map((tf) => (
                   <button
@@ -274,20 +273,15 @@ export function MarketDataDashboard() {
               </div>
             </div>
 
-            {/* Mock Chart Area */}
-            <div className="bg-slate-800/50 rounded-2xl p-8 h-80 flex items-center justify-center">
-              <div className="text-center">
-                <Activity className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-white mb-2">
-                  {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart
-                </h3>
-                <p className="text-slate-400 mb-4">
-                  {selectedStock.symbol} - {timeframe} timeframe
-                </p>
-                <div className="text-sm text-slate-500">
-                  Interactive chart with real-time data updates
-                </div>
-              </div>
+            {/* Real Chart Area */}
+            <div className="h-80 mb-6 overflow-hidden">
+              <AdvancedChart 
+                key={`${selectedStock.symbol}-${chartType}`}
+                symbol={selectedStock.symbol} 
+                height={300}
+                initialChartType={chartType as any}
+                mode="simple"
+              />
             </div>
           </div>
 
@@ -387,13 +381,32 @@ export function MarketDataDashboard() {
               Quick Actions
             </h3>
             <div className="grid gap-3">
-              <button className="cyber-button w-full py-3 rounded-xl text-sm">
+              <button 
+                onClick={() => alert('Price alert functionality coming soon!')}
+                className="cyber-button w-full py-3 rounded-xl text-sm"
+              >
                 Create Alert
               </button>
-              <button className="glass-card border border-green-500/50 hover:border-green-400/70 text-green-400 w-full py-3 rounded-xl text-sm transition-colors">
+              <button 
+                onClick={() => {
+                  // Toggle watchlist status for selected symbol
+                  setMarketData(prev => 
+                    prev.map(stock => 
+                      stock.symbol === selectedSymbol 
+                        ? { ...stock, isWatched: !stock.isWatched }
+                        : stock
+                    )
+                  );
+                  alert(`${selectedSymbol} ${marketData.find(s => s.symbol === selectedSymbol)?.isWatched ? 'removed from' : 'added to'} watchlist!`);
+                }}
+                className="glass-card border border-green-500/50 hover:border-green-400/70 text-green-400 w-full py-3 rounded-xl text-sm transition-colors"
+              >
                 Add to Watchlist
               </button>
-              <button className="glass-card border border-orange-500/50 hover:border-orange-400/70 text-orange-400 w-full py-3 rounded-xl text-sm transition-colors">
+              <button 
+                onClick={() => alert('Advanced market analysis coming soon!')}
+                className="glass-card border border-orange-500/50 hover:border-orange-400/70 text-orange-400 w-full py-3 rounded-xl text-sm transition-colors"
+              >
                 Market Analysis
               </button>
             </div>
@@ -431,22 +444,164 @@ export function MarketDataDashboard() {
 
         {/* Tab Content */}
         {activeMarketTab === 'overview' && (
-          <div className="text-center py-12">
-            <Activity className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">Market Overview</h3>
-            <p className="text-slate-400">
-              Use the tabs above to access advanced analysis tools
-            </p>
+          <div className="space-y-6">
+            {/* Selected Stock Overview */}
+            <div className="glass-card p-6 rounded-xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20">
+                    {selectedStock.isWatched ? <Star className="w-6 h-6 text-yellow-400" /> : <Activity className="w-6 h-6 text-purple-400" />}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{selectedStock.symbol}</h2>
+                    <p className="text-slate-400">{selectedStock.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const updatedData = marketData.map(stock =>
+                      stock.symbol === selectedStock.symbol
+                        ? { ...stock, isWatched: !stock.isWatched }
+                        : stock
+                    );
+                    setMarketData(updatedData);
+                  }}
+                  className={`p-2 rounded-xl transition-colors ${
+                    selectedStock.isWatched
+                      ? 'text-yellow-400 hover:bg-yellow-500/20'
+                      : 'text-slate-400 hover:text-yellow-400 hover:bg-slate-600/50'
+                  }`}
+                  title={selectedStock.isWatched ? "Remove from watchlist" : "Add to watchlist"}
+                >
+                  <Star className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-white">₹{selectedStock.price.toFixed(2)}</div>
+                  <div className={`text-sm font-semibold ${
+                    selectedStock.change >= 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {selectedStock.change >= 0 ? '+' : ''}₹{selectedStock.change.toFixed(2)} ({selectedStock.changePercent.toFixed(2)}%)
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">Current Price</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-xl font-bold text-green-400">₹{selectedStock.high.toFixed(2)}</div>
+                  <div className="text-xs text-slate-400">Day High</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-xl font-bold text-red-400">₹{selectedStock.low.toFixed(2)}</div>
+                  <div className="text-xs text-slate-400">Day Low</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-xl font-bold text-blue-400">{selectedStock.volume}</div>
+                  <div className="text-xs text-slate-400">Volume</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Stock Details */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="glass-card p-4 rounded-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-medium text-slate-400">Market Cap</h4>
+                  <Globe className="w-4 h-4 text-blue-400" />
+                </div>
+                <div className="text-xl font-bold text-white">{selectedStock.marketCap}</div>
+              </div>
+              
+              <div className="glass-card p-4 rounded-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-medium text-slate-400">Open Price</h4>
+                  <Clock className="w-4 h-4 text-purple-400" />
+                </div>
+                <div className="text-xl font-bold text-white">₹{selectedStock.open.toFixed(2)}</div>
+              </div>
+            </div>
+
+            {/* Top Gainers & Losers */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="glass-card p-6 rounded-xl">
+                <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
+                  <TrendingUp className="w-5 h-5 text-green-400 mr-2" />
+                  Top Gainers
+                </h4>
+                <div className="space-y-3">
+                  {mockMarketData.filter(stock => stock.change > 0).slice(0, 3).map((stock) => (
+                    <div key={stock.symbol} className="flex items-center justify-between py-2 border-b border-slate-700/50">
+                      <div>
+                        <div className="font-medium text-white">{stock.symbol}</div>
+                        <div className="text-sm text-slate-400">{stock.name}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-white">₹{stock.price.toFixed(2)}</div>
+                        <div className="text-green-400 text-sm">+{stock.changePercent.toFixed(2)}%</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="glass-card p-6 rounded-xl">
+                <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
+                  <TrendingDown className="w-5 h-5 text-red-400 mr-2" />
+                  Top Losers
+                </h4>
+                <div className="space-y-3">
+                  {mockMarketData.filter(stock => stock.change < 0).slice(0, 3).map((stock) => (
+                    <div key={stock.symbol} className="flex items-center justify-between py-2 border-b border-slate-700/50">
+                      <div>
+                        <div className="font-medium text-white">{stock.symbol}</div>
+                        <div className="text-sm text-slate-400">{stock.name}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-white">₹{stock.price.toFixed(2)}</div>
+                        <div className="text-red-400 text-sm">{stock.changePercent.toFixed(2)}%</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Market Activity */}
+            <div className="glass-card p-6 rounded-xl">
+              <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
+                <Activity className="w-5 h-5 text-purple-400 mr-2" />
+                Market Activity
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">1,247</div>
+                  <div className="text-sm text-slate-400">Advances</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-400">892</div>
+                  <div className="text-sm text-slate-400">Declines</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-400">156</div>
+                  <div className="text-sm text-slate-400">Unchanged</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-400">₹45.2K Cr</div>
+                  <div className="text-sm text-slate-400">Turnover</div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
         {activeMarketTab === 'charts' && (
           <div className="space-y-6">
-            <SymbolLookup onSymbolSelect={(symbol) => {
-              console.log('Selected symbol:', symbol)
-              setSelectedSymbol(symbol)
-            }} />
-            <AdvancedChart symbol={selectedSymbol} />
+            <div className="h-96">
+              <AdvancedChart symbol={selectedSymbol} hideFitToScreen={true} height={380} />
+            </div>
           </div>
         )}
 
