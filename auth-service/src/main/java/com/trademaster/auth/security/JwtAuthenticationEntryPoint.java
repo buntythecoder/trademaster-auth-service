@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * JWT Authentication Entry Point for handling authentication failures
@@ -55,16 +57,30 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
         errorDetails.put("path", request.getRequestURI());
         
         // Add more specific error information based on the exception
-        if (authException.getMessage().contains("expired")) {
-            errorDetails.put("code", "TOKEN_EXPIRED");
-            errorDetails.put("description", "JWT token has expired. Please refresh your token or login again.");
-        } else if (authException.getMessage().contains("invalid")) {
-            errorDetails.put("code", "TOKEN_INVALID");
-            errorDetails.put("description", "JWT token is invalid or malformed.");
-        } else {
-            errorDetails.put("code", "AUTHENTICATION_REQUIRED");
-            errorDetails.put("description", "Valid authentication credentials are required.");
-        }
+        Map<String, Map<String, String>> errorMappings = Map.of(
+            "TOKEN_EXPIRED", Map.of(
+                "code", "TOKEN_EXPIRED",
+                "description", "JWT token has expired. Please refresh your token or login again."
+            ),
+            "TOKEN_INVALID", Map.of(
+                "code", "TOKEN_INVALID", 
+                "description", "JWT token is invalid or malformed."
+            ),
+            "AUTHENTICATION_REQUIRED", Map.of(
+                "code", "AUTHENTICATION_REQUIRED",
+                "description", "Valid authentication credentials are required."
+            )
+        );
+        
+        String message = Optional.ofNullable(authException.getMessage()).orElse("");
+        String errorType = Stream.of("TOKEN_EXPIRED", "TOKEN_INVALID", "AUTHENTICATION_REQUIRED")
+            .filter(type -> (type.equals("TOKEN_EXPIRED") && message.contains("expired")) ||
+                           (type.equals("TOKEN_INVALID") && message.contains("invalid")) ||
+                           (type.equals("AUTHENTICATION_REQUIRED")))
+            .findFirst()
+            .orElse("AUTHENTICATION_REQUIRED");
+            
+        errorMappings.get(errorType).forEach(errorDetails::put);
 
         // Security headers
         response.setHeader("WWW-Authenticate", "Bearer realm=\"TradeMaster API\"");
@@ -78,16 +94,11 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
      * Get client IP address considering proxy headers
      */
     private String getClientIpAddress(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isEmpty()) {
-            return xRealIp;
-        }
-        
-        return request.getRemoteAddr();
+        return Optional.ofNullable(request.getHeader("X-Forwarded-For"))
+            .filter(xff -> !xff.isEmpty())
+            .map(xff -> xff.split(",")[0].trim())
+            .orElseGet(() -> Optional.ofNullable(request.getHeader("X-Real-IP"))
+                .filter(xri -> !xri.isEmpty())
+                .orElse(request.getRemoteAddr()));
     }
 }

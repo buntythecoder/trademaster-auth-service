@@ -7,11 +7,14 @@ import { TraderDashboard } from './components/dashboard/TraderDashboard'
 import { ProfileDashboard } from './components/profile/ProfileDashboard'
 import { HeroSection } from './components/landing/HeroSection'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
-import { MarketDataDashboard } from './components/market/MarketDataDashboard'
-import { TradingInterface } from './components/trading/TradingInterface'
-import { PortfolioAnalytics } from './components/portfolio/PortfolioAnalytics'
+import { MarketDataDashboard } from './pages/MarketDataDashboard'
+import { TradingInterface } from './pages/TradingInterface'
+import { MobileTradingInterface } from './pages/MobileTradingInterface'
+import { PortfolioAnalyticsDashboard } from './pages/PortfolioAnalyticsDashboard'
 import { MultiBrokerInterface } from './components/trading/MultiBrokerInterface'
 import { RiskManagementDashboard } from './components/risk/RiskManagementDashboard'
+import AdminAgentDashboard from './components/agentos/AgentDashboard'
+import TraderTaskInterface from './components/trader/TraderTaskInterface'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 import { TutorialManager } from './components/onboarding/TutorialOverlay'
 import { AchievementSystem, ACHIEVEMENTS } from './components/onboarding/AchievementSystem'
@@ -25,6 +28,7 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ThemeToggle } from './components/ui/ThemeToggle'
 import { PageLayout } from './components/layout/PageLayout'
+import { PWAInstallPrompt, PWAUpdatePrompt, ConnectionStatus, ConnectionRestoredNotification } from './components/pwa'
 import { LogOut, User, TrendingUp, PieChart, BarChart3 } from 'lucide-react'
 import './index.css'
 
@@ -44,6 +48,11 @@ function App() {
       <ToastProvider>
         <Router>
         <div className="min-h-screen">
+        {/* PWA Components - Global */}
+        <PWAInstallPrompt />
+        <PWAUpdatePrompt />
+        <ConnectionRestoredNotification />
+        
         {/* Tutorial Manager - Global */}
         <TutorialManager />
         
@@ -167,13 +176,33 @@ function App() {
             }
           />
 
+          {/* FRONT-006: Mobile Trading Interface Route */}
+          <Route
+            path="/mobile-trading"
+            element={
+              <ProtectedRoute>
+                <MobileTradingInterface />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Epic 2: Portfolio Analytics Route */}
           <Route
             path="/portfolio"
             element={
               <ProtectedRoute>
+                <PortfolioAnalyticsDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Analytics Route (alias for portfolio) */}
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute>
                 <PageLayout>
-                  <PortfolioAnalytics />
+                  <PortfolioAnalyticsDashboard />
                 </PageLayout>
               </ProtectedRoute>
             }
@@ -210,6 +239,22 @@ function App() {
               <ProtectedRoute>
                 <PageLayout>
                   <RiskManagementDashboard />
+                </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Agent OS Dashboard Route - Role-based */}
+          <Route
+            path="/agents"
+            element={
+              <ProtectedRoute>
+                <PageLayout>
+                  {user?.role === 'ADMIN' ? (
+                    <AdminAgentDashboard />
+                  ) : (
+                    <TraderTaskInterface />
+                  )}
                 </PageLayout>
               </ProtectedRoute>
             }

@@ -18,29 +18,13 @@ import {
   X,
   Save,
   Building2,
-  Star
+  Star,
+  Lock
 } from 'lucide-react'
+import { useAuthStore } from '../../stores/auth.store'
+import { MultiBrokerService, BrokerConnection, IndianBrokerType } from '../../services/brokerService'
 
-interface BrokerConnection {
-  id: string
-  name: string
-  brokerType: 'interactive_brokers' | 'td_ameritrade' | 'alpaca' | 'fidelity' | 'schwab' | 'etrade'
-  displayName: string
-  status: 'connected' | 'disconnected' | 'connecting' | 'error' | 'authenticating'
-  isDefault: boolean
-  capabilities: string[]
-  lastConnected?: Date
-  accountId?: string
-  apiKey?: string
-  connectionConfig: Record<string, any>
-  performance: {
-    avgExecutionTime: number
-    successRate: number
-    totalOrders: number
-  }
-}
-
-interface BrokerCredentials {
+interface BrokerCredentialsForm {
   brokerType: string
   apiKey: string
   secretKey: string
@@ -51,46 +35,46 @@ interface BrokerCredentials {
 
 const brokerTypes = [
   { 
-    value: 'interactive_brokers', 
-    label: 'Interactive Brokers', 
-    capabilities: ['stocks', 'options', 'futures', 'forex'],
+    value: 'zerodha', 
+    label: 'Zerodha Kite', 
+    capabilities: ['stocks', 'futures', 'options', 'commodity', 'currency'],
+    icon: '🚀',
+    description: 'India\'s largest discount broker with powerful API'
+  },
+  { 
+    value: 'upstox', 
+    label: 'Upstox Pro', 
+    capabilities: ['stocks', 'futures', 'options', 'commodity', 'currency'],
+    icon: '📈',
+    description: 'Technology-first broker with low-latency execution'
+  },
+  { 
+    value: 'angel_one', 
+    label: 'Angel One', 
+    capabilities: ['stocks', 'futures', 'options', 'commodity', 'mutual_funds'],
+    icon: '👼',
+    description: 'Full-service broker with comprehensive trading solutions'
+  },
+  { 
+    value: 'icici_direct', 
+    label: 'ICICI Direct', 
+    capabilities: ['stocks', 'futures', 'options', 'mutual_funds', 'bonds'],
     icon: '🏦',
-    description: 'Professional trading platform with global markets'
+    description: 'Bank-backed broker with institutional-grade platform'
   },
   { 
-    value: 'td_ameritrade', 
-    label: 'TD Ameritrade', 
-    capabilities: ['stocks', 'options', 'etfs'],
-    icon: '🏛️',
-    description: 'Full-service broker with advanced tools'
+    value: 'groww', 
+    label: 'Groww', 
+    capabilities: ['stocks', 'mutual_funds', 'etfs', 'gold'],
+    icon: '🌱',
+    description: 'Simple and intuitive investing platform'
   },
   { 
-    value: 'alpaca', 
-    label: 'Alpaca Markets', 
-    capabilities: ['stocks', 'crypto'],
-    icon: '🦙',
-    description: 'Commission-free API-first trading'
-  },
-  { 
-    value: 'fidelity', 
-    label: 'Fidelity', 
-    capabilities: ['stocks', 'options', 'mutual_funds'],
-    icon: '🛡️',
-    description: 'Trusted investment management'
-  },
-  { 
-    value: 'schwab', 
-    label: 'Charles Schwab', 
-    capabilities: ['stocks', 'options', 'etfs'],
-    icon: '⚡',
-    description: 'Low-cost trading and investing'
-  },
-  { 
-    value: 'etrade', 
-    label: 'E*TRADE', 
-    capabilities: ['stocks', 'options'],
-    icon: '💎',
-    description: 'Online investing and trading'
+    value: 'iifl', 
+    label: 'IIFL Securities', 
+    capabilities: ['stocks', 'futures', 'options', 'commodity', 'bonds'],
+    icon: '💼',
+    description: 'Research-driven broker with premium services'
   }
 ]
 
@@ -99,33 +83,11 @@ export const MultiBrokerInterface: React.FC = () => {
   const [brokerConnections, setBrokerConnections] = useState<BrokerConnection[]>([])
   const [loading, setLoading] = useState(true)
   
-  // Admin-only access control
-  if (user?.role !== 'ADMIN') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="glass-card rounded-2xl p-8 max-w-md w-full mx-4 text-center">
-          <div className="p-4 rounded-xl bg-red-500/20 mb-6">
-            <Lock className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-4">Access Restricted</h2>
-          <p className="text-slate-400 mb-6">
-            Broker configuration is restricted to administrators only. 
-            Contact your admin to configure broker connections.
-          </p>
-          <div className="glass-card p-4 rounded-xl bg-slate-800/30">
-            <div className="text-sm text-slate-300">
-              <strong>Current Role:</strong> {user?.role || 'Unknown'}<br/>
-              <strong>Required Role:</strong> ADMIN
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Multi-broker interface is available to all authenticated users
   const [showAddModal, setShowAddModal] = useState(false)
   const [showCredentialsModal, setShowCredentialsModal] = useState(false)
   const [selectedBroker, setSelectedBroker] = useState<BrokerConnection | null>(null)
-  const [newCredentials, setNewCredentials] = useState<BrokerCredentials>({
+  const [newCredentials, setNewCredentials] = useState<BrokerCredentialsForm>({
     brokerType: '',
     apiKey: '',
     secretKey: '',
@@ -143,49 +105,12 @@ export const MultiBrokerInterface: React.FC = () => {
   const fetchBrokerConnections = async () => {
     setLoading(true)
     try {
-      // Simulated API call - replace with actual API
-      const mockConnections: BrokerConnection[] = [
-        {
-          id: '1',
-          name: 'IB-Primary',
-          brokerType: 'interactive_brokers',
-          displayName: 'Interactive Brokers - Main Account',
-          status: 'connected',
-          isDefault: true,
-          capabilities: ['stocks', 'options', 'futures'],
-          lastConnected: new Date(),
-          accountId: 'DU123456',
-          connectionConfig: {},
-          performance: { avgExecutionTime: 250, successRate: 98.5, totalOrders: 1250 }
-        },
-        {
-          id: '2',
-          name: 'Alpaca-Test',
-          brokerType: 'alpaca',
-          displayName: 'Alpaca Markets - Paper Trading',
-          status: 'connected',
-          isDefault: false,
-          capabilities: ['stocks', 'crypto'],
-          lastConnected: new Date(Date.now() - 5 * 60 * 1000),
-          accountId: 'PA123456',
-          connectionConfig: { sandbox: true },
-          performance: { avgExecutionTime: 180, successRate: 99.2, totalOrders: 856 }
-        },
-        {
-          id: '3',
-          name: 'TD-Secondary',
-          brokerType: 'td_ameritrade',
-          displayName: 'TD Ameritrade - Options Account',
-          status: 'disconnected',
-          isDefault: false,
-          capabilities: ['stocks', 'options'],
-          lastConnected: new Date(Date.now() - 2 * 60 * 60 * 1000),
-          accountId: 'TD789012',
-          connectionConfig: {},
-          performance: { avgExecutionTime: 320, successRate: 97.8, totalOrders: 643 }
-        }
-      ]
-      setBrokerConnections(mockConnections)
+      // Initialize mock brokers if none exist
+      MultiBrokerService.initializeMockBrokers();
+      
+      // Get connected brokers from service
+      const connections = MultiBrokerService.getConnectedBrokers();
+      setBrokerConnections(connections);
     } catch (error) {
       console.error('Failed to fetch broker connections:', error)
     } finally {
@@ -203,9 +128,10 @@ export const MultiBrokerInterface: React.FC = () => {
     )
 
     try {
-      // Simulated connection - replace with actual API
+      // Simulated connection - in real implementation, this would get credentials and connect
       await new Promise(resolve => setTimeout(resolve, 2000))
       
+      // Update state to show connected
       setBrokerConnections(prev => 
         prev.map(broker => 
           broker.id === brokerId 
@@ -226,13 +152,9 @@ export const MultiBrokerInterface: React.FC = () => {
 
   const handleDisconnect = async (brokerId: string) => {
     try {
-      setBrokerConnections(prev => 
-        prev.map(broker => 
-          broker.id === brokerId 
-            ? { ...broker, status: 'disconnected' }
-            : broker
-        )
-      )
+      await MultiBrokerService.disconnectBroker(brokerId);
+      const updatedConnections = MultiBrokerService.getConnectedBrokers();
+      setBrokerConnections(updatedConnections);
     } catch (error) {
       console.error('Failed to disconnect broker:', error)
     }
@@ -240,12 +162,11 @@ export const MultiBrokerInterface: React.FC = () => {
 
   const handleSetDefault = async (brokerId: string) => {
     try {
-      setBrokerConnections(prev => 
-        prev.map(broker => ({
-          ...broker,
-          isDefault: broker.id === brokerId
-        }))
-      )
+      const success = MultiBrokerService.setDefaultBroker(brokerId);
+      if (success) {
+        const updatedConnections = MultiBrokerService.getConnectedBrokers();
+        setBrokerConnections(updatedConnections);
+      }
     } catch (error) {
       console.error('Failed to set default broker:', error)
     }
@@ -257,62 +178,38 @@ export const MultiBrokerInterface: React.FC = () => {
       return
     }
 
-    // For custom brokers, require additional fields
-    if (newCredentials.brokerType === 'custom') {
-      if (!newCredentials.additionalConfig.customName || !newCredentials.additionalConfig.baseUrl) {
-        alert('Please fill in custom broker name and API URL')
-        return
-      }
-    }
-
     try {
-      const brokerInfo = brokerTypes.find(b => b.value === newCredentials.brokerType)
-      let displayName = ''
-      let capabilities: string[] = []
-
-      if (newCredentials.brokerType === 'custom') {
-        displayName = newCredentials.additionalConfig.customName || 'Custom Broker'
-        capabilities = newCredentials.additionalConfig.capabilities 
-          ? newCredentials.additionalConfig.capabilities.split(',').map(s => s.trim())
-          : ['stocks']
-      } else {
-        displayName = brokerInfo?.label || ''
-        capabilities = brokerInfo?.capabilities || []
-      }
-
-      const newBroker: BrokerConnection = {
-        id: Date.now().toString(),
-        name: `${newCredentials.brokerType === 'custom' ? 'custom' : newCredentials.brokerType}-${Date.now()}`,
-        brokerType: newCredentials.brokerType as any,
-        displayName: displayName,
-        status: 'disconnected',
-        isDefault: false,
-        capabilities: capabilities,
-        connectionConfig: {
-          apiKey: newCredentials.apiKey,
-          accountId: newCredentials.accountId,
-          sandbox: newCredentials.sandbox,
-          ...(newCredentials.brokerType === 'custom' && {
-            customName: newCredentials.additionalConfig.customName,
-            baseUrl: newCredentials.additionalConfig.baseUrl,
-          })
-        },
-        accountId: newCredentials.accountId,
-        performance: { avgExecutionTime: 0, successRate: 0, totalOrders: 0 }
-      }
-
-      setBrokerConnections(prev => [...prev, newBroker])
-      setShowAddModal(false)
-      setNewCredentials({
-        brokerType: '',
-        apiKey: '',
-        secretKey: '',
-        accountId: '',
-        sandbox: true,
-        additionalConfig: {}
-      })
+      const brokerId = `${newCredentials.brokerType}-${Date.now()}`;
       
-      alert(`${displayName} broker connection added successfully!`)
+      const success = await MultiBrokerService.connectBroker({
+        brokerId,
+        brokerType: newCredentials.brokerType as IndianBrokerType,
+        apiKey: newCredentials.apiKey,
+        secretKey: newCredentials.secretKey,
+        accountId: newCredentials.accountId,
+        sandbox: newCredentials.sandbox,
+        additionalConfig: newCredentials.additionalConfig
+      });
+
+      if (success) {
+        const updatedConnections = MultiBrokerService.getConnectedBrokers();
+        setBrokerConnections(updatedConnections);
+        
+        setShowAddModal(false)
+        setNewCredentials({
+          brokerType: '',
+          apiKey: '',
+          secretKey: '',
+          accountId: '',
+          sandbox: true,
+          additionalConfig: {}
+        })
+        
+        const brokerInfo = brokerTypes.find(b => b.value === newCredentials.brokerType);
+        alert(`${brokerInfo?.label || newCredentials.brokerType} broker connection added successfully!`)
+      } else {
+        alert('Failed to connect broker. Please check your credentials.')
+      }
     } catch (error) {
       console.error('Failed to add broker:', error)
       alert('Failed to add broker connection')
@@ -321,7 +218,10 @@ export const MultiBrokerInterface: React.FC = () => {
 
   const handleDeleteBroker = async (brokerId: string) => {
     try {
-      setBrokerConnections(prev => prev.filter(broker => broker.id !== brokerId))
+      await MultiBrokerService.disconnectBroker(brokerId);
+      // In a real implementation, you'd also call a delete API endpoint
+      const updatedConnections = MultiBrokerService.getConnectedBrokers().filter(b => b.id !== brokerId);
+      setBrokerConnections(updatedConnections);
       setDeleteConfirm(null)
     } catch (error) {
       console.error('Failed to delete broker:', error)
@@ -485,6 +385,11 @@ export const MultiBrokerInterface: React.FC = () => {
                         <Activity className="w-3 h-3" />
                         <span>{broker.performance.totalOrders} orders</span>
                       </div>
+                      {broker.balance && (
+                        <div className="flex items-center space-x-1">
+                          <span>₹{broker.balance.availableMargin.toLocaleString('en-IN')} available</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -623,27 +528,6 @@ export const MultiBrokerInterface: React.FC = () => {
                       </button>
                     ))}
                     
-                    {/* Custom Broker Option */}
-                    <button
-                      onClick={() => setNewCredentials(prev => ({ ...prev, brokerType: 'custom' }))}
-                      className={`p-4 rounded-xl border-2 transition-all text-left ${
-                        newCredentials.brokerType === 'custom'
-                          ? 'border-cyan-500/50 bg-cyan-500/10'
-                          : 'border-slate-700/50 bg-slate-800/30 hover:border-slate-600/50'
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3">
-                        <span className="text-2xl">🔧</span>
-                        <div>
-                          <h3 className="font-semibold text-white">Custom Broker</h3>
-                          <p className="text-xs text-slate-400 mb-2">Configure your own broker connection</p>
-                          <div className="flex flex-wrap gap-1">
-                            <span className="px-2 py-1 rounded bg-slate-700/50 text-xs text-slate-300">flexible</span>
-                            <span className="px-2 py-1 rounded bg-slate-700/50 text-xs text-slate-300">custom</span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
                   </div>
                 </div>
 
@@ -651,57 +535,6 @@ export const MultiBrokerInterface: React.FC = () => {
               {newCredentials.brokerType && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-white">Connection Configuration</h3>
-                  
-                  {/* Custom broker name field */}
-                  {newCredentials.brokerType === 'custom' && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">Custom Broker Name</label>
-                      <input
-                        type="text"
-                        value={newCredentials.additionalConfig.customName || ''}
-                        onChange={(e) => setNewCredentials(prev => ({ 
-                          ...prev, 
-                          additionalConfig: { ...prev.additionalConfig, customName: e.target.value }
-                        }))}
-                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50"
-                        placeholder="Enter custom broker name (e.g., ABC Securities)"
-                      />
-                    </div>
-                  )}
-
-                  {/* Custom broker URL field */}
-                  {newCredentials.brokerType === 'custom' && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">API Base URL</label>
-                      <input
-                        type="url"
-                        value={newCredentials.additionalConfig.baseUrl || ''}
-                        onChange={(e) => setNewCredentials(prev => ({ 
-                          ...prev, 
-                          additionalConfig: { ...prev.additionalConfig, baseUrl: e.target.value }
-                        }))}
-                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50"
-                        placeholder="https://api.yourbroker.com/v1"
-                      />
-                    </div>
-                  )}
-
-                  {/* Custom capabilities */}
-                  {newCredentials.brokerType === 'custom' && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">Supported Assets (comma-separated)</label>
-                      <input
-                        type="text"
-                        value={newCredentials.additionalConfig.capabilities || ''}
-                        onChange={(e) => setNewCredentials(prev => ({ 
-                          ...prev, 
-                          additionalConfig: { ...prev.additionalConfig, capabilities: e.target.value }
-                        }))}
-                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/50"
-                        placeholder="stocks, options, futures, crypto"
-                      />
-                    </div>
-                  )}
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -754,6 +587,30 @@ export const MultiBrokerInterface: React.FC = () => {
                         {showSecrets.secretKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">TOTP Key (Optional)</label>
+                    <div className="relative">
+                      <input
+                        type={showSecrets.totpKey ? 'text' : 'password'}
+                        value={newCredentials.additionalConfig.totpKey || ''}
+                        onChange={(e) => setNewCredentials(prev => ({ 
+                          ...prev, 
+                          additionalConfig: { ...prev.additionalConfig, totpKey: e.target.value }
+                        }))}
+                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/50 pr-12"
+                        placeholder="Enter your TOTP secret key for 2FA"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecrets(prev => ({ ...prev, totpKey: !prev.totpKey }))}
+                        className="absolute right-3 top-3 text-slate-400 hover:text-white"
+                      >
+                        {showSecrets.totpKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">Required for brokers with 2FA enabled</p>
                   </div>
 
                   <div className="flex items-center space-x-3">

@@ -3,11 +3,7 @@ package com.trademaster.auth.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.*;
 import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -129,6 +125,7 @@ public class MfaConfiguration {
     }
 
     // MFA Type enum
+    @Getter
     public enum MfaType {
         SMS("sms"),
         EMAIL("email"),
@@ -139,10 +136,6 @@ public class MfaConfiguration {
 
         MfaType(String value) {
             this.value = value;
-        }
-
-        public String getValue() {
-            return value;
         }
 
         public static MfaType fromValue(String value) {

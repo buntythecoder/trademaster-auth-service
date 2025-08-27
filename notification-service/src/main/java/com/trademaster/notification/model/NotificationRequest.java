@@ -79,9 +79,11 @@ public class NotificationRequest {
     private String errorMessage;
     
     @Column(name = "retry_count")
+    @Builder.Default
     private Integer retryCount = 0;
     
     @Column(name = "max_retry_attempts")
+    @Builder.Default
     private Integer maxRetryAttempts = 3;
     
     @Column(name = "reference_id")

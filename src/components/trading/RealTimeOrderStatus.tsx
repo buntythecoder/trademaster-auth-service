@@ -40,7 +40,7 @@ interface RealTimeOrderStatusProps {
   onStatusChange?: (status: OrderStatusUpdate) => void;
 }
 
-const WS_BASE_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8080/ws';
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
 
 export function RealTimeOrderStatus({ 
   orderId, 

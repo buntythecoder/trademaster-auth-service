@@ -102,23 +102,21 @@ public class VerificationTokenService {
         Optional<VerificationToken> verificationTokenOpt = verificationTokenRepository
             .findValidTokenByTokenAndType(token, VerificationToken.TokenType.EMAIL_VERIFICATION, LocalDateTime.now());
 
-        if (verificationTokenOpt.isEmpty()) {
-            log.warn("Invalid or expired email verification token: {}", token);
-            return Optional.empty();
-        }
-
-        VerificationToken verificationToken = verificationTokenOpt.get();
-        User user = verificationToken.getUser();
-
-        // Mark token as used
-        verificationToken.markAsUsed();
-        verificationTokenRepository.save(verificationToken);
-
-        // Mark user email as verified
-        user.setEmailVerified(true);
-
-        log.info("Email verified successfully for user: {}", user.getId());
-        return Optional.of(user);
+        return verificationTokenOpt
+            .map(verificationToken -> {
+                User user = verificationToken.getUser();
+                
+                verificationToken.markAsUsed();
+                verificationTokenRepository.save(verificationToken);
+                
+                user.setEmailVerified(true);
+                log.info("Email verified successfully for user: {}", user.getId());
+                return user;
+            })
+            .or(() -> {
+                log.warn("Invalid or expired email verification token: {}", token);
+                return Optional.empty();
+            });
     }
 
     /**

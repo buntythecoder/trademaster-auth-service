@@ -558,4 +558,24 @@ public class MarketScannerService {
         return "SCAN_" + System.currentTimeMillis() + "_" + 
             Integer.toHexString(new Random().nextInt());
     }
+    
+    // AgentOS Integration Methods
+    
+    /**
+     * Perform market scan with criteria (AgentOS compatibility)
+     */
+    public List<String> performScan(Map<String, Object> scanCriteria) {
+        log.info("Performing market scan with criteria: {}", scanCriteria);
+        
+        // Mock implementation for AgentOS integration
+        List<String> mockResults = List.of(
+            "AAPL", "GOOGL", "MSFT", "TSLA", "AMZN", 
+            "NVDA", "META", "NFLX", "CRM", "ADBE"
+        );
+        
+        // Apply criteria filtering (simplified for now)
+        return mockResults.stream()
+            .limit(5) // Limit results for demo
+            .collect(Collectors.toList());
+    }
 }

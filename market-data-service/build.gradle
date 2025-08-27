@@ -9,8 +9,6 @@ group = 'com.trademaster'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = '24'
-    targetCompatibility = '24'
     toolchain {
         languageVersion = JavaLanguageVersion.of(24)
     }
@@ -49,6 +47,7 @@ dependencies {
     
     // Kafka
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.apache.kafka:kafka-streams:3.8.1'
     implementation 'io.confluent:kafka-avro-serializer:7.5.0'
     implementation 'io.confluent:kafka-schema-registry-client:7.5.0'
     
@@ -68,7 +67,7 @@ dependencies {
     
     // Virtual Threads Support (Java 24)
     implementation 'org.springframework:spring-context'
-    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
     
     // JSON Processing
     implementation 'com.fasterxml.jackson.core:jackson-databind'
@@ -98,6 +97,7 @@ dependencies {
     // Utilities (Updated)
     implementation 'org.apache.commons:commons-lang3:3.14.0'
     implementation 'org.apache.commons:commons-collections4:4.4'
+    implementation 'org.apache.commons:commons-pool2:2.12.0'
     implementation 'com.google.guava:guava:33.0.0-jre'
     
     // Configuration
@@ -125,7 +125,17 @@ dependencyManagement {
     }
 }
 
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
 tasks.named('test') {
+    jvmArgs += ['--enable-preview']
     useJUnitPlatform()
     testLogging {
         events "passed", "skipped", "failed"
@@ -135,11 +145,29 @@ tasks.named('test') {
     jvmArgs '-XX:+UseG1GC', '-XX:MaxGCPauseMillis=100', '--enable-preview', '-Dspring.threads.virtual.enabled=true'
 }
 
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
+}
+
 bootJar {
     archiveFileName = "${project.name}-${project.version}.jar"
     layered {
         enabled = true
     }
+}
+
+// Boot run configuration
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
+    ]
+}
+
+// Spring Boot configuration
+springBoot {
+    mainClass = 'com.trademaster.marketdata.MarketDataServiceApplication'
+    buildInfo()
 }
 
 flyway {

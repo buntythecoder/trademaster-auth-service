@@ -1,5 +1,6 @@
 package com.trademaster.auth.config;
 
+import com.trademaster.auth.constants.AuthConstants;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -269,118 +270,124 @@ public class MetricsConfiguration {
             this.concurrentSessions = new AtomicInteger(0);
             
             // Register Gauge metrics for real-time values
-            Gauge.builder("auth.users.total")
+            Gauge.builder("auth.users.total", totalUsers, AtomicLong::get)
                 .description("Total registered users")
                 .tag("service", "auth")
-                .register(meterRegistry, totalUsers, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("auth.users.active")
+            Gauge.builder("auth.users.active", activeUsers, AtomicLong::get)
                 .description("Active users")
                 .tag("service", "auth")
-                .register(meterRegistry, activeUsers, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("auth.users.verified")
+            Gauge.builder("auth.users.verified", verifiedUsers, AtomicLong::get)
                 .description("Verified users")
                 .tag("service", "auth")
-                .register(meterRegistry, verifiedUsers, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("auth.sessions.active")
+            Gauge.builder("auth.sessions.active", activeSessions, AtomicInteger::get)
                 .description("Active sessions")
                 .tag("service", "auth")
-                .register(meterRegistry, activeSessions, AtomicInteger::get);
+                .register(meterRegistry);
             
-            Gauge.builder("auth.sessions.concurrent")
+            Gauge.builder("auth.sessions.concurrent", concurrentSessions, AtomicInteger::get)
                 .description("Concurrent sessions")
                 .tag("service", "auth")
-                .register(meterRegistry, concurrentSessions, AtomicInteger::get);
+                .register(meterRegistry);
             
             log.info("Auth Service metrics initialized successfully");
         }
         
         // Authentication Metrics Methods
         public void recordAuthenticationAttempt(String method, String userAgent) {
-            authenticationAttempts.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "method", method,
-                    "user_agent", sanitizeUserAgent(userAgent)
-                )
-            );
+            Counter.builder("auth.authentication.attempts")
+                .tag("method", method)
+                .tag("user_agent", sanitizeUserAgent(userAgent))
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordAuthenticationSuccess(String userId, String method, long durationMs) {
-            authenticationSuccesses.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "method", method,
-                    "status", "success"
-                )
-            );
+            Counter.builder("auth.authentication.successes")
+                .tag("method", method)
+                .tag("status", "success")
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             authenticationDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordAuthenticationFailure(String reason, String method) {
-            authenticationFailures.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "method", method,
-                    "reason", reason
-                )
-            );
+            Counter.builder("auth.authentication.failures")
+                .tag("method", method)
+                .tag("reason", reason)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         // Security Metrics Methods
         public void recordSecurityIncident(String incidentType, String severity, String userAgent) {
-            securityIncidents.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "incident_type", incidentType,
-                    "severity", severity,
-                    "user_agent", sanitizeUserAgent(userAgent)
-                )
-            );
+            Counter.builder("auth.security.incidents")
+                .tag("incident_type", incidentType)
+                .tag("severity", severity)
+                .tag("user_agent", sanitizeUserAgent(userAgent))
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordSuspiciousActivity(String activityType, String riskLevel) {
-            suspiciousActivity.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "activity_type", activityType,
-                    "risk_level", riskLevel
-                )
-            );
+            Counter.builder("auth.security.suspicious_activity")
+                .tag("activity_type", activityType)
+                .tag("risk_level", riskLevel)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordRateLimitViolation(String clientId, String endpoint) {
-            rateLimitViolations.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "client_id", clientId,
-                    "endpoint", endpoint
-                )
-            );
+            Counter.builder("auth.security.rate_limit_violations")
+                .tag("client_id", clientId)
+                .tag("endpoint", endpoint)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordMfaAttempt(String mfaType) {
-            mfaAttempts.increment(
-                io.micrometer.core.instrument.Tags.of("mfa_type", mfaType)
-            );
+            Counter.builder("auth.mfa.attempts")
+                .tag("mfa_type", mfaType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordMfaSuccess(String mfaType, long durationMs) {
-            mfaSuccesses.increment(
-                io.micrometer.core.instrument.Tags.of("mfa_type", mfaType)
-            );
+            Counter.builder("auth.mfa.successes")
+                .tag("mfa_type", mfaType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordMfaFailure(String mfaType, String reason) {
-            mfaFailures.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "mfa_type", mfaType,
-                    "reason", reason
-                )
-            );
+            Counter.builder("auth.mfa.failures")
+                .tag("mfa_type", mfaType)
+                .tag("reason", reason)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         // User Management Metrics Methods
         public void recordUserRegistration(String registrationMethod) {
-            userRegistrations.increment(
-                io.micrometer.core.instrument.Tags.of("method", registrationMethod)
-            );
+            Counter.builder("auth.user.registrations")
+                .tag("method", registrationMethod)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             totalUsers.incrementAndGet();
         }
         
@@ -390,30 +397,38 @@ public class MetricsConfiguration {
         }
         
         public void recordPasswordReset(String resetMethod) {
-            passwordResets.increment(
-                io.micrometer.core.instrument.Tags.of("method", resetMethod)
-            );
+            Counter.builder("auth.user.password_resets")
+                .tag("method", resetMethod)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordAccountLockout(String reason) {
-            accountLockouts.increment(
-                io.micrometer.core.instrument.Tags.of("reason", reason)
-            );
+            Counter.builder("auth.user.account_lockouts")
+                .tag("reason", reason)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         // Session Metrics Methods
         public void recordSessionCreation(String sessionType) {
-            sessionCreations.increment(
-                io.micrometer.core.instrument.Tags.of("session_type", sessionType)
-            );
+            Counter.builder("auth.session.creations")
+                .tag("session_type", sessionType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             activeSessions.incrementAndGet();
             concurrentSessions.incrementAndGet();
         }
         
         public void recordSessionDestruction(String sessionType, long durationMs) {
-            sessionDestructions.increment(
-                io.micrometer.core.instrument.Tags.of("session_type", sessionType)
-            );
+            Counter.builder("auth.session.destructions")
+                .tag("session_type", sessionType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             sessionDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             activeSessions.decrementAndGet();
             concurrentSessions.decrementAndGet();
@@ -421,65 +436,69 @@ public class MetricsConfiguration {
         
         // Token Metrics Methods
         public void recordTokenGeneration(String tokenType) {
-            tokenGenerations.increment(
-                io.micrometer.core.instrument.Tags.of("token_type", tokenType)
-            );
+            Counter.builder("auth.token.generations")
+                .tag("token_type", tokenType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordTokenValidation(String tokenType, boolean isValid, long durationMs) {
-            tokenValidations.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "token_type", tokenType,
-                    "valid", String.valueOf(isValid)
-                )
-            );
+            Counter.builder("auth.token.validations")
+                .tag("token_type", tokenType)
+                .tag("valid", String.valueOf(isValid))
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             tokenValidationDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordTokenRefresh(String tokenType) {
-            tokenRefreshes.increment(
-                io.micrometer.core.instrument.Tags.of("token_type", tokenType)
-            );
+            Counter.builder("auth.token.refreshes")
+                .tag("token_type", tokenType)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordTokenRevocation(String tokenType, String reason) {
-            tokenRevocations.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "token_type", tokenType,
-                    "reason", reason
-                )
-            );
+            Counter.builder("auth.token.revocations")
+                .tag("token_type", tokenType)
+                .tag("reason", reason)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
         }
         
         // API Metrics Methods
         public void recordApiRequest(String endpoint, String method, int statusCode, long durationMs) {
-            apiRequests.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "endpoint", endpoint,
-                    "method", method,
-                    "status_code", String.valueOf(statusCode)
-                )
-            );
+            Counter.builder("auth.api.requests")
+                .tag("endpoint", endpoint)
+                .tag("method", method)
+                .tag("status_code", String.valueOf(statusCode))
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .increment();
             apiRequestDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
-            if (statusCode >= 400) {
-                apiErrors.increment(
-                    io.micrometer.core.instrument.Tags.of(
-                        "endpoint", endpoint,
-                        "status_code", String.valueOf(statusCode)
-                    )
-                );
+            if (statusCode >= AuthConstants.HTTP_CLIENT_ERROR_THRESHOLD) {
+                Counter.builder("auth.api.errors")
+                    .tag("endpoint", endpoint)
+                    .tag("status_code", String.valueOf(statusCode))
+                    .tag("service", "auth")
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         
         // System Metrics Methods
         public void recordDatabaseQuery(String queryType, String tableName, long durationMs) {
-            databaseQueryDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of(
-                    "query_type", queryType,
-                    "table", tableName
-                )
-            );
+            Timer.builder("auth.database.query.duration")
+                .tag("query_type", queryType)
+                .tag("table", tableName)
+                .tag("service", "auth")
+                .register(meterRegistry)
+                .record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordDatabaseConnection() {
@@ -487,18 +506,24 @@ public class MetricsConfiguration {
         }
         
         public void recordCacheOperation(String operation, boolean hit, long durationMs) {
-            cacheOperationDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of("operation", operation)
-            );
+            Timer.Sample sample = Timer.start(meterRegistry);
+            sample.stop(Timer.builder("auth.cache.operation.duration")
+                .tag("operation", operation)
+                .tag("service", "auth")
+                .register(meterRegistry));
             
             if (hit) {
-                cacheHits.increment(
-                    io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                Counter.builder("auth.cache.hits")
+                    .tag("operation", operation)
+                    .tag("service", "auth")
+                    .register(meterRegistry)
+                    .increment();
             } else {
-                cacheMisses.increment(
-                    io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                Counter.builder("auth.cache.misses")
+                    .tag("operation", operation)
+                    .tag("service", "auth")
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         
@@ -521,7 +546,9 @@ public class MetricsConfiguration {
                 return "unknown";
             }
             // Extract basic browser/app info, remove detailed version numbers for privacy
-            return userAgent.length() > 100 ? userAgent.substring(0, 100) : userAgent;
+            return userAgent.length() > AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH 
+                ? userAgent.substring(0, AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH) 
+                : userAgent;
         }
     }
 }

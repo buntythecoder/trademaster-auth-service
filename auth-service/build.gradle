@@ -9,8 +9,6 @@ group = 'com.trademaster'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = '24'
-    targetCompatibility = '24'
     toolchain {
         languageVersion = JavaLanguageVersion.of(24)
     }
@@ -58,6 +56,12 @@ dependencies {
     implementation 'com.github.vladimir-bukhtoyarov:bucket4j-core:7.6.0'
     implementation 'com.github.vladimir-bukhtoyarov:bucket4j-redis:7.6.0'
     
+    // Email Support
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'org.springframework.retry:spring-retry'
+    implementation 'org.springframework:spring-aspects'
+    
     // MFA & OTP
     implementation 'com.warrenstrange:googleauth:1.5.0'
     implementation 'com.twilio.sdk:twilio:9.14.1'
@@ -70,6 +74,9 @@ dependencies {
     implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
     implementation 'ch.qos.logback:logback-classic'
     implementation 'ch.qos.logback:logback-core'
+    
+    // HTTP Client (TradeMaster Standards Compliance)
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     
     // Utilities
     implementation 'org.apache.commons:commons-lang3'
@@ -122,16 +129,30 @@ flyway {
     validateOnMigrate = true
 }
 
-// JVM arguments for virtual threads
-applicationDefaultJvmArgs = [
-    "-Dspring.threads.virtual.enabled=true",
-    "--enable-preview"
-]
-
-compileJava {
-    options.compilerArgs += [
-        '--enable-preview'
+// JVM arguments for virtual threads (Spring Boot run configuration)
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
     ]
+}
+
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('test') {
+    jvmArgs += ['--enable-preview']
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
 }
 
 // Spring Boot configuration

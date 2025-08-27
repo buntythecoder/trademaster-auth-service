@@ -217,8 +217,9 @@ public class DeviceController {
         
         DeviceSettings updatedSettings = deviceTrustService.updateDeviceSettings(userId, settings, sessionId);
         
-        securityAuditService.logSecurityEvent(userId, sessionId, "DEVICE_SETTINGS_UPDATED", 
-                "Device trust settings updated", com.trademaster.auth.entity.SecurityAuditLog.RiskLevel.LOW, request, null);
+        securityAuditService.logSecurityEvent(Long.parseLong(userId), "DEVICE_SETTINGS_UPDATED", 
+                "INFO", request.getRemoteAddr(), request.getHeader("User-Agent"), 
+                Map.of("action", "Device trust settings updated"));
         
         return ResponseEntity.ok(updatedSettings);
     }

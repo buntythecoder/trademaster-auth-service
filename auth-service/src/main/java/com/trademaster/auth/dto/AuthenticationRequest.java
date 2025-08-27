@@ -19,16 +19,29 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class AuthenticationRequest {
 
+    private Long requestId; // Request tracking ID
+    
     @Email(message = "Email must be valid")
     @NotBlank(message = "Email is required")
     private String email;
+    
+    private String username;  // Can be email or username
 
     @NotBlank(message = "Password is required")
     private String password;
 
+    private String mfaCode;  // 6-digit MFA code
+    
+    private String biometricData;  // Biometric authentication data
+    
+    private String socialProvider;  // GOOGLE, FACEBOOK, etc.
+    private String socialToken;     // OAuth token from social provider
+
+    @Builder.Default
     private boolean rememberMe = false;
 
-    private boolean mfaBypass = false; // For testing purposes only
+    @Builder.Default
+    private boolean mfaBypass = false;
 
     private String deviceInfo;
 }

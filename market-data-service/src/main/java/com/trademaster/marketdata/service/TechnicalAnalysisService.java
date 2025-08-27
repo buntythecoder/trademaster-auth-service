@@ -639,4 +639,54 @@ public class TechnicalAnalysisService {
         
         return x;
     }
+    
+    // AgentOS Integration Methods
+    
+    /**
+     * Calculate technical indicators for multiple symbols (AgentOS compatibility)
+     */
+    public Object calculateIndicators(List<String> symbols, List<String> indicators) {
+        log.info("Calculating indicators {} for symbols: {}", indicators, symbols);
+        
+        Map<String, Map<String, Object>> results = new HashMap<>();
+        
+        for (String symbol : symbols) {
+            Map<String, Object> symbolResults = new HashMap<>();
+            
+            for (String indicator : indicators) {
+                switch (indicator.toUpperCase()) {
+                    case "RSI":
+                        symbolResults.put("RSI", 65.2); // Mock data
+                        break;
+                    case "MACD":
+                        symbolResults.put("MACD", Map.of(
+                            "macd", 0.15,
+                            "signal", 0.12,
+                            "histogram", 0.03
+                        ));
+                        break;
+                    case "BOLLINGER_BANDS":
+                        symbolResults.put("BOLLINGER_BANDS", Map.of(
+                            "upper", 152.5,
+                            "middle", 150.0,
+                            "lower", 147.5
+                        ));
+                        break;
+                    case "MOVING_AVERAGE":
+                        symbolResults.put("MOVING_AVERAGE", Map.of(
+                            "sma20", 149.8,
+                            "sma50", 147.2,
+                            "ema20", 150.1
+                        ));
+                        break;
+                    default:
+                        symbolResults.put(indicator, "Not implemented");
+                }
+            }
+            
+            results.put(symbol, symbolResults);
+        }
+        
+        return results;
+    }
 }

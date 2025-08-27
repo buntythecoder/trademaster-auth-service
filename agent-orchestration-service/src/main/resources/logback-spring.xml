@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MANDATORY: Structured JSON Logging Configuration for ELK Stack -->
+<configuration>
+    <springProfile name="!prod">
+        <!-- Development Profile: Human-readable console logging -->
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod">
+        <!-- Production Profile: MANDATORY Structured JSON Logging -->
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                <providers>
+                    <timestamp>
+                        <timeZone>UTC</timeZone>
+                        <fieldName>@timestamp</fieldName>
+                    </timestamp>
+                    <version/>
+                    <logLevel>
+                        <fieldName>level</fieldName>
+                    </logLevel>
+                    <message>
+                        <fieldName>message</fieldName>
+                    </message>
+                    <mdc>
+                        <fieldName>mdc</fieldName>
+                    </mdc>
+                    <arguments>
+                        <fieldName>arguments</fieldName>
+                    </arguments>
+                    <stackTrace>
+                        <fieldName>stack_trace</fieldName>
+                    </stackTrace>
+                    <pattern>
+                        <pattern>
+                            {
+                                "service": "agent-orchestration-service",
+                                "environment": "${spring.profiles.active:-prod}",
+                                "host": "${HOSTNAME:-unknown}",
+                                "thread": "%thread",
+                                "logger": "%logger"
+                            }
+                        </pattern>
+                    </pattern>
+                </providers>
+            </encoder>
+        </appender>
+        
+        <!-- Separate appender for audit logs -->
+        <appender name="AUDIT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                <providers>
+                    <timestamp>
+                        <timeZone>UTC</timeZone>
+                        <fieldName>@timestamp</fieldName>
+                    </timestamp>
+                    <logLevel>
+                        <fieldName>level</fieldName>
+                    </logLevel>
+                    <message>
+                        <fieldName>message</fieldName>
+                    </message>
+                    <mdc>
+                        <fieldName>context</fieldName>
+                    </mdc>
+                    <arguments>
+                        <fieldName>data</fieldName>
+                    </arguments>
+                    <pattern>
+                        <pattern>
+                            {
+                                "service": "agent-orchestration-service",
+                                "log_type": "audit",
+                                "environment": "${spring.profiles.active:-prod}",
+                                "host": "${HOSTNAME:-unknown}"
+                            }
+                        </pattern>
+                    </pattern>
+                </providers>
+            </encoder>
+        </appender>
+        
+        <!-- Security logs -->
+        <logger name="SECURITY" level="INFO" additivity="false">
+            <appender-ref ref="AUDIT_JSON"/>
+        </logger>
+        
+        <!-- Business audit logs -->
+        <logger name="AUDIT" level="INFO" additivity="false">
+            <appender-ref ref="AUDIT_JSON"/>
+        </logger>
+        
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- Service-specific loggers -->
+    <logger name="com.trademaster.agentos" level="INFO"/>
+    <logger name="org.springframework.kafka" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN"/>
+    <logger name="org.springframework.security" level="INFO"/>
+    
+    <!-- Virtual Thread monitoring -->
+    <logger name="java.lang.VirtualThread" level="DEBUG"/>
+</configuration>

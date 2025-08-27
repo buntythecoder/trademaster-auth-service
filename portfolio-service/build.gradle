@@ -32,11 +32,20 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    
+    // AgentOS Framework Dependencies
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-configuration-processor'
     
     // Database
     implementation 'org.postgresql:postgresql'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql'
+    
+    // Time-Series Database (InfluxDB)
+    implementation 'com.influxdb:influxdb-client-java:7.1.0'
     
     // HTTP Client
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
@@ -74,6 +83,7 @@ dependencies {
     testImplementation 'org.mockito:mockito-junit-jupiter'
 }
 
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
 tasks.named('compileJava') {
     options.compilerArgs += ['--enable-preview']
 }
@@ -87,8 +97,16 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-tasks.named('bootRun') {
+tasks.withType(JavaExec).configureEach {
     jvmArgs += ['--enable-preview']
+}
+
+// Boot run configuration
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
+    ]
 }
 
 tasks.named('bootJar') {
@@ -97,7 +115,8 @@ tasks.named('bootJar') {
     }
 }
 
-// Build info for Spring Boot Actuator
+// Spring Boot configuration
 springBoot {
+    mainClass = 'com.trademaster.portfolio.PortfolioServiceApplication'
     buildInfo()
 }

@@ -38,6 +38,9 @@ public class SecurityAuditLog {
     @Column(name = "event_type", nullable = false, length = 50)
     private String eventType;
 
+    @Column(name = "severity", length = 20)
+    private String severity;
+
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
@@ -54,9 +57,16 @@ public class SecurityAuditLog {
     @Column(name = "metadata", columnDefinition = "jsonb")
     private Map<String, Object> metadata;
 
+    @Type(JsonType.class)
+    @Column(name = "event_details", columnDefinition = "jsonb")
+    private Map<String, Object> eventDetails;
+
     @Column(name = "risk_level", length = 20)
     @Enumerated(EnumType.STRING)
     private RiskLevel riskLevel;
+
+    @Column(name = "risk_score")
+    private Integer riskScore;
 
     @Column(name = "timestamp")
     @Builder.Default

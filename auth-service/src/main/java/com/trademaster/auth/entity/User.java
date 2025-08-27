@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -68,6 +69,16 @@ public class User implements UserDetails {
     @NotBlank(message = "Email is required")
     @Column(unique = true, nullable = false)
     private String email;
+    
+    @NotBlank(message = "First name is required")
+    @Size(max = 100, message = "First name must not exceed 100 characters")
+    @Column(name = "first_name", nullable = false)
+    private String firstName;
+
+    @NotBlank(message = "Last name is required")  
+    @Size(max = 100, message = "Last name must not exceed 100 characters")
+    @Column(name = "last_name", nullable = false)
+    private String lastName;
 
     @JsonIgnore
     @NotBlank(message = "Password is required")
@@ -118,6 +129,22 @@ public class User implements UserDetails {
 
     @Column(name = "device_fingerprint", length = 512)
     private String deviceFingerprint;
+    
+    @Column(name = "enabled", nullable = false)
+    @Builder.Default
+    private boolean enabled = true;
+    
+    @Column(name = "account_non_expired", nullable = false)
+    @Builder.Default
+    private boolean accountNonExpired = true;
+    
+    @Column(name = "account_non_locked", nullable = false)
+    @Builder.Default
+    private boolean accountNonLocked = true;
+    
+    @Column(name = "credentials_non_expired", nullable = false)
+    @Builder.Default
+    private boolean credentialsNonExpired = true;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -140,12 +167,15 @@ public class User implements UserDetails {
     private UserProfile userProfile;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private Set<UserRoleAssignment> roleAssignments = new HashSet<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private Set<MfaConfiguration> mfaConfigurations = new HashSet<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private Set<UserDevice> userDevices = new HashSet<>();
 
     // UserDetails implementation
@@ -201,7 +231,7 @@ public class User implements UserDetails {
     // Business logic methods
     public boolean isMfaEnabled() {
         return mfaConfigurations.stream()
-                .anyMatch(MfaConfiguration::getIsEnabled);
+                .anyMatch(MfaConfiguration::isEnabled);
     }
 
     public boolean isSubscriptionActive() {

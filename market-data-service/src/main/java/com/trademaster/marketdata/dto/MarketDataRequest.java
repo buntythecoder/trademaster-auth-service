@@ -1,30 +1,35 @@
 package com.trademaster.marketdata.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Market Data Request Record
  * 
  * Immutable request object for market data operations following Java 24 patterns.
+ * Enhanced for AgentOS multi-symbol and multi-operation support.
  * 
  * @author TradeMaster Development Team
  * @version 1.0.0
  */
 public record MarketDataRequest(
-    String symbol,
-    String exchange,
+    Long requestId,
+    List<String> symbols,
+    String timeframe,
+    boolean includeIndicators,
+    Object scanCriteria,
+    String dataType,
     LocalDateTime from,
     LocalDateTime to,
-    String interval,
-    String dataType
+    String exchange
 ) {
     public MarketDataRequest {
-        // Validation can be added here if needed
-        if (symbol == null || symbol.isBlank()) {
-            throw new IllegalArgumentException("Symbol cannot be null or empty");
+        // Validation for AgentOS compatibility
+        if (symbols == null || symbols.isEmpty()) {
+            throw new IllegalArgumentException("Symbols list cannot be null or empty");
         }
-        if (exchange == null || exchange.isBlank()) {
-            throw new IllegalArgumentException("Exchange cannot be null or empty");
+        if (requestId == null) {
+            throw new IllegalArgumentException("Request ID cannot be null");
         }
     }
     
@@ -33,20 +38,43 @@ public record MarketDataRequest(
     }
     
     public static class MarketDataRequestBuilder {
-        private String symbol;
-        private String exchange;
+        private Long requestId;
+        private List<String> symbols;
+        private String timeframe = "1D";
+        private boolean includeIndicators = false;
+        private Object scanCriteria;
+        private String dataType = "PRICE";
         private LocalDateTime from;
         private LocalDateTime to;
-        private String interval = "1min";
-        private String dataType = "PRICE";
+        private String exchange;
         
-        public MarketDataRequestBuilder symbol(String symbol) {
-            this.symbol = symbol;
+        public MarketDataRequestBuilder requestId(Long requestId) {
+            this.requestId = requestId;
             return this;
         }
         
-        public MarketDataRequestBuilder exchange(String exchange) {
-            this.exchange = exchange;
+        public MarketDataRequestBuilder symbols(List<String> symbols) {
+            this.symbols = symbols;
+            return this;
+        }
+        
+        public MarketDataRequestBuilder timeframe(String timeframe) {
+            this.timeframe = timeframe;
+            return this;
+        }
+        
+        public MarketDataRequestBuilder includeIndicators(boolean includeIndicators) {
+            this.includeIndicators = includeIndicators;
+            return this;
+        }
+        
+        public MarketDataRequestBuilder scanCriteria(Object scanCriteria) {
+            this.scanCriteria = scanCriteria;
+            return this;
+        }
+        
+        public MarketDataRequestBuilder dataType(String dataType) {
+            this.dataType = dataType;
             return this;
         }
         
@@ -60,18 +88,14 @@ public record MarketDataRequest(
             return this;
         }
         
-        public MarketDataRequestBuilder interval(String interval) {
-            this.interval = interval;
-            return this;
-        }
-        
-        public MarketDataRequestBuilder dataType(String dataType) {
-            this.dataType = dataType;
+        public MarketDataRequestBuilder exchange(String exchange) {
+            this.exchange = exchange;
             return this;
         }
         
         public MarketDataRequest build() {
-            return new MarketDataRequest(symbol, exchange, from, to, interval, dataType);
+            return new MarketDataRequest(requestId, symbols, timeframe, includeIndicators, 
+                                       scanCriteria, dataType, from, to, exchange);
         }
     }
 }

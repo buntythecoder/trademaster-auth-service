@@ -97,7 +97,7 @@ public class ProfileAuditLog {
     }
 }
 
-enum ChangeType {
+public enum ChangeType {
     CREATE("Create", "Entity created"),
     UPDATE("Update", "Entity updated"),
     DELETE("Delete", "Entity deleted"),
@@ -123,7 +123,7 @@ enum ChangeType {
     }
 }
 
-enum EntityType {
+public enum EntityType {
     PROFILE("Profile", "User profile information"),
     DOCUMENT("Document", "User uploaded documents"),
     TRADING_PREFERENCES("Trading Preferences", "Trading configuration and preferences"),

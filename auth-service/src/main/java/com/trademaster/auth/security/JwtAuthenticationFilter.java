@@ -1,6 +1,7 @@
 package com.trademaster.auth.security;
 
 import com.trademaster.auth.entity.User;
+import com.trademaster.auth.pattern.*;
 import com.trademaster.auth.service.UserService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,6 +18,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.IntStream;
 
 /**
  * JWT Authentication Filter for processing JWT tokens in requests
@@ -44,117 +48,133 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                    HttpServletResponse response, 
                                    FilterChain filterChain) throws ServletException, IOException {
         
-        String jwt = getJwtFromRequest(request);
-        
-        if (StringUtils.hasText(jwt)) {
-            try {
-                // Validate token
-                if (jwtTokenProvider.validateToken(jwt)) {
-                    // Check if it's an access token (not refresh token)
-                    if (!jwtTokenProvider.isRefreshToken(jwt)) {
-                        Long userId = jwtTokenProvider.getUserIdFromToken(jwt);
-                        
-                        // Load user details
-                        UserDetails userDetails = userService.loadUserById(userId);
-                        
-                        if (userDetails != null && userDetails.isEnabled()) {
-                            User user = (User) userDetails;
-                            
-                            // Validate device fingerprint for additional security
-                            String currentDeviceFingerprint = deviceFingerprintService.generateFingerprint(request);
-                            String tokenDeviceFingerprint = jwtTokenProvider.getDeviceFingerprintFromToken(jwt);
-                            
-                            if (isDeviceFingerprintValid(currentDeviceFingerprint, tokenDeviceFingerprint)) {
-                                // Create authentication token
-                                UsernamePasswordAuthenticationToken authentication = 
-                                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-                                
-                                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                                
-                                // Set authentication context
-                                SecurityContextHolder.getContext().setAuthentication(authentication);
-                                
-                                // Update user's last activity
-                                userService.updateLastActivity(userId, request.getRemoteAddr(), currentDeviceFingerprint);
-                                
-                                log.debug("User {} authenticated successfully with JWT token", user.getEmail());
-                            } else {
-                                log.warn("Device fingerprint mismatch for user {}", userId);
-                                // Don't set authentication - will be treated as unauthenticated
-                            }
-                        } else {
-                            log.warn("User not found or disabled for user ID: {}", userId);
-                        }
-                    } else {
-                        log.debug("Refresh token used in authentication header - ignoring");
-                    }
-                } else {
-                    log.debug("JWT token validation failed");
-                }
-            } catch (Exception e) {
-                log.error("Error processing JWT token: {}", e.getMessage());
-                SecurityContextHolder.clearContext();
-            }
-        }
+        Optional.ofNullable(getJwtFromRequest(request))
+            .filter(StringUtils::hasText)
+            .ifPresent(jwt -> processJwtAuthentication(jwt, request));
         
         filterChain.doFilter(request, response);
+    }
+    
+    private void processJwtAuthentication(String jwt, HttpServletRequest request) {
+        SafeOperations.safelyToResult(() -> authenticateWithJwt(jwt, request))
+            .mapError(e -> {
+                log.error("Error processing JWT token: {}", e);
+                SecurityContextHolder.clearContext();
+                return "false";
+            })
+            .fold(
+                result -> result,
+                error -> false
+            );
+    }
+    
+    private Boolean authenticateWithJwt(String jwt, HttpServletRequest request) {
+        return Optional.of(jwt)
+            .filter(jwtTokenProvider::validateToken)
+            .filter(token -> !jwtTokenProvider.isRefreshToken(token))
+            .map(token -> processValidToken(token, request))
+            .orElseGet(() -> {
+                log.debug("JWT token validation failed or is refresh token");
+                return false;
+            });
+    }
+    
+    private Boolean processValidToken(String jwt, HttpServletRequest request) {
+        Long userId = jwtTokenProvider.getUserIdFromToken(jwt);
+        
+        return Optional.ofNullable(userService.loadUserById(userId))
+            .filter(Objects::nonNull)
+            .filter(UserDetails::isEnabled)
+            .map(userDetails -> (User) userDetails)
+            .filter(user -> validateDeviceFingerprint(jwt, request, user))
+            .map(user -> {
+                createAndSetAuthentication(user, request);
+                updateUserActivity(userId, request);
+                log.debug("User {} authenticated successfully with JWT token", user.getEmail());
+                return true;
+            })
+            .orElseGet(() -> {
+                log.warn("User not found, disabled, or device fingerprint mismatch for user ID: {}", userId);
+                return false;
+            });
+    }
+    
+    private Boolean validateDeviceFingerprint(String jwt, HttpServletRequest request, User user) {
+        String currentFingerprint = deviceFingerprintService.generateFingerprint(request);
+        String tokenFingerprint = jwtTokenProvider.getDeviceFingerprintFromToken(jwt);
+        
+        return Optional.of(isDeviceFingerprintValid(currentFingerprint, tokenFingerprint))
+            .filter(valid -> valid)
+            .or(() -> {
+                log.warn("Device fingerprint mismatch for user {}", user.getId());
+                return Optional.of(false);
+            })
+            .orElse(false);
+    }
+    
+    private void createAndSetAuthentication(User user, HttpServletRequest request) {
+        UsernamePasswordAuthenticationToken authentication = 
+            new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
+        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+    }
+    
+    private void updateUserActivity(Long userId, HttpServletRequest request) {
+        String currentFingerprint = deviceFingerprintService.generateFingerprint(request);
+        userService.updateLastActivity(userId, request.getRemoteAddr(), currentFingerprint);
     }
 
     /**
      * Extract JWT token from request Authorization header
      */
     private String getJwtFromRequest(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
-        }
-        return null;
+        return Optional.ofNullable(request.getHeader("Authorization"))
+            .filter(StringUtils::hasText)
+            .filter(token -> token.startsWith("Bearer "))
+            .map(token -> token.substring(7))
+            .orElse(null);
     }
 
     /**
      * Validate device fingerprint with some tolerance for browser updates
      */
     private boolean isDeviceFingerprintValid(String currentFingerprint, String tokenFingerprint) {
-        if (currentFingerprint == null || tokenFingerprint == null) {
-            return false;
-        }
-        
-        // Exact match
-        if (currentFingerprint.equals(tokenFingerprint)) {
-            return true;
-        }
-        
-        // Calculate similarity for browser updates tolerance
-        double similarity = calculateFingerPrintSimilarity(currentFingerprint, tokenFingerprint);
-        
-        // Allow 85% similarity to account for minor browser updates
-        return similarity >= 0.85;
+        return Optional.ofNullable(currentFingerprint)
+            .flatMap(current -> Optional.ofNullable(tokenFingerprint)
+                .map(token -> validateFingerprintMatch(current, token)))
+            .orElse(false);
+    }
+    
+    private Boolean validateFingerprintMatch(String currentFingerprint, String tokenFingerprint) {
+        return Optional.of(currentFingerprint.equals(tokenFingerprint))
+            .filter(exactMatch -> exactMatch)
+            .map(match -> true)
+            .orElseGet(() -> {
+                double similarity = calculateFingerPrintSimilarity(currentFingerprint, tokenFingerprint);
+                return similarity >= 0.85;
+            });
     }
 
     /**
      * Calculate fingerprint similarity using Jaccard similarity
      */
     private double calculateFingerPrintSimilarity(String fp1, String fp2) {
-        if (fp1 == null || fp2 == null) {
-            return 0.0;
-        }
-        
-        // Split fingerprints into components
-        String[] components1 = fp1.split(":");
-        String[] components2 = fp2.split(":");
-        
-        if (components1.length != components2.length) {
-            return 0.0;
-        }
-        
-        int matches = 0;
-        for (int i = 0; i < components1.length; i++) {
-            if (components1[i].equals(components2[i])) {
-                matches++;
-            }
-        }
-        
-        return (double) matches / components1.length;
+        return Optional.ofNullable(fp1)
+            .flatMap(f1 -> Optional.ofNullable(fp2).map(f2 -> new String[]{f1, f2}))
+            .map(fps -> calculateComponentSimilarity(fps[0].split(":"), fps[1].split(":")))
+            .orElse(0.0);
+    }
+    
+    private Double calculateComponentSimilarity(String[] components1, String[] components2) {
+        return Optional.of(components1.length == components2.length)
+            .filter(sameLength -> sameLength)
+            .map(sameLength -> {
+                long matches = IntStream.range(0, components1.length)
+                    .filter(i -> components1[i].equals(components2[i]))
+                    .count();
+                return (double) matches / components1.length;
+            })
+            .orElse(0.0);
     }
 
     /**

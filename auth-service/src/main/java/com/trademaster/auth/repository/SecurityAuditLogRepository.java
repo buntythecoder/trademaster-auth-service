@@ -58,4 +58,12 @@ public interface SecurityAuditLogRepository extends JpaRepository<SecurityAuditL
     long countFailedLoginsFromIp(@Param("ipAddress") java.net.InetAddress ipAddress, @Param("since") LocalDateTime since);
 
     void deleteByTimestampBefore(LocalDateTime cutoffDate);
+
+    List<SecurityAuditLog> findByTimestampBetween(LocalDateTime start, LocalDateTime end);
+
+    List<SecurityAuditLog> findByEventTypeAndTimestampBetween(String eventType, LocalDateTime start, LocalDateTime end);
+    
+    long countByUserIdAndEventType(Long userId, String eventType);
+    
+    Page<SecurityAuditLog> findByUserIdOrderByTimestampDesc(String userId, Pageable pageable);
 }

@@ -1,0 +1,190 @@
+server:
+  port: 8085
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: payment-service
+  
+  # MANDATORY: Virtual Threads Configuration
+  threads:
+    virtual:
+      enabled: true
+  
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_payment
+    username: trademaster_user
+    password: trademaster_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 50  # Optimized for Virtual Threads
+      minimum-idle: 10       # Standards compliant
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_versioned_data: true
+        connection:
+          handling_mode: delayed_acquisition_and_release_after_transaction  # Virtual Threads optimization
+  
+  # Flyway Configuration
+  flyway:
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+  
+  # Redis Configuration
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+  
+  # Security Configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/api/v1/auth
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: payment-service
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.trademaster.payment.events"
+
+# Payment Gateway Configuration
+payment:
+  razorpay:
+    key-id: ${RAZORPAY_KEY_ID:rzp_test_placeholder}
+    key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:placeholder_webhook_secret}
+    currency: INR
+    timeout: 30000
+  
+  stripe:
+    publishable-key: ${STRIPE_PUBLISHABLE_KEY:pk_test_placeholder}
+    secret-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_placeholder}
+    currency: USD
+    timeout: 30000
+  
+  # Payment Configuration
+  retry:
+    max-attempts: 3
+    backoff-delay: 1000
+  
+  webhook:
+    timeout: 10000
+    retry-attempts: 3
+
+# Security Configuration
+security:
+  payment:
+    encryption:
+      algorithm: AES
+      key-length: 256
+    token-expiry: 3600
+
+# Rate Limiting Configuration
+rate-limiting:
+  payment:
+    capacity: 100
+    tokens: 10
+    refill-period: 60
+
+# MANDATORY: Enhanced Monitoring Configuration per TradeMaster Standards
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env,threaddump,heapdump
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        step: 1m
+        descriptions: true
+    distribution:
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+        payments.processing.duration: 0.5, 0.95, 0.99
+        refunds.processing.duration: 0.5, 0.95, 0.99
+        webhooks.processing.duration: 0.5, 0.95, 0.99
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms
+        payments.processing.duration: 100ms,500ms,1s,5s
+        refunds.processing.duration: 100ms,500ms,1s,5s
+    tags:
+      application: trademaster
+      service: payment-service
+      environment: ${spring.profiles.active:local}
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.payment: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Custom Application Properties
+app:
+  payment:
+    success-redirect-url: ${FRONTEND_URL:http://localhost:3000}/payment/success
+    cancel-redirect-url: ${FRONTEND_URL:http://localhost:3000}/payment/cancel
+    webhook-base-url: ${WEBHOOK_BASE_URL:http://localhost:8085}/api/v1/webhooks
+  
+  notification:
+    email:
+      enabled: true
+      template-path: classpath:templates/email/
+    sms:
+      enabled: false
+  
+  audit:
+    enabled: true
+    retention-days: 2555  # 7 years for financial compliance

@@ -68,6 +68,7 @@ public class UserRole {
 
     // Relationships
     @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private Set<UserRoleAssignment> assignments = new HashSet<>();
 
     // Business logic methods

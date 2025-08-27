@@ -62,8 +62,8 @@ public class FunctionalNotificationService {
     private final AsyncTaskExecutor pushExecutor;
     private final AsyncTaskExecutor templateExecutor;
 
-    // Railway Oriented Programming - Result Type
-    public sealed interface NotificationResult<T, E> permits NotificationSuccess, NotificationFailure {
+    // Railway Oriented Programming - Result Type  
+    public sealed interface NotificationResult<T, E> permits NotificationResult.NotificationSuccess, NotificationResult.NotificationFailure {
         record NotificationSuccess<T, E>(T value) implements NotificationResult<T, E> {}
         record NotificationFailure<T, E>(E error) implements NotificationResult<T, E> {}
         

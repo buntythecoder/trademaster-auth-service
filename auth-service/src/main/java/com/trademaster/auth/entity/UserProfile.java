@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
@@ -68,6 +69,14 @@ public class UserProfile {
 
     @Column(name = "country_code", length = 3)
     private String countryCode;
+    
+    @Size(max = 20, message = "Phone number must not exceed 20 characters")
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
+    
+    @Size(max = 500, message = "Address must not exceed 500 characters")
+    @Column(name = "address", length = 500)
+    private String address;
 
     @Column(name = "timezone", length = 50)
     @Builder.Default

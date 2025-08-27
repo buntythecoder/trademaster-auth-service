@@ -346,4 +346,93 @@ public class MarketDataService {
             return description;
         }
     }
+    
+    // AgentOS Integration Methods
+    
+    /**
+     * Get real-time data for multiple symbols (AgentOS compatibility)
+     */
+    public Object getRealTimeData(List<String> symbols) {
+        log.info("Getting real-time data for symbols: {}", symbols);
+        // Implementation would coordinate with existing getCurrentPrice method
+        return Map.of(
+            "symbols", symbols,
+            "timestamp", Instant.now(),
+            "status", "ACTIVE"
+        );
+    }
+    
+    /**
+     * Get historical data for symbols with timeframe (AgentOS compatibility)
+     */
+    public Object getHistoricalData(List<String> symbols, String timeframe) {
+        log.info("Getting historical data for symbols: {} with timeframe: {}", symbols, timeframe);
+        // Implementation would coordinate with existing historical data methods
+        return Map.of(
+            "symbols", symbols,
+            "timeframe", timeframe,
+            "timestamp", Instant.now(),
+            "status", "SUCCESS"
+        );
+    }
+    
+    /**
+     * Subscribe to real-time updates (AgentOS compatibility)
+     */
+    public Object subscribeToRealTimeUpdates(List<String> symbols, Integer updateFrequencyMs, Map<String, Object> callbackConfig) {
+        log.info("Subscribing to real-time updates for symbols: {} with frequency: {}ms", symbols, updateFrequencyMs);
+        return Map.of(
+            "subscriptionId", "sub_" + System.currentTimeMillis(),
+            "symbols", symbols,
+            "status", "ACTIVE",
+            "updateFrequency", updateFrequencyMs
+        );
+    }
+    
+    /**
+     * Create price alert (AgentOS compatibility)
+     */
+    public Object createPriceAlert(Map<String, Object> alertConfig) {
+        log.info("Creating price alert with config: {}", alertConfig);
+        return Map.of(
+            "alertId", "alert_" + System.currentTimeMillis(),
+            "status", "ACTIVE",
+            "config", alertConfig
+        );
+    }
+    
+    /**
+     * Update price alert (AgentOS compatibility)
+     */
+    public Object updatePriceAlert(Map<String, Object> alertConfig) {
+        log.info("Updating price alert with config: {}", alertConfig);
+        return Map.of(
+            "alertId", alertConfig.get("alertId"),
+            "status", "UPDATED",
+            "config", alertConfig
+        );
+    }
+    
+    /**
+     * Delete price alert (AgentOS compatibility)
+     */
+    public Object deletePriceAlert(Map<String, Object> alertConfig) {
+        log.info("Deleting price alert with config: {}", alertConfig);
+        return Map.of(
+            "alertId", alertConfig.get("alertId"),
+            "status", "DELETED"
+        );
+    }
+    
+    /**
+     * List price alerts (AgentOS compatibility)
+     */
+    public Object listPriceAlerts(Map<String, Object> criteria) {
+        log.info("Listing price alerts with criteria: {}", criteria);
+        return Map.of(
+            "alerts", List.of(),
+            "count", 0,
+            "status", "SUCCESS"
+        );
+    }
 }

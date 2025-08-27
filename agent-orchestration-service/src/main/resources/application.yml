@@ -1,0 +1,297 @@
+# TradeMaster Agent OS - Orchestration Service Configuration
+
+spring:
+  application:
+    name: agent-orchestration-service
+  
+  profiles:
+    active: development
+    
+  # MANDATORY: Virtual Threads enabled for high-concurrency operations
+  threads:
+    virtual:
+      enabled: true
+    
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_agentos
+    username: trademaster_agent
+    password: agent_secure_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+
+  # JPA/Hibernate Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.SnakeCasePhysicalNamingStrategy
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        show_sql: false
+        jdbc:
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+        jdbc.lob.non_contextual_creation: true
+    show-sql: false
+    open-in-view: false
+
+  # Redis Configuration
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    timeout: 5000ms
+    jedis:
+      pool:
+        max-active: 10
+        max-idle: 8
+        min-idle: 2
+        max-wait: 5000ms
+
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: agent-orchestration-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.trademaster.agentos.events
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+  # Security Configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/auth/realms/trademaster
+
+# Server Configuration
+server:
+  port: 8090
+  servlet:
+    context-path: /agent-os
+  compression:
+    enabled: true
+  http2:
+    enabled: true
+
+# Management Endpoints (Actuator)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,configprops,env
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    web:
+      server:
+        request:
+          autotime:
+            enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.agentos: INFO
+    org.springframework.kafka: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Agent OS Specific Configuration
+agentos:
+  # Orchestration Configuration
+  orchestration:
+    enabled: true
+    max-concurrent-workflows: 100
+    workflow-timeout-seconds: 1800
+    task-timeout-seconds: 300
+    heartbeat-interval-seconds: 30
+    health-check-interval-seconds: 60
+    
+  # Agent Management Configuration
+  agents:
+    max-instances-per-type: 10
+    default-max-concurrent-tasks: 5
+    registration-timeout-seconds: 30
+    heartbeat-timeout-seconds: 90
+    cleanup-interval-seconds: 300
+    auto-scaling:
+      enabled: true
+      scale-up-threshold: 0.8
+      scale-down-threshold: 0.3
+      min-instances: 1
+      max-instances: 50
+    
+  # Task Queue Configuration
+  tasks:
+    queue-size: 1000
+    batch-size: 10
+    retry-max-attempts: 3
+    retry-delay-seconds: 5
+    cleanup-completed-after-hours: 24
+    cleanup-failed-after-hours: 72
+    priority-queue-enabled: true
+    
+  # Resource Management Configuration
+  resources:
+    cpu-limit: 4.0
+    memory-limit-mb: 4096
+    disk-limit-gb: 100
+    network-limit-mbps: 1000
+    monitoring-enabled: true
+    
+  # Performance Configuration
+  performance:
+    cache-enabled: true
+    cache-ttl-seconds: 300
+    async-processing: true
+    parallel-execution: true
+    batch-processing: true
+    
+  # Security Configuration
+  security:
+    jwt-secret: ${JWT_SECRET:default-secret-change-in-production}
+    jwt-expiration-hours: 24
+    api-rate-limit: 1000
+    enable-cors: true
+    allowed-origins: "http://localhost:3000,http://localhost:5173"
+    
+  # Integration Configuration
+  integration:
+    trading-service:
+      url: http://localhost:8081
+      timeout-seconds: 30
+      retry-attempts: 3
+    market-data-service:
+      url: http://localhost:8082
+      timeout-seconds: 15
+      retry-attempts: 2
+    portfolio-service:
+      url: http://localhost:8083
+      timeout-seconds: 45
+      retry-attempts: 3
+    notification-service:
+      url: http://localhost:8084
+      timeout-seconds: 10
+      retry-attempts: 2
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: development
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trademaster_agentos_dev
+    username: trademaster_dev
+    password: dev_password
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  kafka:
+    bootstrap-servers: localhost:9092
+
+logging:
+  level:
+    com.trademaster.agentos: DEBUG
+    org.springframework.kafka: INFO
+    org.hibernate.SQL: DEBUG
+
+agentos:
+  orchestration:
+    max-concurrent-workflows: 10
+  agents:
+    max-instances-per-type: 3
+  performance:
+    cache-enabled: false
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/trademaster_agentos}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  redis:
+    host: ${REDIS_HOST:redis}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:kafka:9092}
+
+logging:
+  level:
+    com.trademaster.agentos: INFO
+    org.springframework.kafka: WARN
+    org.hibernate: WARN
+
+agentos:
+  orchestration:
+    max-concurrent-workflows: 500
+  agents:
+    max-instances-per-type: 25
+  security:
+    jwt-secret: ${JWT_SECRET}
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+  integration:
+    trading-service:
+      url: ${TRADING_SERVICE_URL:http://trading-service:8081}
+    market-data-service:
+      url: ${MARKET_DATA_SERVICE_URL:http://market-data-service:8082}
+    portfolio-service:
+      url: ${PORTFOLIO_SERVICE_URL:http://portfolio-service:8083}
+    notification-service:
+      url: ${NOTIFICATION_SERVICE_URL:http://notification-service:8084}

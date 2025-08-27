@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.3'
     id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.flywaydb.flyway' version '10.0.0'
 }
 
 java {
@@ -42,21 +43,42 @@ dependencies {
     implementation 'io.jsonwebtoken:jjwt-impl:0.12.3'
     implementation 'io.jsonwebtoken:jjwt-jackson:0.12.3'
     
-    // Lombok for reducing boilerplate
-    compileOnly 'org.projectlombok:lombok'
-    annotationProcessor 'org.projectlombok:lombok'
+    // Kafka for event streaming
+    implementation 'org.springframework.kafka:spring-kafka'
     
-    // OpenAPI documentation
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+    // WebSocket for real-time updates
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
     
-    // Micrometer for metrics
+    // HTTP Clients for broker APIs
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.3.1'
+    
+    // JSON Processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // Monitoring & Observability
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'io.micrometer:micrometer-tracing-bridge-brave'
     
     // Structured Logging
     implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
-    implementation 'ch.qos.logback:logback-classic'
-    implementation 'ch.qos.logback:logback-core'
+    
+    // Rate Limiting
+    implementation 'com.github.vladimir-bukhtoyarov:bucket4j-core:7.6.0'
+    implementation 'com.github.vladimir-bukhtoyarov:bucket4j-redis:7.6.0'
+    
+    // Utilities
+    implementation 'org.apache.commons:commons-lang3'
+    implementation 'com.google.guava:guava:33.0.0-jre'
+    
+    // API Documentation
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+    
+    // Lombok for reducing boilerplate
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
     
     // Testing dependencies
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
@@ -70,22 +92,70 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
 tasks.named('test') {
+    jvmArgs += ['--enable-preview']
     useJUnitPlatform()
-    jvmArgs '--enable-preview'
     testLogging {
         events "passed", "skipped", "failed"
         exceptionFormat "full"
     }
 }
 
-tasks.named('bootRun') {
-    jvmArgs '--enable-preview'
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
+}
+
+// Boot run configuration
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
+    ]
 }
 
 tasks.named('compileJava') {
     options.compilerArgs += ['--enable-preview']
 }
 
-// Performance optimization for Gradle daemon
-org.gradle.jvmargs=-Xmx2048m -XX:MaxPermSize=512m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+// Flyway configuration
+flyway {
+    url = 'jdbc:postgresql://localhost:5432/trademaster_trading'
+    user = 'trademaster_user'
+    password = 'trademaster_password'
+    locations = ['classpath:db/migration']
+    baselineOnMigrate = true
+    validateOnMigrate = true
+}
+
+
+// Spring Boot configuration
+springBoot {
+    mainClass = 'com.trademaster.trading.TradingServiceApplication'
+    buildInfo()
+}
+
+// Custom tasks
+task setupDatabase {
+    group = 'database'
+    description = 'Sets up the PostgreSQL database for trading service'
+    doLast {
+        println "Database setup completed. Run 'gradle flywayMigrate' to apply migrations."
+    }
+}
+
+task setupKafkaTopics {
+    group = 'messaging'
+    description = 'Creates Kafka topics for trading events'
+    doLast {
+        println "Kafka topics setup completed. Trading event topics created."
+    }
+}

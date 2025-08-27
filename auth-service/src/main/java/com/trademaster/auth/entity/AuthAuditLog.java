@@ -2,11 +2,7 @@ package com.trademaster.auth.entity;
 
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.*;
 import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -108,6 +104,7 @@ public class AuthAuditLog {
     private String signature;
 
     // Event Type enum
+    @Getter
     public enum EventType {
         // Authentication events
         LOGIN_SUCCESS("login_success"),
@@ -158,12 +155,10 @@ public class AuthAuditLog {
             this.value = value;
         }
 
-        public String getValue() {
-            return value;
-        }
     }
 
     // Event Status enum
+    @Getter
     public enum EventStatus {
         SUCCESS("success"),
         FAILED("failed"),
@@ -176,9 +171,6 @@ public class AuthAuditLog {
             this.value = value;
         }
 
-        public String getValue() {
-            return value;
-        }
     }
 
     // Business logic methods

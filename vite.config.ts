@@ -26,7 +26,7 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom'],
           forms: ['react-hook-form', 'zod', '@hookform/resolvers'],
-          ui: ['@radix-ui/react-label', '@radix-ui/react-progress', '@radix-ui/react-slot'],
+          ui: ['@radix-ui/react-label', '@radix-ui/react-progress', '@radix-ui/react-slot', '@radix-ui/react-tabs'],
         },
       },
     },
