@@ -20,9 +20,14 @@ import java.time.Instant;
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record MarketDataResponse(
+    Long requestId,
+    String status,
+    Object data,
+    java.util.List<String> processingResults,
+    String errorMessage,
+    Long processingTimeMs,
     boolean success,
     String message,
-    Object data,
     ResponseMetadata metadata,
     ErrorDetails error,
     Instant timestamp

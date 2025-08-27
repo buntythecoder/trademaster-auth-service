@@ -1,0 +1,374 @@
+version: '3.8'
+
+# TradeMaster Agent OS - Docker Compose Configuration
+# Complete orchestration of Agent OS services with infrastructure dependencies
+
+services:
+  # PostgreSQL Database for Agent OS
+  agent-os-postgres:
+    image: postgres:14-alpine
+    container_name: trademaster-agent-os-postgres
+    environment:
+      POSTGRES_DB: trademaster_agentos
+      POSTGRES_USER: trademaster_agent
+      POSTGRES_PASSWORD: agent_secure_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - agent_os_postgres_data:/var/lib/postgresql/data
+      - ./agent-orchestration-service/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+    networks:
+      - agent-os-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trademaster_agent -d trademaster_agentos"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Redis for Agent OS state management and caching
+  agent-os-redis:
+    image: redis:7-alpine
+    container_name: trademaster-agent-os-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    volumes:
+      - agent_os_redis_data:/data
+    networks:
+      - agent-os-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Apache Kafka for Agent OS event streaming
+  agent-os-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: trademaster-agent-os-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_LOGGERS: "org.apache.zookeeper=WARN"
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+    ports:
+      - "2182:2181"  # Different port to avoid conflicts
+    volumes:
+      - agent_os_zookeeper_data:/var/lib/zookeeper/data
+      - agent_os_zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  agent-os-kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: trademaster-agent-os-kafka
+    depends_on:
+      - agent-os-zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: agent-os-zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,PLAINTEXT_INTERNAL://agent-os-kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_CLEANUP_POLICY: compact
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG4J_LOGGERS: "org.apache.kafka=WARN"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+    ports:
+      - "9093:9092"  # Different port to avoid conflicts
+    volumes:
+      - agent_os_kafka_data:/var/lib/kafka/data
+    networks:
+      - agent-os-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Agent Orchestration Service
+  agent-orchestrator:
+    build:
+      context: ./agent-orchestration-service
+      dockerfile: Dockerfile
+    container_name: trademaster-agent-orchestrator
+    depends_on:
+      agent-os-postgres:
+        condition: service_healthy
+      agent-os-redis:
+        condition: service_healthy
+      agent-os-kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://agent-os-postgres:5432/trademaster_agentos
+      SPRING_DATASOURCE_USERNAME: trademaster_agent
+      SPRING_DATASOURCE_PASSWORD: agent_secure_password
+      SPRING_REDIS_HOST: agent-os-redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: agent-os-kafka:29092
+      JAVA_OPTS: "-Xmx2g -Xms1g --enable-preview"
+      AGENTOS_INTEGRATION_TRADING_SERVICE_URL: http://host.docker.internal:8081
+      AGENTOS_INTEGRATION_MARKET_DATA_SERVICE_URL: http://host.docker.internal:8082
+      AGENTOS_INTEGRATION_PORTFOLIO_SERVICE_URL: http://host.docker.internal:8083
+      AGENTOS_INTEGRATION_NOTIFICATION_SERVICE_URL: http://host.docker.internal:8084
+    ports:
+      - "8090:8090"
+    volumes:
+      - agent_os_logs:/app/logs
+    networks:
+      - agent-os-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8090/agent-os/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Agent Registry Service (will be implemented in Week 2)
+  agent-registry:
+    image: trademaster/agent-registry:latest
+    container_name: trademaster-agent-registry
+    depends_on:
+      - agent-os-postgres
+      - agent-os-redis
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://agent-os-postgres:5432/trademaster_agentos
+      SPRING_REDIS_HOST: agent-os-redis
+    ports:
+      - "8091:8091"
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # MCP Server (Model Context Protocol)
+  mcp-server:
+    image: trademaster/mcp-server:latest
+    container_name: trademaster-mcp-server
+    depends_on:
+      - agent-os-postgres
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://agent-os-postgres:5432/trademaster_agentos
+      TRADING_SERVICE_URL: http://host.docker.internal:8081
+      MARKET_DATA_SERVICE_URL: http://host.docker.internal:8082
+      PORTFOLIO_SERVICE_URL: http://host.docker.internal:8083
+    ports:
+      - "8092:8092"
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+
+  # Sample Agent Instances (will be implemented in Week 4-7)
+  market-analysis-agent:
+    image: trademaster/market-analysis-agent:latest
+    container_name: trademaster-market-analysis-agent
+    depends_on:
+      - agent-orchestrator
+    environment:
+      AGENT_TYPE: MARKET_ANALYSIS
+      ORCHESTRATOR_URL: http://agent-orchestrator:8090
+      MCP_SERVER_URL: http://mcp-server:8092
+      REDIS_HOST: agent-os-redis
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  portfolio-management-agent:
+    image: trademaster/portfolio-management-agent:latest
+    container_name: trademaster-portfolio-management-agent
+    depends_on:
+      - agent-orchestrator
+    environment:
+      AGENT_TYPE: PORTFOLIO_MANAGEMENT
+      ORCHESTRATOR_URL: http://agent-orchestrator:8090
+      MCP_SERVER_URL: http://mcp-server:8092
+      REDIS_HOST: agent-os-redis
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.8'
+          memory: 768M
+
+  # Monitoring and Observability
+  agent-os-prometheus:
+    image: prom/prometheus:latest
+    container_name: trademaster-agent-os-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"  # Different port to avoid conflicts
+    volumes:
+      - ./monitoring/prometheus-agent-os.yml:/etc/prometheus/prometheus.yml:ro
+      - agent_os_prometheus_data:/prometheus
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  agent-os-grafana:
+    image: grafana/grafana:latest
+    container_name: trademaster-agent-os-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "3001:3000"  # Different port to avoid conflicts
+    volumes:
+      - agent_os_grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - agent-os-prometheus
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Development Tools (optional)
+  agent-os-adminer:
+    image: adminer:latest
+    container_name: trademaster-agent-os-adminer
+    depends_on:
+      - agent-os-postgres
+    environment:
+      ADMINER_DEFAULT_SERVER: agent-os-postgres
+    ports:
+      - "8081:8080"  # Database management UI
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  agent-os-redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: trademaster-agent-os-redis-commander
+    depends_on:
+      - agent-os-redis
+    environment:
+      REDIS_HOSTS: local:agent-os-redis:6379
+    ports:
+      - "8082:8081"  # Redis management UI
+    networks:
+      - agent-os-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+# Named volumes for data persistence
+volumes:
+  agent_os_postgres_data:
+    name: trademaster_agent_os_postgres_data
+  agent_os_redis_data:
+    name: trademaster_agent_os_redis_data
+  agent_os_kafka_data:
+    name: trademaster_agent_os_kafka_data
+  agent_os_zookeeper_data:
+    name: trademaster_agent_os_zookeeper_data
+  agent_os_zookeeper_logs:
+    name: trademaster_agent_os_zookeeper_logs
+  agent_os_prometheus_data:
+    name: trademaster_agent_os_prometheus_data
+  agent_os_grafana_data:
+    name: trademaster_agent_os_grafana_data
+  agent_os_logs:
+    name: trademaster_agent_os_logs
+
+# Custom network for Agent OS services
+networks:
+  agent-os-network:
+    name: trademaster-agent-os-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+# Development profile for additional services
+# Usage: docker-compose -f docker-compose.agent-os.yml --profile dev up

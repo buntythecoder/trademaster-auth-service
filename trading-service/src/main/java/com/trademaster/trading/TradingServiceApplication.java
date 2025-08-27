@@ -2,9 +2,16 @@ package com.trademaster.trading;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.kafka.annotation.EnableKafka;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
 
 /**
  * Trading Service Application
@@ -35,9 +42,16 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
  * @since 2025-08-21
  */
 @SpringBootApplication
+@EnableConfigurationProperties
 @EnableCaching
+@EnableJpaRepositories
 @EnableJpaAuditing
+@EnableKafka
+@EnableAsync
+@EnableScheduling
 @EnableTransactionManagement
+@EnableWebSocket
+@EnableMethodSecurity(prePostEnabled = true, securedEnabled = true)
 public class TradingServiceApplication {
 
     public static void main(String[] args) {

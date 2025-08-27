@@ -3,6 +3,7 @@ package com.trademaster.auth.config;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.core.util.StatusPrinter;
+import com.trademaster.auth.constants.AuthConstants;
 import lombok.extern.slf4j.Slf4j;
 import net.logstash.logback.argument.StructuredArguments;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Structured Logging Configuration for Auth Service
@@ -61,54 +64,45 @@ public class LoggingConfiguration {
  */
 @Component
 @Slf4j
-public class AuthLogger {
+class AuthLogger {
     
-    private static final String CORRELATION_ID = "correlationId";
-    private static final String USER_ID = "userId";
-    private static final String SESSION_ID = "sessionId";
-    private static final String IP_ADDRESS = "ipAddress";
-    private static final String USER_AGENT = "userAgent";
-    private static final String OPERATION = "operation";
-    private static final String DURATION_MS = "durationMs";
-    private static final String STATUS = "status";
-    private static final String SECURITY_EVENT = "securityEvent";
-    private static final String RISK_LEVEL = "riskLevel";
+    // All constants now centralized in AuthConstants class
     
     /**
      * Set correlation ID for the current thread context
      */
     public void setCorrelationId() {
-        MDC.put(CORRELATION_ID, UUID.randomUUID().toString());
+        MDC.put(AuthConstants.CORRELATION_ID, UUID.randomUUID().toString());
     }
     
     /**
      * Set correlation ID with custom value
      */
     public void setCorrelationId(String correlationId) {
-        MDC.put(CORRELATION_ID, correlationId);
+        MDC.put(AuthConstants.CORRELATION_ID, correlationId);
     }
     
     /**
      * Clear correlation ID from thread context
      */
     public void clearCorrelationId() {
-        MDC.remove(CORRELATION_ID);
+        MDC.remove(AuthConstants.CORRELATION_ID);
     }
     
     /**
      * Set user context for all subsequent logs
      */
     public void setUserContext(String userId, String sessionId) {
-        if (userId != null) MDC.put(USER_ID, userId);
-        if (sessionId != null) MDC.put(SESSION_ID, sessionId);
+        if (userId != null) MDC.put(AuthConstants.USER_ID_FIELD, userId);
+        if (sessionId != null) MDC.put(AuthConstants.SESSION_ID_FIELD, sessionId);
     }
     
     /**
      * Set request context for all subsequent logs
      */
     public void setRequestContext(String ipAddress, String userAgent) {
-        if (ipAddress != null) MDC.put(IP_ADDRESS, ipAddress);
-        if (userAgent != null) MDC.put(USER_AGENT, sanitizeUserAgent(userAgent));
+        if (ipAddress != null) MDC.put(AuthConstants.IP_ADDRESS_FIELD, ipAddress);
+        if (userAgent != null) MDC.put(AuthConstants.USER_AGENT_FIELD, sanitizeUserAgent(userAgent));
     }
     
     /**
@@ -124,12 +118,12 @@ public class AuthLogger {
     public void logAuthenticationAttempt(String username, String ipAddress, String userAgent, 
                                        String authMethod) {
         log.info("Authentication attempt initiated",
-            StructuredArguments.kv(USER_ID, username),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
-            StructuredArguments.kv(USER_AGENT, sanitizeUserAgent(userAgent)),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, username),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
+            StructuredArguments.kv(AuthConstants.USER_AGENT_FIELD, sanitizeUserAgent(userAgent)),
             StructuredArguments.kv("authMethod", authMethod),
-            StructuredArguments.kv(OPERATION, "authentication_attempt"),
-            StructuredArguments.kv(STATUS, "initiated"),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "authentication_attempt"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "initiated"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -140,13 +134,13 @@ public class AuthLogger {
     public void logAuthenticationSuccess(String userId, String sessionId, String ipAddress,
                                        String authMethod, long durationMs) {
         log.info("Authentication successful",
-            StructuredArguments.kv(USER_ID, userId),
-            StructuredArguments.kv(SESSION_ID, sessionId),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
+            StructuredArguments.kv(AuthConstants.SESSION_ID_FIELD, sessionId),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
             StructuredArguments.kv("authMethod", authMethod),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "authentication"),
-            StructuredArguments.kv(STATUS, "success"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "authentication"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "success"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -157,15 +151,15 @@ public class AuthLogger {
     public void logAuthenticationFailure(String username, String ipAddress, String reason,
                                        String authMethod, long durationMs) {
         log.warn("Authentication failed",
-            StructuredArguments.kv(USER_ID, username),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, username),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
             StructuredArguments.kv("reason", reason),
             StructuredArguments.kv("authMethod", authMethod),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "authentication"),
-            StructuredArguments.kv(STATUS, "failure"),
-            StructuredArguments.kv(SECURITY_EVENT, "auth_failure"),
-            StructuredArguments.kv(RISK_LEVEL, determineRiskLevel(reason)),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "authentication"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "failure"),
+            StructuredArguments.kv(AuthConstants.SECURITY_EVENT_FIELD, "auth_failure"),
+            StructuredArguments.kv(AuthConstants.RISK_LEVEL_FIELD, determineRiskLevel(reason)),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -176,13 +170,13 @@ public class AuthLogger {
     public void logUserRegistration(String userId, String email, String ipAddress,
                                    String registrationMethod, long durationMs) {
         log.info("User registration completed",
-            StructuredArguments.kv(USER_ID, userId),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
             StructuredArguments.kv("email", email),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
             StructuredArguments.kv("registrationMethod", registrationMethod),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "user_registration"),
-            StructuredArguments.kv(STATUS, "success"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "user_registration"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "success"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -196,18 +190,19 @@ public class AuthLogger {
         
         logBuilder = logBuilder.addKeyValue("incidentType", incidentType)
             .addKeyValue("severity", severity)
-            .addKeyValue(USER_ID, userId)
-            .addKeyValue(IP_ADDRESS, ipAddress)
+            .addKeyValue(AuthConstants.USER_ID_FIELD, userId)
+            .addKeyValue(AuthConstants.IP_ADDRESS_FIELD, ipAddress)
             .addKeyValue("description", description)
-            .addKeyValue(OPERATION, "security_incident")
-            .addKeyValue(SECURITY_EVENT, incidentType)
-            .addKeyValue(RISK_LEVEL, severity)
+            .addKeyValue(AuthConstants.OPERATION_FIELD, "security_incident")
+            .addKeyValue(AuthConstants.SECURITY_EVENT_FIELD, incidentType)
+            .addKeyValue(AuthConstants.RISK_LEVEL_FIELD, severity)
             .addKeyValue("timestamp", Instant.now());
         
         if (details != null) {
-            for (Map.Entry<String, Object> entry : details.entrySet()) {
-                logBuilder = logBuilder.addKeyValue("incident_" + entry.getKey(), entry.getValue());
-            }
+            logBuilder = details.entrySet().stream()
+                .reduce(logBuilder, 
+                    (builder, entry) -> builder.addKeyValue("incident_" + entry.getKey(), entry.getValue()),
+                    (b1, b2) -> b1);
         }
         
         logBuilder.log("Security incident detected");
@@ -220,14 +215,14 @@ public class AuthLogger {
                                     int requestCount, int limitThreshold) {
         log.warn("Rate limit violation detected",
             StructuredArguments.kv("clientId", clientId),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
             StructuredArguments.kv("endpoint", endpoint),
             StructuredArguments.kv("requestCount", requestCount),
             StructuredArguments.kv("limitThreshold", limitThreshold),
-            StructuredArguments.kv(OPERATION, "rate_limit_check"),
-            StructuredArguments.kv(STATUS, "violation"),
-            StructuredArguments.kv(SECURITY_EVENT, "rate_limit_violation"),
-            StructuredArguments.kv(RISK_LEVEL, "medium"),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "rate_limit_check"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "violation"),
+            StructuredArguments.kv(AuthConstants.SECURITY_EVENT_FIELD, "rate_limit_violation"),
+            StructuredArguments.kv(AuthConstants.RISK_LEVEL_FIELD, "medium"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -237,11 +232,11 @@ public class AuthLogger {
      */
     public void logMfaAttempt(String userId, String mfaType, String status, long durationMs) {
         log.info("MFA attempt processed",
-            StructuredArguments.kv(USER_ID, userId),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
             StructuredArguments.kv("mfaType", mfaType),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "mfa_verification"),
-            StructuredArguments.kv(STATUS, status),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "mfa_verification"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, status),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -252,13 +247,13 @@ public class AuthLogger {
     public void logSessionEvent(String userId, String sessionId, String eventType,
                                String ipAddress, long durationMs) {
         log.info("Session event processed",
-            StructuredArguments.kv(USER_ID, userId),
-            StructuredArguments.kv(SESSION_ID, sessionId),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
+            StructuredArguments.kv(AuthConstants.SESSION_ID_FIELD, sessionId),
             StructuredArguments.kv("eventType", eventType),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "session_management"),
-            StructuredArguments.kv(STATUS, "success"),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "session_management"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "success"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -269,12 +264,12 @@ public class AuthLogger {
     public void logTokenOperation(String userId, String tokenType, String operation,
                                  boolean success, long durationMs) {
         log.info("Token operation completed",
-            StructuredArguments.kv(USER_ID, userId),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
             StructuredArguments.kv("tokenType", tokenType),
             StructuredArguments.kv("tokenOperation", operation),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "token_management"),
-            StructuredArguments.kv(STATUS, success ? "success" : "failure"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "token_management"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, success ? "success" : "failure"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -287,13 +282,13 @@ public class AuthLogger {
         log.info("API request processed",
             StructuredArguments.kv("endpoint", endpoint),
             StructuredArguments.kv("method", method),
-            StructuredArguments.kv(USER_ID, userId),
-            StructuredArguments.kv(IP_ADDRESS, ipAddress),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
             StructuredArguments.kv("statusCode", statusCode),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(USER_AGENT, sanitizeUserAgent(userAgent)),
-            StructuredArguments.kv(OPERATION, "api_request"),
-            StructuredArguments.kv(STATUS, statusCode < 400 ? "success" : "error"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.USER_AGENT_FIELD, sanitizeUserAgent(userAgent)),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "api_request"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, statusCode < AuthConstants.HTTP_CLIENT_ERROR_THRESHOLD ? "success" : "error"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -307,9 +302,9 @@ public class AuthLogger {
             StructuredArguments.kv("dbOperation", operation),
             StructuredArguments.kv("tableName", tableName),
             StructuredArguments.kv("recordsAffected", recordsAffected),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "database_operation"),
-            StructuredArguments.kv(STATUS, success ? "success" : "failure"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "database_operation"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, success ? "success" : "failure"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -322,9 +317,9 @@ public class AuthLogger {
             StructuredArguments.kv("cacheOperation", operation),
             StructuredArguments.kv("key", key),
             StructuredArguments.kv("hit", hit),
-            StructuredArguments.kv(DURATION_MS, durationMs),
-            StructuredArguments.kv(OPERATION, "cache_operation"),
-            StructuredArguments.kv(STATUS, "success"),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "cache_operation"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "success"),
             StructuredArguments.kv("timestamp", Instant.now())
         );
     }
@@ -337,7 +332,7 @@ public class AuthLogger {
         var logBuilder = log.atInfo();
         
         logBuilder = logBuilder.addKeyValue("eventType", eventType)
-            .addKeyValue(USER_ID, userId)
+            .addKeyValue(AuthConstants.USER_ID_FIELD, userId)
             .addKeyValue("action", action)
             .addKeyValue("resource", resource)
             .addKeyValue("outcome", outcome)
@@ -345,9 +340,10 @@ public class AuthLogger {
             .addKeyValue("category", "audit");
         
         if (auditData != null) {
-            for (Map.Entry<String, Object> entry : auditData.entrySet()) {
-                logBuilder = logBuilder.addKeyValue("audit_" + entry.getKey(), entry.getValue());
-            }
+            logBuilder = auditData.entrySet().stream()
+                .reduce(logBuilder,
+                    (builder, entry) -> builder.addKeyValue("audit_" + entry.getKey(), entry.getValue()),
+                    (b1, b2) -> b1);
         }
         
         logBuilder.log("Audit event recorded for compliance");
@@ -359,12 +355,12 @@ public class AuthLogger {
     public void logError(String operation, String errorType, String errorMessage,
                         String userId, Exception exception) {
         log.error("Operation failed",
-            StructuredArguments.kv(OPERATION, operation),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, operation),
             StructuredArguments.kv("errorType", errorType),
             StructuredArguments.kv("errorMessage", errorMessage),
-            StructuredArguments.kv(USER_ID, userId),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
             StructuredArguments.kv("exceptionClass", exception != null ? exception.getClass().getSimpleName() : null),
-            StructuredArguments.kv(STATUS, "error"),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, "error"),
             StructuredArguments.kv("timestamp", Instant.now()),
             exception
         );
@@ -377,16 +373,17 @@ public class AuthLogger {
                                      Map<String, Object> additionalMetrics) {
         var logBuilder = log.atInfo();
         
-        logBuilder = logBuilder.addKeyValue(OPERATION, operation)
-            .addKeyValue(DURATION_MS, durationMs)
-            .addKeyValue(STATUS, success ? "success" : "failure")
+        logBuilder = logBuilder.addKeyValue(AuthConstants.OPERATION_FIELD, operation)
+            .addKeyValue(AuthConstants.DURATION_MS_FIELD, durationMs)
+            .addKeyValue(AuthConstants.STATUS_FIELD, success ? "success" : "failure")
             .addKeyValue("timestamp", Instant.now())
             .addKeyValue("category", "performance");
         
         if (additionalMetrics != null) {
-            for (Map.Entry<String, Object> entry : additionalMetrics.entrySet()) {
-                logBuilder = logBuilder.addKeyValue("metric_" + entry.getKey(), entry.getValue());
-            }
+            logBuilder = additionalMetrics.entrySet().stream()
+                .reduce(logBuilder,
+                    (builder, entry) -> builder.addKeyValue("metric_" + entry.getKey(), entry.getValue()),
+                    (b1, b2) -> b1);
         }
         
         logBuilder.log("Performance metrics recorded");
@@ -395,29 +392,33 @@ public class AuthLogger {
     /**
      * Create structured argument for custom objects
      */
-    public static StructuredArguments.ObjectAppendingMarker structuredObject(String key, Object value) {
+    public static Object structuredObject(String key, Object value) {
         return StructuredArguments.kv(key, value);
     }
+    
+    private static final Map<String, Supplier<org.slf4j.spi.LoggingEventBuilder>> LOG_LEVEL_BUILDERS = Map.of(
+        AuthConstants.LOG_LEVEL_ERROR, () -> log.atError(),
+        AuthConstants.LOG_LEVEL_WARN, () -> log.atWarn(),
+        AuthConstants.LOG_LEVEL_INFO, () -> log.atInfo(),
+        AuthConstants.LOG_LEVEL_DEBUG, () -> log.atDebug(),
+        AuthConstants.LOG_LEVEL_TRACE, () -> log.atTrace()
+    );
     
     /**
      * Log with custom structured data
      */
     public void logWithStructuredData(String message, String logLevel, 
                                      Map<String, Object> structuredData) {
-        var logBuilder = switch (logLevel.toUpperCase()) {
-            case "ERROR" -> log.atError();
-            case "WARN" -> log.atWarn();
-            case "INFO" -> log.atInfo();
-            case "DEBUG" -> log.atDebug();
-            case "TRACE" -> log.atTrace();
-            default -> log.atInfo();
-        };
+        var logBuilder = LOG_LEVEL_BUILDERS
+            .getOrDefault(logLevel.toUpperCase(), () -> log.atInfo())
+            .get();
         
         logBuilder = logBuilder.addKeyValue("timestamp", Instant.now());
         
-        for (Map.Entry<String, Object> entry : structuredData.entrySet()) {
-            logBuilder = logBuilder.addKeyValue(entry.getKey(), entry.getValue());
-        }
+        logBuilder = structuredData.entrySet().stream()
+            .reduce(logBuilder,
+                (builder, entry) -> builder.addKeyValue(entry.getKey(), entry.getValue()),
+                (b1, b2) -> b1);
         
         logBuilder.log(message);
     }
@@ -428,19 +429,23 @@ public class AuthLogger {
             return "unknown";
         }
         // Remove sensitive information and limit length
-        return userAgent.length() > 200 ? userAgent.substring(0, 200) : userAgent;
+        return userAgent.length() > AuthConstants.MAX_USER_AGENT_LENGTH 
+            ? userAgent.substring(0, AuthConstants.MAX_USER_AGENT_LENGTH) 
+            : userAgent;
     }
     
+    private static final Map<String, String> RISK_LEVEL_PATTERNS = Map.of(
+        AuthConstants.RISK_LEVEL_HIGH, "brute|suspicious|blocked",
+        AuthConstants.RISK_LEVEL_MEDIUM, "invalid|expired"
+    );
+    
     private String determineRiskLevel(String failureReason) {
-        if (failureReason == null) return "low";
-        
-        String reason = failureReason.toLowerCase();
-        if (reason.contains("brute") || reason.contains("suspicious") || reason.contains("blocked")) {
-            return "high";
-        } else if (reason.contains("invalid") || reason.contains("expired")) {
-            return "medium";
-        } else {
-            return "low";
-        }
+        return Optional.ofNullable(failureReason)
+            .map(String::toLowerCase)
+            .flatMap(reason -> RISK_LEVEL_PATTERNS.entrySet().stream()
+                .filter(entry -> reason.matches(".*(" + entry.getValue() + ").*"))
+                .map(Map.Entry::getKey)
+                .findFirst())
+            .orElse(AuthConstants.RISK_LEVEL_LOW);
     }
 }

@@ -1,5 +1,6 @@
 package com.trademaster.auth.config;
 
+import com.trademaster.auth.constants.AuthConstants;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -28,7 +29,7 @@ import java.time.Duration;
  * @version 1.0.0
  */
 @Configuration
-@EnableRedisHttpSession(maxInactiveIntervalInSeconds = 86400) // 24 hours
+@EnableRedisHttpSession(maxInactiveIntervalInSeconds = AuthConstants.SESSION_MAX_INACTIVE_SECONDS) // 24 hours
 @RequiredArgsConstructor
 @Profile("!test") // Exclude this configuration in test profile
 public class RedisConfig {
@@ -69,25 +70,48 @@ public class RedisConfig {
     }
 
     /**
+     * Template method to configure Redis template with common settings
+     * Follows Template Method pattern for consistent configuration
+     */
+    private <T> RedisTemplate<String, T> createConfiguredRedisTemplate(RedisConnectionFactory connectionFactory,
+                                                                       Class<T> valueType) {
+        RedisTemplate<String, T> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        
+        // Common key serialization configuration
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        
+        // Configure value serializers based on type
+        configureValueSerializers(template, valueType);
+        
+        template.afterPropertiesSet();
+        return template;
+    }
+    
+    /**
+     * Strategy method to configure serializers based on value type
+     */
+    private <T> void configureValueSerializers(RedisTemplate<String, T> template, Class<T> valueType) {
+        if (String.class.equals(valueType)) {
+            // String-based serialization for sessions
+            template.setValueSerializer(new StringRedisSerializer());
+            template.setHashValueSerializer(new StringRedisSerializer());
+            template.setDefaultSerializer(new StringRedisSerializer());
+        } else {
+            // JSON-based serialization for general objects
+            template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+            template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+            template.setDefaultSerializer(new GenericJackson2JsonRedisSerializer());
+        }
+    }
+
+    /**
      * Redis template for general operations
      */
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
-        RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
-
-        // Use String serializer for keys
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setHashKeySerializer(new StringRedisSerializer());
-
-        // Use JSON serializer for values
-        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
-        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
-
-        template.setDefaultSerializer(new GenericJackson2JsonRedisSerializer());
-        template.afterPropertiesSet();
-
-        return template;
+        return createConfiguredRedisTemplate(connectionFactory, Object.class);
     }
 
     /**
@@ -95,18 +119,6 @@ public class RedisConfig {
      */
     @Bean
     public RedisTemplate<String, String> sessionRedisTemplate(RedisConnectionFactory connectionFactory) {
-        RedisTemplate<String, String> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
-
-        // Use String serializer for both keys and values for sessions
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new StringRedisSerializer());
-        template.setHashKeySerializer(new StringRedisSerializer());
-        template.setHashValueSerializer(new StringRedisSerializer());
-
-        template.setDefaultSerializer(new StringRedisSerializer());
-        template.afterPropertiesSet();
-
-        return template;
+        return createConfiguredRedisTemplate(connectionFactory, String.class);
     }
 }

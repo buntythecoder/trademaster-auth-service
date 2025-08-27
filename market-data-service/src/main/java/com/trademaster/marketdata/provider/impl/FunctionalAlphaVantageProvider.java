@@ -4,8 +4,6 @@ import com.trademaster.marketdata.dto.MarketDataMessage;
 import com.trademaster.marketdata.dto.ProviderMetrics;
 import com.trademaster.marketdata.dto.MarketDataRequest;
 import com.trademaster.marketdata.dto.ValidationResult;
-import com.trademaster.marketdata.dto.Valid;
-import com.trademaster.marketdata.dto.Invalid;
 import com.trademaster.marketdata.provider.MarketDataProvider;
 import com.trademaster.marketdata.config.AlphaVantageProviderConfig;
 import lombok.extern.slf4j.Slf4j;
@@ -88,7 +86,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
     private final Function<String, Boolean> exchangeValidator;
 
     // Railway Oriented Programming: Result type
-    public sealed interface Result<T, E> permits Success, Failure {
+    public sealed interface Result<T, E> permits Result.Success, Result.Failure {
         record Success<T, E>(T value) implements Result<T, E> {}
         record Failure<T, E>(E error) implements Result<T, E> {}
         

@@ -9,8 +9,6 @@ group = 'com.trademaster'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = '24'
-    targetCompatibility = '24'
     toolchain {
         languageVersion = JavaLanguageVersion.of(24)
     }
@@ -36,6 +34,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    
+    // AgentOS Framework Dependencies
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.springframework.boot:spring-boot-configuration-processor'
     
     // Database
     implementation 'org.postgresql:postgresql'
@@ -52,10 +55,14 @@ dependencies {
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
     
     // Hibernate Types for JSONB
-    implementation 'io.hypersistence:hypersistence-utils-hibernate-63:3.6.0'
+    implementation 'io.hypersistence:hypersistence-utils-hibernate-60:3.6.0'
     
     // Validation
     implementation 'org.hibernate.validator:hibernate-validator'
+    
+    // MapStruct for DTO mapping
+    implementation 'org.mapstruct:mapstruct:1.5.5.Final'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
     
     // JWT
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
@@ -96,8 +103,22 @@ dependencies {
     testImplementation 'com.h2database:h2'
 }
 
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
 tasks.named('test') {
+    jvmArgs += ['--enable-preview']
     useJUnitPlatform()
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
 }
 
 // Flyway configuration
@@ -110,15 +131,11 @@ flyway {
     validateOnMigrate = true
 }
 
-// JVM arguments for virtual threads
-applicationDefaultJvmArgs = [
-    "-Dspring.threads.virtual.enabled=true",
-    "--enable-preview"
-]
-
-compileJava {
-    options.compilerArgs += [
-        '--enable-preview'
+// Boot run configuration
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
     ]
 }
 

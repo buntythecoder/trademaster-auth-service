@@ -107,6 +107,42 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
 
+# AgentOS Configuration
+agentos:
+  agent:
+    id: trading-agent
+    type: TRADING
+    capabilities:
+      order-execution:
+        proficiency: EXPERT
+        max-concurrent-requests: 100
+        timeout-ms: 50
+        resource-requirements: ["CPU:high", "Memory:medium"]
+      risk-management:
+        proficiency: ADVANCED
+        max-concurrent-requests: 200
+        timeout-ms: 25
+        resource-requirements: ["CPU:medium", "Memory:low"]
+      broker-routing:
+        proficiency: EXPERT
+        max-concurrent-requests: 150
+        timeout-ms: 100
+        resource-requirements: ["Network:high", "CPU:medium"]
+      position-tracking:
+        proficiency: ADVANCED
+        max-concurrent-requests: 500
+        timeout-ms: 10
+        resource-requirements: ["Memory:medium", "CPU:low"]
+      compliance-check:
+        proficiency: INTERMEDIATE
+        max-concurrent-requests: 100
+        timeout-ms: 200
+        resource-requirements: ["CPU:medium", "Memory:low"]
+    health:
+      check-interval-seconds: 30
+      performance-window-minutes: 5
+      min-health-score: 0.7
+
 # TradeMaster Trading Configuration
 trademaster:
   trading:

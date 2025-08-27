@@ -8,11 +8,27 @@ group = 'com.trademaster'
 version = '0.0.1-SNAPSHOT'
 
 java {
-    sourceCompatibility = '24'
-    targetCompatibility = '24'
     toolchain {
         languageVersion = JavaLanguageVersion.of(24)
     }
+}
+
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('test') {
+    jvmArgs += ['--enable-preview']
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
 }
 
 configurations {
@@ -34,6 +50,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     implementation 'org.springframework.kafka:spring-kafka'
@@ -69,19 +86,11 @@ dependencyManagement {
     }
 }
 
-tasks.named('test') {
-    useJUnitPlatform()
-}
-
-// JVM arguments for virtual threads
-applicationDefaultJvmArgs = [
-    "-Dspring.threads.virtual.enabled=true",
-    "--enable-preview"
-]
-
-compileJava {
-    options.compilerArgs += [
-        '--enable-preview'
+// Boot run configuration
+bootRun {
+    jvmArgs = [
+        "-Dspring.threads.virtual.enabled=true",
+        "--enable-preview"
     ]
 }
 

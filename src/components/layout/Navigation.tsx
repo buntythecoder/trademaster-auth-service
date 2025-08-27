@@ -6,7 +6,7 @@ import { SymbolLookup } from '../common/SymbolLookup'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { notificationService } from '../../services/notification.service'
 import type { Notification } from '../../types/notifications'
-import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Trophy } from 'lucide-react'
+import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Trophy, Bot, Smartphone } from 'lucide-react'
 
 interface NavigationProps {
   title?: string
@@ -63,6 +63,12 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
         color: 'green'
       },
       {
+        path: '/mobile-trading',
+        label: 'Mobile',
+        icon: Smartphone,
+        color: 'indigo'
+      },
+      {
         path: '/portfolio',
         label: 'Portfolio',
         icon: PieChart,
@@ -85,6 +91,12 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
         label: 'Rewards',
         icon: Trophy,
         color: 'yellow'
+      },
+      {
+        path: '/agents',
+        label: 'Agents',
+        icon: Bot,
+        color: 'purple'
       }
     ] : [
       {

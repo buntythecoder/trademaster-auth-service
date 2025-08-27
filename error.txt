@@ -1,0 +1,623 @@
+> Task :compileJava
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:105: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+                .flatMap(this::validateSecurityEventRequest)
+                ^
+  required: Function<SecurityEventRequest,Result<U,Object>>
+  found:    this::vali[...]quest
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; bad return type in method reference
+      Result<SecurityEventRequest,String> cannot be converted to Result<U,Object>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:173: error: cannot find symbol
+                .severity(request.severity())
+                ^
+  symbol:   method severity(String)
+  location: class SecurityAuditLogBuilder
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:218: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+                .flatMap(this::validateExportRequest)
+                ^
+  required: Function<AuditExportRequest,Result<U,Object>>
+  found:    this::vali[...]quest
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; bad return type in method reference
+      Result<AuditExportRequest,String> cannot be converted to Result<U,Object>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:315: error: incompatible thrown types IOException in functional expression
+                    .map(body -> SafeOperations.safely(body::string))
+                                                       ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:412: error: cannot find symbol
+                log.getSeverity() != null ? log.getSeverity() : "",
+                   ^
+  symbol:   method getSeverity()
+  location: variable log of type SecurityAuditLog
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:412: error: cannot find symbol
+                log.getSeverity() != null ? log.getSeverity() : "",
+                                               ^
+  symbol:   method getSeverity()
+  location: variable log of type SecurityAuditLog
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:462: error: cannot find symbol
+        log.warn("SUSPICIOUS ACTIVITY DETECTED", 
+           ^
+  symbol:   method warn(String,StructuredArgument,StructuredArgument)
+  location: variable log of type SecurityAuditLog
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:470: error: cannot find symbol
+            log.info("SECURITY TEAM NOTIFICATION", 
+               ^
+  symbol:   method info(String,StructuredArgument,StructuredArgument)
+  location: variable log of type SecurityAuditLog
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SecurityAuditService.java:495: error: cannot find symbol
+        String complianceLevel = Optional.of(securityAuditLogRepository.countByUserIdAndEventType(userIdLong, "COMPLIANCE_VIOLATION"))
+                                                                       ^
+  symbol:   method countByUserIdAndEventType(Long,String)
+  location: variable securityAuditLogRepository of type SecurityAuditLogRepository
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:80: error: method compose in class Functions cannot be applied to given types;
+            return Functions.compose(
+                            ^
+  required: Function<T,T>[]
+  found:    this::enfo[...]Limit,this::crea[...]ssion,this::save[...]ssion
+  reason: inference variable T has incompatible bounds
+    upper bounds: UserSession,SessionCreationContext,Object
+    lower bounds: UserSession,SessionCreationContext
+  where T is a type-variable:
+    T extends Object declared in method <T>compose(Function<T,T>...)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:85: error: incompatible types: no instance(s) of type variable(s) X exist so that Object conforms to UserSession
+        }).orElseThrow(() -> new RuntimeException("Failed to create user session"));
+                      ^
+  where X,T are type-variables:
+    X extends Throwable declared in method <X>orElseThrow(Supplier<? extends X>)
+    T extends Object declared in class Optional
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:145: error: incompatible types: String cannot be converted to Throwable
+            throw new RuntimeException("Session creation failed", error);
+                                                                  ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:147: error: incompatible types: incompatible parameter types in lambda expression
+        .orElseThrow(() -> new RuntimeException("Unknown session creation error"));
+                     ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:185: error: cannot find symbol
+                .mapError(error -> {
+                ^
+  symbol:   method mapError((error)->{[...]or; })
+  location: class Optional<SessionInfo>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:246: error: cannot find symbol
+            .mapError(error -> {
+            ^
+  symbol:   method mapError((error)->{[...]or; })
+  location: class Optional<Integer>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:404: error: cannot find symbol
+            .mapError(error -> {
+            ^
+  symbol:   method mapError((error)->{[...]or; })
+  location: class Optional<LocalDateTime>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:525: error: cannot find symbol
+    private final Map<String, LegacySessionContext> contextCache = new ConcurrentHashMap<>();
+                                                                       ^
+  symbol:   class ConcurrentHashMap
+  location: class SessionManagementService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:537: error: cannot find symbol
+            .mapError(error -> {
+            ^
+  symbol:   method mapError((error)->{[...]ll; })
+  location: class Optional<SessionInfo>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:695: error: cannot find symbol
+        .mapError(error -> {
+        ^
+  symbol:   method mapError((error)->{[...]or; })
+  location: class Optional<SessionInfo>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:730: error: cannot find symbol
+            return createErrorResult(sessionId, action, error.getMessage());
+                                                             ^
+  symbol:   method getMessage()
+  location: variable error of type String
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:771: error: cannot find symbol
+            return SafeOperations.withResource(
+                                 ^
+  symbol:   method withResource(()->httpCl[...]ute(),(response)[...]ress))
+  location: class SafeOperations
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:777: error: incompatible types: Object cannot be converted to String
+        .orElse(String.format("External IP: %s (lookup failed)", ipAddress));
+               ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java:791: error: incompatible types: inference variable T has incompatible bounds
+            .min(Comparator.comparing(SessionTimestamp::timestamp))
+            ^
+    upper bounds: SessionTimestamp,Object
+    lower bounds: Optional<SessionTimestamp>
+  where T,U are type-variables:
+    T extends Object declared in method <T,U>comparing(Function<? super T,? extends U>)
+    U extends Comparable<? super U> declared in method <T,U>comparing(Function<? super T,? extends U>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\DeviceTrustService.java:100: error: incompatible types: Object cannot be converted to DeviceSettings
+            settings -> blockDeviceInSettings(settings, deviceFingerprint),
+                                              ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\DeviceTrustService.java:116: error: incompatible types: Object cannot be converted to DeviceSettings
+            settings -> unblockDeviceInSettings(settings, deviceFingerprint),
+                                                ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\DeviceTrustService.java:180: error: cannot find symbol
+            return createErrorDeviceResult(deviceId, userId, e.getMessage());
+                                                              ^
+  symbol:   method getMessage()
+  location: variable e of type String
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\DeviceFingerprintService.java:98: error: cannot find symbol
+        String basicData = Stream.of(
+                           ^
+  symbol:   variable Stream
+  location: class DeviceFingerprintService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\DeviceFingerprintService.java:116: error: no suitable method found for stream(byte[])
+            return Arrays.stream(hashBytes)
+                         ^
+    method Arrays.<T#1>stream(T#1[]) is not applicable
+      (inference variable T#1 has incompatible bounds
+        equality constraints: byte
+        upper bounds: Object)
+    method Arrays.<T#2>stream(T#2[],int,int) is not applicable
+      (cannot infer type-variable(s) T#2
+        (actual and formal argument lists differ in length))
+    method Arrays.stream(int[]) is not applicable
+      (argument mismatch; byte[] cannot be converted to int[])
+    method Arrays.stream(long[]) is not applicable
+      (argument mismatch; byte[] cannot be converted to long[])
+    method Arrays.stream(double[]) is not applicable
+      (argument mismatch; byte[] cannot be converted to double[])
+  where T#1,T#2 are type-variables:
+    T#1 extends Object declared in method <T#1>stream(T#1[])
+    T#2 extends Object declared in method <T#2>stream(T#2[],int,int)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:83: error: method compose in class Functions cannot be applied to given types;
+        return Functions.compose(
+                        ^
+  required: Function<T,T>[]
+  found:    this::vali[...]quest,this::pars[...]Enums,this::calc[...]Score,this::buildAuditLog,this::gene[...]nHash,this::saveAuditLog,this::proc[...]vents,this::logA[...]esult
+  reason: cannot infer type-variable(s) T
+    (varargs mismatch; invalid method reference
+      method validateAuditRequest in class AuditService cannot be applied to given types
+        required: no arguments
+        found:    T
+        reason: actual and formal argument lists differ in length)
+  where T is a type-variable:
+    T extends Object declared in method <T>compose(Function<T,T>...)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:83: error: incompatible types: cannot infer type-variable(s) T
+        return Functions.compose(
+                                ^
+    (varargs mismatch; invalid method reference
+      method validateAuditRequest in class AuditService cannot be applied to given types
+        required: no arguments
+        found:    T
+        reason: actual and formal argument lists differ in length)
+  where T is a type-variable:
+    T extends Object declared in method <T>compose(Function<T,T>...)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:118: error: cannot find symbol
+                .map(parsedData -> parsedData.mapError("Failed to parse event enums"))
+                                             ^
+  symbol:   method mapError(String)
+  location: variable parsedData of type ParsedAuditData
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:132: error: cannot find symbol
+                .orElse(AuthConstants.DEFAULT_RISK_SCORE);
+                                     ^
+  symbol:   variable DEFAULT_RISK_SCORE
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:148: error: incompatible types: String cannot be converted to InetAddress
+                    .ipAddress(parseIpAddressSafely(data.parsedData().request().ipAddress()))
+                                                   ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:157: error: incompatible types: Object cannot be converted to AuthAuditLog
+                .map(auditLog -> new AuditLogData(data, auditLog))
+                                                        ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:225: error: cannot find symbol
+                    .map(attempts -> AuthConstants.RISK_SCORE_MULTIPLE_ATTEMPTS)
+                                                  ^
+  symbol:   variable RISK_SCORE_MULTIPLE_ATTEMPTS
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:229: error: cannot find symbol
+                    .map(details -> AuthConstants.RISK_SCORE_NEW_DEVICE)
+                                                 ^
+  symbol:   variable RISK_SCORE_NEW_DEVICE
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:232: error: incompatible types: invalid method reference
+            .mapToInt(Integer::intValue)
+                      ^
+    method intValue in class Integer cannot be applied to given types
+      required: no arguments
+      found:    Object
+      reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:237: error: cannot find symbol
+        return AuthConstants.RISK_SCORE_ACCOUNT_BLOCKED;
+                            ^
+  symbol:   variable RISK_SCORE_ACCOUNT_BLOCKED
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:244: error: cannot find symbol
+            .orElse(AuthConstants.RISK_SCORE_SUCCESS);
+                                 ^
+  symbol:   variable RISK_SCORE_SUCCESS
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:243: error: cannot find symbol
+            .map(details -> AuthConstants.RISK_SCORE_LOCATION_CHANGE)
+                                         ^
+  symbol:   variable RISK_SCORE_LOCATION_CHANGE
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:248: error: cannot find symbol
+        return AuthConstants.RISK_SCORE_PENDING;
+                            ^
+  symbol:   variable RISK_SCORE_PENDING
+  location: class AuthConstants
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:297: error: bad operand types for binary operator '+'
+        String data = auditLog.getUserId() + auditLog.getEventType() + auditLog.getTimestamp() + previousHash;
+                                           ^
+  first type:  Long
+  second type: EventType
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuditService.java:297: error: cannot find symbol
+        String data = auditLog.getUserId() + auditLog.getEventType() + auditLog.getTimestamp() + previousHash;
+                                                                               ^
+  symbol:   method getTimestamp()
+  location: variable auditLog of type AuthAuditLog
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtTokenProvider.java:211: error: cannot find symbol
+        .orElse(false);
+        ^
+  symbol:   method orElse(boolean)
+  location: class Boolean
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtTokenProvider.java:230: error: cannot find symbol
+        .orElse(true);
+        ^
+  symbol:   method orElse(boolean)
+  location: class Boolean
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtTokenProvider.java:241: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+        .mapError(Exception.class, e -> {
+        ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtTokenProvider.java:265: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]0L; })
+        .mapError(Exception.class, e -> {
+        ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtTokenProvider.java:283: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+        .mapError(Exception.class, e -> {
+        ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\UserService.java:107: error: cannot find symbol
+        SafeOperations.safelyExecute(() -> {
+                      ^
+  symbol:   method safelyExecute(()->{ Inet[...]d); })
+  location: class SafeOperations
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\JwtAuthenticationFilter.java:60: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+            .mapError(Exception.class, e -> {
+            ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:152: error: incompatible types: Result<User,String> cannot be converted to User
+                            .user(authenticationService.convertUserToDto(user))
+                                                                         ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:164: error: cannot find symbol
+                                       errorResponse.getMessage().contains("Registration failed: ")
+                                                    ^
+  symbol:   method getMessage()
+  location: variable errorResponse of type CAP#1
+  where CAP#1 is a fresh type-variable:
+    CAP#1 extends Object from capture of ? extends Object
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:169: error: incompatible types: ResponseEntity<Object> cannot be converted to ResponseEntity<AuthenticationResponse>
+            .orElseGet(() -> {
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:262: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...](); })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:276: error: incompatible types: Object cannot be converted to ResponseEntity<AuthenticationResponse>
+            .orElseGet(() -> {
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:369: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...](); })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:380: error: incompatible types: Object cannot be converted to ResponseEntity<AuthenticationResponse>
+            .orElseGet(() -> ResponseEntity.badRequest()
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:459: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...](); })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:470: error: incompatible types: Object cannot be converted to ResponseEntity<AuthenticationResponse>
+            .orElseGet(() -> ResponseEntity.badRequest()
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:544: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...](); })
+                .mapError(Exception.class, e -> {
+                ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:557: error: incompatible types: Object cannot be converted to ResponseEntity<Map<String,String>>
+            .orElseGet(() -> ResponseEntity.badRequest()
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:641: error: cannot find symbol
+                return SafeOperations.safelyToResult(() -> authenticationService.verifyEmail(validToken))
+                                                                                ^
+  symbol:   method verifyEmail(String)
+  location: variable authenticationService of type AuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:642: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:656: error: incompatible types: Object cannot be converted to ResponseEntity<Map<String,String>>
+            .orElseGet(() -> Optional.ofNullable(token)
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:761: error: cannot find symbol
+                return SafeOperations.safelyToResult(() -> authenticationService.requestPasswordReset(validEmail, 
+                                                                                ^
+  symbol:   method requestPasswordReset(String,String,String)
+  location: variable authenticationService of type AuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:763: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:773: error: incompatible types: Object cannot be converted to ResponseEntity<Map<String,String>>
+            .orElseGet(() -> Optional.ofNullable(email)
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:863: error: no suitable method found for mapError(Class<Exception>,(e)->{ log[...]se; })
+                    .mapError(Exception.class, e -> {
+                    ^
+    method Result.<F#1>mapError(Function<String,F#1>) is not applicable
+      (cannot infer type-variable(s) F#1
+        (actual and formal argument lists differ in length))
+    method Result.<F#2>mapError(Class<? extends String>,Function<String,F#2>) is not applicable
+      (cannot infer type-variable(s) F#2
+        (argument mismatch; Class<Exception> cannot be converted to Class<? extends String>))
+  where F#1,E,T,F#2 are type-variables:
+    F#1 extends Object declared in method <F#1>mapError(Function<E,F#1>)
+    E extends Object declared in interface Result
+    T extends Object declared in interface Result
+    F#2 extends Object declared in method <F#2>mapError(Class<? extends E>,Function<E,F#2>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:877: error: incompatible types: Object cannot be converted to ResponseEntity<Map<String,String>>
+            .orElseGet(() -> ResponseEntity.badRequest()
+                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\DeviceController.java:220: error: method logSecurityEvent in class SecurityAuditService cannot be applied to given types;
+        securityAuditService.logSecurityEvent(userId, sessionId, "DEVICE_SETTINGS_UPDATED", 
+                            ^
+  required: Long,String,String,String,String,Map<String,Object>
+  found:    String,String,String,String,RiskLevel,HttpServletRequest,<null>
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:55: error: cannot find symbol
+            securityAuditService.logMfaEvent(userId, sessionId, "MFA_SETUP_INITIATED", true, "TOTP", request);
+                                ^
+  symbol:   method logMfaEvent(String,String,String,boolean,String,HttpServletRequest)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:80: error: cannot find symbol
+            securityAuditService.logMfaEvent(userId, sessionId, "MFA_SETUP_COMPLETED", true, "TOTP", httpRequest);
+                                ^
+  symbol:   method logMfaEvent(String,String,String,boolean,String,HttpServletRequest)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:83: error: cannot find symbol
+            securityAuditService.logMfaEvent(userId, sessionId, "MFA_SETUP_FAILED", false, "TOTP", httpRequest);
+                                ^
+  symbol:   method logMfaEvent(String,String,String,boolean,String,HttpServletRequest)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:150: error: cannot find symbol
+            securityAuditService.logMfaEvent(userId, sessionId, "MFA_BACKUP_CODES_REGENERATED", true, "TOTP", request);
+                                ^
+  symbol:   method logMfaEvent(String,String,String,boolean,String,HttpServletRequest)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:178: error: cannot find symbol
+            securityAuditService.logMfaEvent(userId, sessionId, "MFA_DISABLED", true, mfaType, request);
+                                ^
+  symbol:   method logMfaEvent(String,String,String,boolean,String,HttpServletRequest)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\SecurityAuditController.java:55: error: cannot find symbol
+        Page<SecurityAuditLog> auditLogs = securityAuditService.getUserAuditLogs(userId, pageable);
+                                                               ^
+  symbol:   method getUserAuditLogs(String,Pageable)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\SecurityAuditController.java:83: error: cannot find symbol
+        Map<String, Object> metrics = securityAuditService.getSecurityMetrics(days);
+                                                          ^
+  symbol:   method getSecurityMetrics(int)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\SecurityAuditController.java:100: error: incompatible types: String cannot be converted to LocalDateTime
+                startDate, endDate, eventType, userId);
+                ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\SecurityAuditController.java:131: error: cannot find symbol
+        Map<String, Object> metrics = securityAuditService.getSecurityMetrics(7);
+                                                          ^
+  symbol:   method getSecurityMetrics(int)
+  location: variable securityAuditService of type SecurityAuditService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\pattern\FunctionalServiceWrapper.java:47: error: cannot find symbol
+        return Stream.iterate(initial, (UnaryOperator<T>) next::apply).limit(count);
+                                        ^
+  symbol:   class UnaryOperator
+  location: class FunctionalServiceWrapper
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:196: error: method supplyAsync in enum VirtualThreadFactory cannot be applied to given types;
+            return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
+                                                ^
+  required: Supplier<T>
+  found:    ()->{ retu[...]e); },AsyncTaskExecutor
+  reason: cannot infer type-variable(s) T
+    (actual and formal argument lists differ in length)
+  where T is a type-variable:
+    T extends Object declared in method <T>supplyAsync(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:216: error: method supplyAsync in enum VirtualThreadFactory cannot be applied to given types;
+            return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
+                                                ^
+  required: Supplier<T>
+  found:    ()->{ retu[...]e); },AsyncTaskExecutor
+  reason: cannot infer type-variable(s) T
+    (actual and formal argument lists differ in length)
+  where T is a type-variable:
+    T extends Object declared in method <T>supplyAsync(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:236: error: method supplyAsync in enum VirtualThreadFactory cannot be applied to given types;
+            return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
+                                                ^
+  required: Supplier<T>
+  found:    ()->{ retu[...]t); },AsyncTaskExecutor
+  reason: cannot infer type-variable(s) T
+    (actual and formal argument lists differ in length)
+  where T is a type-variable:
+    T extends Object declared in method <T>supplyAsync(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:392: error: cannot find symbol
+            }, virtualExecutor).join();
+               ^
+  symbol:   variable virtualExecutor
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:650: error: method runAsync in enum VirtualThreadFactory cannot be applied to given types;
+        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
+                                            ^
+  required: Runnable
+  found:    ()->{ try [...]; } },AsyncTaskExecutor
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:672: error: method runAsync in enum VirtualThreadFactory cannot be applied to given types;
+        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
+                                            ^
+  required: Runnable
+  found:    ()->{ try [...]; } },AsyncTaskExecutor
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:692: error: method runAsync in enum VirtualThreadFactory cannot be applied to given types;
+        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
+                                            ^
+  required: Runnable
+  found:    ()->{ user[...]t); },AsyncTaskExecutor
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:699: error: method runAsync in enum VirtualThreadFactory cannot be applied to given types;
+        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
+                                            ^
+  required: Runnable
+  found:    ()->{ user[...]t); },AsyncTaskExecutor
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:35: error: cannot find symbol
+        ValidationChain.of(new PasswordValidationContext(password, email))
+                               ^
+  symbol:   class PasswordValidationContext
+  location: class PasswordPolicyService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:36: error: invalid method reference
+            .validate(this::validateNotEmpty)
+                      ^
+  cannot find symbol
+    symbol:   method validateNotEmpty()
+    location: class PasswordPolicyService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:37: error: invalid method reference
+            .validate(this::validateLength)
+                      ^
+  cannot find symbol
+    symbol:   method validateLength()
+    location: class PasswordPolicyService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:38: error: invalid method reference
+            .validate(this::validateComplexity)
+                      ^
+  cannot find symbol
+    symbol:   method validateComplexity()
+    location: class PasswordPolicyService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:39: error: invalid method reference
+            .validate(this::validateEmailConstraint)
+                      ^
+  cannot find symbol
+    symbol:   method validateEmailConstraint()
+    location: class PasswordPolicyService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordPolicyService.java:40: error: invalid method reference
+            .validate(this::validateCommonPasswords)
+                      ^
+  cannot find symbol
+    symbol:   method validateCommonPasswords()
+    location: class PasswordPolicyService
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+Note: Some input files use preview features of Java SE 24.
+Note: Recompile with -Xlint:preview for details.
+Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+94 errors
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///E:/workspace/claude/trademaster/auth-service/build/reports/problems/problems-report.html
+

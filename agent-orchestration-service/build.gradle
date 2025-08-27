@@ -1,0 +1,129 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.flywaydb.flyway' version '10.7.1'
+}
+
+group = 'com.trademaster'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+// MANDATORY: Java 24 Preview Features per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('test') {
+    jvmArgs += ['--enable-preview']
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    set('springCloudVersion', "2024.0.0")
+    set('testcontainersVersion', "1.19.8")
+}
+
+dependencies {
+    // Spring Boot Starters - MANDATORY: Spring MVC only, NO WebFlux/Reactive
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    
+    // MANDATORY: Kafka for event streaming
+    implementation 'org.springframework.kafka:spring-kafka'
+    
+    // Database with connection pooling
+    implementation 'org.postgresql:postgresql'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'com.zaxxer:HikariCP'
+    
+    // Redis for agent state management
+    implementation 'redis.clients:jedis'
+    
+    // JSON Processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // MANDATORY: Prometheus metrics monitoring
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.micrometer:micrometer-core'
+    
+    // MANDATORY: Structured JSON logging for ELK stack
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+    implementation 'ch.qos.logback:logback-classic'
+    
+    // MANDATORY: OkHttp client (NO WebClient allowed)
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+    
+    // JWT handling
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    
+    // Utilities - Lombok 1.18.34 for Java 24 compatibility 
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+       
+    // Development tools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    
+    // Test dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:kafka'
+    testImplementation 'org.testcontainers:redis'
+    
+    // Architecture testing
+    testImplementation 'com.tngtech.archunit:archunit:1.2.1'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    jvmArgs += ['--enable-preview']
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
+}
+
+bootRun {
+    jvmArgs += ['--enable-preview']
+}
+
+// Docker image configuration
+bootBuildImage {
+    imageName = "trademaster/agent-orchestration-service:${version}"
+    environment = [
+        "BP_JVM_VERSION": "24",
+        "BPE_APPEND_JAVA_TOOL_OPTIONS": "--enable-preview --add-opens java.base/java.lang=ALL-UNNAMED"
+    ]
+}

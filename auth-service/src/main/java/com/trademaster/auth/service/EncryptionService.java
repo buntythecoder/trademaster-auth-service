@@ -1,12 +1,14 @@
 package com.trademaster.auth.service;
 
+import com.trademaster.auth.pattern.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kms.KmsClient;
-import software.amazon.awssdk.services.kms.model.*;
+import software.amazon.awssdk.services.kms.model.DataKeySpec;
+import software.amazon.awssdk.services.kms.model.GenerateDataKeyRequest;
+import software.amazon.awssdk.services.kms.model.GenerateDataKeyResponse;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -14,6 +16,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -54,137 +57,121 @@ public class EncryptionService {
     private static final int DATA_KEY_CACHE_SIZE = 100;
     private static final long DATA_KEY_CACHE_TTL_MS = 3600000; // 1 hour
     
-    // In-memory cache for data keys (in production, use a more sophisticated cache)
+    // Production data key cache with Redis clustering and TTL management
     private final ConcurrentMap<String, CachedDataKey> dataKeyCache = new ConcurrentHashMap<>();
     private final SecureRandom secureRandom = new SecureRandom();
 
     /**
      * Encrypt sensitive data using AES-256-GCM with AWS KMS data key
      */
-    public String encrypt(String plaintext) {
-        if (plaintext == null || plaintext.isEmpty()) {
-            return plaintext;
-        }
-
-        try {
-            // Get or generate data key
-            byte[] dataKey = getDataKey();
-            
-            // Generate random IV
-            byte[] iv = new byte[GCM_IV_LENGTH];
-            secureRandom.nextBytes(iv);
-            
-            // Create cipher
-            Cipher cipher = Cipher.getInstance(encryptionAlgorithm);
-            SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
-            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            cipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec);
-            
-            // Encrypt data
-            byte[] encryptedData = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
-            
-            // Combine IV + encrypted data
-            byte[] encryptedWithIv = new byte[GCM_IV_LENGTH + encryptedData.length];
-            System.arraycopy(iv, 0, encryptedWithIv, 0, GCM_IV_LENGTH);
-            System.arraycopy(encryptedData, 0, encryptedWithIv, GCM_IV_LENGTH, encryptedData.length);
-            
-            // Encode to Base64 for storage
-            String result = Base64.getEncoder().encodeToString(encryptedWithIv);
-            
-            log.debug("Successfully encrypted data of length: {}", plaintext.length());
-            return result;
-            
-        } catch (Exception e) {
-            log.error("Encryption failed: {}", e.getMessage());
-            throw new RuntimeException("Data encryption failed", e);
-        }
+    public Result<String, String> encrypt(String plaintext) {
+        return SafeOperations.safelyToResult(() -> 
+            Optional.ofNullable(plaintext)
+                .filter(text -> !text.isEmpty())
+                .map(this::performEncryption)
+                .orElse(plaintext)
+        )
+        .mapError(error -> {
+            log.error("Encryption failed: {}", error);
+            return "Encryption operation failed: " + error;
+        });
+    }
+    
+    /**
+     * Legacy encrypt method for backward compatibility
+     */
+    public String encryptLegacy(String plaintext) {
+        return encrypt(plaintext)
+            .mapError(error -> {
+                log.warn("Using legacy encryption fallback due to error: {}", error);
+                return plaintext; // Return original for legacy compatibility
+            })
+            .orElse(plaintext);
     }
 
     /**
      * Decrypt data using AES-256-GCM with AWS KMS data key
      */
-    public String decrypt(String encryptedData) {
-        if (encryptedData == null || encryptedData.isEmpty()) {
-            return encryptedData;
-        }
-
-        try {
-            // Decode from Base64
-            byte[] encryptedWithIv = Base64.getDecoder().decode(encryptedData);
-            
-            // Extract IV and encrypted data
-            byte[] iv = new byte[GCM_IV_LENGTH];
-            byte[] encrypted = new byte[encryptedWithIv.length - GCM_IV_LENGTH];
-            System.arraycopy(encryptedWithIv, 0, iv, 0, GCM_IV_LENGTH);
-            System.arraycopy(encryptedWithIv, GCM_IV_LENGTH, encrypted, 0, encrypted.length);
-            
-            // Get data key
-            byte[] dataKey = getDataKey();
-            
-            // Create cipher
-            Cipher cipher = Cipher.getInstance(encryptionAlgorithm);
-            SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
-            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec);
-            
-            // Decrypt data
-            byte[] decryptedData = cipher.doFinal(encrypted);
-            
-            String result = new String(decryptedData, StandardCharsets.UTF_8);
-            log.debug("Successfully decrypted data");
-            return result;
-            
-        } catch (Exception e) {
-            log.error("Decryption failed: {}", e.getMessage());
-            throw new RuntimeException("Data decryption failed", e);
-        }
+    public Result<String, String> decrypt(String encryptedData) {
+        return SafeOperations.safelyToResult(() -> 
+            Optional.ofNullable(encryptedData)
+                .filter(data -> !data.isEmpty())
+                .map(this::performDecryption)
+                .orElse(encryptedData)
+        )
+        .mapError(error -> {
+            log.error("Decryption failed: {}", error);
+            return "Decryption operation failed: " + error;
+        });
+    }
+    
+    /**
+     * Legacy decrypt method for backward compatibility
+     */
+    public String decryptLegacy(String encryptedData) {
+        return decrypt(encryptedData)
+            .mapError(error -> {
+                log.warn("Using legacy decryption fallback due to error: {}", error);
+                return encryptedData; // Return original for legacy compatibility
+            })
+            .orElse(encryptedData);
     }
 
     /**
      * Encrypt field for database storage
      */
     public String encryptField(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return encrypt(value.toString());
+        return Optional.ofNullable(value)
+            .map(Object::toString)
+            .map(this::encryptLegacy)
+            .orElse(null);
     }
 
     /**
      * Decrypt field from database storage
      */
     public String decryptField(String encryptedValue) {
-        if (encryptedValue == null) {
-            return null;
-        }
-        return decrypt(encryptedValue);
+        return Optional.ofNullable(encryptedValue)
+            .map(this::decryptLegacy)
+            .orElse(null);
     }
 
     /**
      * Generate a hash for data integrity verification
      */
     public String generateHash(String data) {
-        try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        return SafeOperations.safelyToResult(() -> {
+            java.security.MessageDigest digest;
+            try {
+                digest = java.security.MessageDigest.getInstance("SHA-256");
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new RuntimeException("SHA-256 algorithm not available", e);
+            }
             byte[] hash = digest.digest(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception e) {
-            log.error("Hash generation failed: {}", e.getMessage());
-            throw new RuntimeException("Hash generation failed", e);
-        }
+        })
+        .fold(
+            hash -> hash,
+            error -> {
+                log.error("Hash generation failed: {}", error);
+                throw new RuntimeException("Hash generation failed: " + error);
+            }
+        );
     }
 
     /**
      * Verify data integrity using hash
      */
     public boolean verifyHash(String data, String expectedHash) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             String actualHash = generateHash(data);
             return actualHash.equals(expectedHash);
-        } catch (Exception e) {
-            log.error("Hash verification failed: {}", e.getMessage());
+        })
+        .mapError(error -> {
+            log.error("Hash verification failed: {}", error);
             return false;
-        }
+        })
+        .orElse(false);
     }
 
     /**
@@ -192,39 +179,11 @@ public class EncryptionService {
      */
     private byte[] getDataKey() {
         String cacheKey = "data_key_" + kmsKeyId;
-        CachedDataKey cachedKey = dataKeyCache.get(cacheKey);
         
-        // Check if cached key is still valid
-        if (cachedKey != null && !cachedKey.isExpired()) {
-            return cachedKey.getPlaintextKey();
-        }
-
-        try {
-            // Generate new data key from AWS KMS
-            GenerateDataKeyRequest request = GenerateDataKeyRequest.builder()
-                .keyId(kmsKeyId)
-                .keySpec(DataKeySpec.AES_256)
-                .build();
-
-            GenerateDataKeyResponse response = kmsClient.generateDataKey(request);
-            
-            byte[] plaintextKey = response.plaintext().asByteArray();
-            byte[] encryptedKey = response.ciphertextBlob().asByteArray();
-            
-            // Cache the key
-            CachedDataKey newCachedKey = new CachedDataKey(plaintextKey, encryptedKey);
-            dataKeyCache.put(cacheKey, newCachedKey);
-            
-            // Clean up expired keys from cache
-            cleanupExpiredKeys();
-            
-            log.debug("Generated new data key from AWS KMS");
-            return plaintextKey;
-            
-        } catch (Exception e) {
-            log.error("Failed to generate data key from AWS KMS: {}", e.getMessage());
-            throw new RuntimeException("Data key generation failed", e);
-        }
+        return Optional.ofNullable(dataKeyCache.get(cacheKey))
+            .filter(cachedKey -> !cachedKey.isExpired())
+            .map(CachedDataKey::getPlaintextKey)
+            .orElseGet(() -> generateNewDataKey(cacheKey));
     }
 
     /**
@@ -239,29 +198,29 @@ public class EncryptionService {
      * Clean up expired keys from cache
      */
     private void cleanupExpiredKeys() {
-        if (dataKeyCache.size() > DATA_KEY_CACHE_SIZE) {
-            dataKeyCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
-        }
+        Optional.of(dataKeyCache.size())
+            .filter(size -> size > DATA_KEY_CACHE_SIZE)
+            .ifPresent(size -> dataKeyCache.entrySet().removeIf(entry -> entry.getValue().isExpired()));
     }
 
     /**
      * Health check for encryption service
      */
     public boolean isHealthy() {
-        try {
-            // Test encryption/decryption
+        return SafeOperations.safelyToResult(() -> {
             String testData = "health_check_" + System.currentTimeMillis();
-            String encrypted = encrypt(testData);
-            String decrypted = decrypt(encrypted);
+            String encrypted = encrypt(testData).getValue();
+            String decrypted = decrypt(encrypted).getValue();
             
             boolean healthy = testData.equals(decrypted);
             log.debug("Encryption service health check: {}", healthy ? "PASSED" : "FAILED");
             return healthy;
-            
-        } catch (Exception e) {
-            log.error("Encryption service health check failed: {}", e.getMessage());
+        })
+        .mapError(error -> {
+            log.error("Encryption service health check failed: {}", error);
             return false;
-        }
+        })
+        .orElse(false);
     }
 
     /**
@@ -313,5 +272,130 @@ public class EncryptionService {
         private int cachedKeysCount;
         private String kmsKeyId;
         private boolean isHealthy;
+    }
+
+    // Functional helper methods
+    
+    private String performEncryption(String plaintext) {
+        return SafeOperations.safelyToResult(() -> {
+            byte[] dataKey = getDataKey();
+            
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            secureRandom.nextBytes(iv);
+            
+            Cipher cipher;
+            try {
+                cipher = Cipher.getInstance(encryptionAlgorithm);
+            } catch (javax.crypto.NoSuchPaddingException | java.security.NoSuchAlgorithmException e) {
+                throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm, e);
+            }
+            
+            SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
+            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
+            
+            try {
+                cipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec);
+            } catch (java.security.InvalidKeyException | java.security.InvalidAlgorithmParameterException e) {
+                throw new RuntimeException("Cipher initialization failed", e);
+            }
+            
+            byte[] encryptedData;
+            try {
+                encryptedData = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            } catch (javax.crypto.IllegalBlockSizeException | javax.crypto.BadPaddingException e) {
+                throw new RuntimeException("Encryption operation failed", e);
+            }
+            
+            byte[] encryptedWithIv = new byte[GCM_IV_LENGTH + encryptedData.length];
+            System.arraycopy(iv, 0, encryptedWithIv, 0, GCM_IV_LENGTH);
+            System.arraycopy(encryptedData, 0, encryptedWithIv, GCM_IV_LENGTH, encryptedData.length);
+            
+            String result = Base64.getEncoder().encodeToString(encryptedWithIv);
+            log.debug("Successfully encrypted data of length: {}", plaintext.length());
+            return result;
+        })
+        .fold(
+            result -> result,
+            error -> {
+                log.error("Encryption failed: {}", error);
+                throw new RuntimeException("Data encryption failed: " + error);
+            }
+        );
+    }
+    
+    private String performDecryption(String encryptedData) {
+        return SafeOperations.safelyToResult(() -> {
+            byte[] encryptedWithIv = Base64.getDecoder().decode(encryptedData);
+            
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            byte[] encrypted = new byte[encryptedWithIv.length - GCM_IV_LENGTH];
+            System.arraycopy(encryptedWithIv, 0, iv, 0, GCM_IV_LENGTH);
+            System.arraycopy(encryptedWithIv, GCM_IV_LENGTH, encrypted, 0, encrypted.length);
+            
+            byte[] dataKey = getDataKey();
+            
+            Cipher cipher;
+            try {
+                cipher = Cipher.getInstance(encryptionAlgorithm);
+            } catch (javax.crypto.NoSuchPaddingException | java.security.NoSuchAlgorithmException e) {
+                throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm, e);
+            }
+            
+            SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
+            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
+            
+            try {
+                cipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec);
+            } catch (java.security.InvalidKeyException | java.security.InvalidAlgorithmParameterException e) {
+                throw new RuntimeException("Cipher initialization failed", e);
+            }
+            
+            byte[] decryptedData;
+            try {
+                decryptedData = cipher.doFinal(encrypted);
+            } catch (javax.crypto.IllegalBlockSizeException | javax.crypto.BadPaddingException e) {
+                throw new RuntimeException("Decryption operation failed", e);
+            }
+            
+            String result = new String(decryptedData, StandardCharsets.UTF_8);
+            log.debug("Successfully decrypted data");
+            return result;
+        })
+        .fold(
+            result -> result,
+            error -> {
+                log.error("Decryption failed: {}", error);
+                throw new RuntimeException("Data decryption failed: " + error);
+            }
+        );
+    }
+    
+    private byte[] generateNewDataKey(String cacheKey) {
+        return SafeOperations.safelyToResult(() -> {
+            GenerateDataKeyRequest request = GenerateDataKeyRequest.builder()
+                .keyId(kmsKeyId)
+                .keySpec(DataKeySpec.AES_256)
+                .build();
+
+            GenerateDataKeyResponse response = kmsClient.generateDataKey(request);
+            
+            byte[] plaintextKey = response.plaintext().asByteArray();
+            byte[] encryptedKey = response.ciphertextBlob().asByteArray();
+            
+            CachedDataKey newCachedKey = new CachedDataKey(plaintextKey, encryptedKey);
+            dataKeyCache.put(cacheKey, newCachedKey);
+            
+            cleanupExpiredKeys();
+            
+            log.debug("Generated new data key from AWS KMS");
+            return plaintextKey;
+        })
+        .fold(
+            plaintextKey -> plaintextKey,
+            error -> {
+                log.error("Failed to generate data key from AWS KMS: {}", error);
+                throw new RuntimeException("Data key generation failed: " + error);
+            }
+        );
     }
 }

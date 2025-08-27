@@ -19,8 +19,22 @@ ELSE:
 - Align nested structures for readability
 
 ### Naming Conventions
+
+#### Java/Kotlin (Backend Services)
+- **Methods and Variables**: Use camelCase (e.g., `userProfile`, `calculateTotal`)
+- **Classes**: Use PascalCase (e.g., `UserProfile`, `PaymentProcessor`)
+- **Constants**: Use UPPER_SNAKE_CASE (e.g., `MAX_RETRY_COUNT`)
+- **Packages**: Use lowercase with dots (e.g., `com.trademaster.agentos`)
+
+#### JavaScript/TypeScript (Frontend)
+- **Methods and Variables**: Use camelCase (e.g., `userProfile`, `calculateTotal`)
+- **Classes and Components**: Use PascalCase (e.g., `UserProfile`, `PaymentButton`)
+- **Constants**: Use UPPER_SNAKE_CASE (e.g., `MAX_RETRY_COUNT`)
+- **Files**: Use kebab-case for components (e.g., `user-profile.tsx`)
+
+#### Python (Scripts/Tools)
 - **Methods and Variables**: Use snake_case (e.g., `user_profile`, `calculate_total`)
-- **Classes and Modules**: Use PascalCase (e.g., `UserProfile`, `PaymentProcessor`)
+- **Classes**: Use PascalCase (e.g., `UserProfile`, `PaymentProcessor`)
 - **Constants**: Use UPPER_SNAKE_CASE (e.g., `MAX_RETRY_COUNT`)
 
 ### String Formatting

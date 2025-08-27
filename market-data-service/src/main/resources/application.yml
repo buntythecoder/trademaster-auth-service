@@ -127,7 +127,7 @@ spring:
     endpoints:
       web:
         exposure:
-          include: health,info,metrics,prometheus,kafka
+          include: health,info,metrics,prometheus,kafka,agentos
         base-path: /actuator
     endpoint:
       health:
@@ -220,6 +220,53 @@ jwt:
   secret: ${JWT_SECRET:your-256-bit-secret-key-here-change-in-production}
   expiration: 900000 # 15 minutes
   refresh-expiration: 86400000 # 24 hours
+
+# AgentOS Configuration
+agentos:
+  agent:
+    id: market-data-agent
+    name: Market Data Service Agent
+    type: MARKET_DATA
+    version: 1.0.0
+    description: "Real-time and historical market data provider with multi-exchange support"
+  
+  # Orchestration Service Connection
+  orchestration:
+    service-url: ${AGENTOS_ORCHESTRATION_URL:http://localhost:8090}
+    registration-endpoint: /api/agents/register
+    health-endpoint: /api/agents/{agentId}/health
+    deregistration-endpoint: /api/agents/{agentId}/deregister
+    connection-timeout: 10s
+    read-timeout: 30s
+  
+  # Agent Capabilities
+  capabilities:
+    real-time-data:
+      proficiency: EXPERT
+      max-concurrent-requests: 100
+      avg-response-time: 50ms
+    historical-data:
+      proficiency: EXPERT
+      max-concurrent-requests: 50
+      avg-response-time: 200ms
+    technical-analysis:
+      proficiency: ADVANCED
+      max-concurrent-requests: 20
+      avg-response-time: 500ms
+    market-scanning:
+      proficiency: ADVANCED
+      max-concurrent-requests: 10
+      avg-response-time: 1000ms
+    price-alerts:
+      proficiency: INTERMEDIATE
+      max-concurrent-requests: 50
+      avg-response-time: 100ms
+  
+  # Performance Monitoring
+  monitoring:
+    health-check-interval: 30s
+    metrics-reporting-interval: 60s
+    performance-sampling-rate: 0.1 # 10% of requests
 
 # Logging Configuration
 logging:

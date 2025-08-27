@@ -21,6 +21,9 @@ import { EconomicCalendar } from './EconomicCalendar'
 import { MarketNewsTicker } from './MarketNewsTicker'
 import { AdvancedChart } from '../charts/AdvancedChart'
 import { SymbolLookup } from '../common/SymbolLookup'
+import { useMarketData, useMarketStatus } from '../../hooks/useMarketDataWebSocket'
+import { ConnectionStatus } from '../common/ConnectionStatus'
+import { WebSocketErrorBoundary } from '../common/WebSocketErrorBoundary'
 
 interface MarketStock {
   symbol: string
@@ -36,7 +39,8 @@ interface MarketStock {
   isWatched: boolean
 }
 
-const mockMarketData: MarketStock[] = [
+// Define fallback data for when WebSocket is disconnected
+const fallbackMarketData: MarketStock[] = [
   {
     symbol: 'RELIANCE',
     name: 'Reliance Industries Limited',
@@ -110,9 +114,65 @@ export function MarketDataDashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE')
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'area' | 'ohlc' | 'heikin-ashi' | 'renko' | 'volume-profile' | 'mountain' | 'point-figure' | 'kagi' | 'three-line-break' | 'footprint' | 'range-bars'>('candlestick')
   const [timeframe, setTimeframe] = useState('1D')
-  const [marketData, setMarketData] = useState(mockMarketData)
-  const [isMarketOpen, setIsMarketOpen] = useState(true)
+  const [watchlistSymbols, setWatchlistSymbols] = useState(['RELIANCE', 'TCS', 'INFY'])
   const [activeMarketTab, setActiveMarketTab] = useState('overview')
+  
+  // Real-time market data from WebSocket
+  const symbols = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK']
+  const { data: marketDataMap, connectionStatus, isConnected, lastUpdate } = useMarketData(symbols)
+  const { marketStatus } = useMarketStatus()
+  
+  // Helper function to format volume
+  const formatVolume = (volume: number): string => {
+    if (volume >= 1000000) {
+      return `${(volume / 1000000).toFixed(1)}M`
+    } else if (volume >= 1000) {
+      return `${(volume / 1000).toFixed(0)}K`
+    }
+    return volume.toString()
+  }
+  
+  // Convert WebSocket data to component format with fallback
+  const marketData: MarketStock[] = symbols.map(symbol => {
+    const wsData = marketDataMap.get(symbol)
+    const fallbackData = fallbackMarketData.find(stock => stock.symbol === symbol)
+    
+    if (wsData) {
+      return {
+        symbol: wsData.symbol,
+        name: fallbackData?.name || wsData.symbol,
+        price: wsData.price,
+        change: wsData.change,
+        changePercent: wsData.changePercent,
+        volume: formatVolume(wsData.volume),
+        marketCap: fallbackData?.marketCap || 'N/A',
+        high: wsData.high,
+        low: wsData.low,
+        open: wsData.open,
+        isWatched: watchlistSymbols.includes(symbol)
+      }
+    }
+    
+    // Return fallback data when WebSocket is disconnected
+    return fallbackData ? {
+      ...fallbackData,
+      isWatched: watchlistSymbols.includes(symbol)
+    } : {
+      symbol,
+      name: symbol,
+      price: 0,
+      change: 0,
+      changePercent: 0,
+      volume: '0',
+      marketCap: 'N/A',
+      high: 0,
+      low: 0,
+      open: 0,
+      isWatched: watchlistSymbols.includes(symbol)
+    }
+  })
+  
+  const isMarketOpen = marketStatus?.isOpen || false
 
   useEffect(() => {
     // Handle symbol selection from global search
@@ -123,43 +183,21 @@ export function MarketDataDashboard() {
     }
   }, [location.state])
 
-  useEffect(() => {
-    // Simulate real-time price updates
-    const interval = setInterval(() => {
-      setMarketData(prev => 
-        prev.map(stock => {
-          const randomChange = (Math.random() - 0.5) * 10
-          const newPrice = Math.max(0, stock.price + randomChange)
-          const change = newPrice - stock.open
-          const changePercent = (change / stock.open) * 100
-          
-          return {
-            ...stock,
-            price: parseFloat(newPrice.toFixed(2)),
-            change: parseFloat(change.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2))
-          }
-        })
-      )
-    }, 3000)
-
-    return () => clearInterval(interval)
-  }, [])
-
   const selectedStock = marketData.find(stock => stock.symbol === selectedSymbol) || marketData[0]
 
   const toggleWatchlist = (symbol: string) => {
-    setMarketData(prev =>
-      prev.map(stock =>
-        stock.symbol === symbol
-          ? { ...stock, isWatched: !stock.isWatched }
-          : stock
-      )
-    )
+    setWatchlistSymbols(prev => {
+      if (prev.includes(symbol)) {
+        return prev.filter(s => s !== symbol)
+      } else {
+        return [...prev, symbol]
+      }
+    })
   }
 
   return (
-    <div className="space-y-6">
+    <WebSocketErrorBoundary>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -167,6 +205,15 @@ export function MarketDataDashboard() {
           <p className="text-slate-400">Real-time market data and analytics</p>
         </div>
         <div className="flex items-center space-x-4">
+          {/* Connection Status */}
+          <ConnectionStatus
+            status={connectionStatus}
+            lastUpdate={lastUpdate}
+            showDetails={false}
+            className="px-3 py-2"
+          />
+          
+          {/* Market Status */}
           <div className={`flex items-center space-x-2 px-4 py-2 rounded-xl glass-card ${
             isMarketOpen ? 'border-green-500/50' : 'border-orange-500/50'
           }`}>
@@ -179,6 +226,8 @@ export function MarketDataDashboard() {
               {isMarketOpen ? 'Market Open' : 'Market Closed'}
             </span>
           </div>
+          
+          {/* Current Time */}
           <div className="glass-card px-4 py-2 rounded-xl">
             <div className="flex items-center space-x-2 text-slate-300">
               <Clock className="w-4 h-4" />
@@ -532,7 +581,7 @@ export function MarketDataDashboard() {
                   Top Gainers
                 </h4>
                 <div className="space-y-3">
-                  {mockMarketData.filter(stock => stock.change > 0).slice(0, 3).map((stock) => (
+                  {marketData.filter(stock => stock.change > 0).slice(0, 3).map((stock) => (
                     <div key={stock.symbol} className="flex items-center justify-between py-2 border-b border-slate-700/50">
                       <div>
                         <div className="font-medium text-white">{stock.symbol}</div>
@@ -553,7 +602,7 @@ export function MarketDataDashboard() {
                   Top Losers
                 </h4>
                 <div className="space-y-3">
-                  {mockMarketData.filter(stock => stock.change < 0).slice(0, 3).map((stock) => (
+                  {marketData.filter(stock => stock.change < 0).slice(0, 3).map((stock) => (
                     <div key={stock.symbol} className="flex items-center justify-between py-2 border-b border-slate-700/50">
                       <div>
                         <div className="font-medium text-white">{stock.symbol}</div>
@@ -622,7 +671,8 @@ export function MarketDataDashboard() {
             <MarketScanner />
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </WebSocketErrorBoundary>
   )
 }

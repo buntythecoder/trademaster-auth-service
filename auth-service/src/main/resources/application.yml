@@ -10,6 +10,10 @@ spring:
   application:
     name: trademaster-auth-service
     version: 1.0.0
+    
+  threads:
+    virtual:
+      enabled: true
   
   profiles:
     active: dev
@@ -34,6 +38,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        connection:
+          handling_mode: delayed_acquisition_and_release_after_transaction
         jdbc:
           batch_size: 20
         order_inserts: true

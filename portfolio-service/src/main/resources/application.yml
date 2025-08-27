@@ -123,6 +123,42 @@ logging:
     max-size: 100MB
     max-history: 30
 
+# AgentOS Configuration
+agentos:
+  agent:
+    id: portfolio-agent
+    type: PORTFOLIO
+    capabilities:
+      position-tracking:
+        proficiency: EXPERT
+        max-concurrent-requests: 500
+        timeout-ms: 10
+        resource-requirements: ["Memory:high", "CPU:medium"]
+      performance-analytics:
+        proficiency: EXPERT
+        max-concurrent-requests: 200
+        timeout-ms: 25
+        resource-requirements: ["CPU:high", "Memory:medium"]
+      risk-assessment:
+        proficiency: ADVANCED
+        max-concurrent-requests: 100
+        timeout-ms: 200
+        resource-requirements: ["CPU:high", "Memory:high"]
+      asset-allocation:
+        proficiency: ADVANCED
+        max-concurrent-requests: 50
+        timeout-ms: 1000
+        resource-requirements: ["CPU:high", "Memory:medium"]
+      portfolio-reporting:
+        proficiency: INTERMEDIATE
+        max-concurrent-requests: 25
+        timeout-ms: 5000
+        resource-requirements: ["CPU:medium", "Memory:medium", "Storage:high"]
+    health:
+      check-interval-seconds: 30
+      performance-window-minutes: 5
+      min-health-score: 0.7
+
 # Portfolio Service Configuration
 trademaster:
   portfolio:

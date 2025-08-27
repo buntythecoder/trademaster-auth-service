@@ -1,6 +1,7 @@
 package com.trademaster.auth.repository;
 
 import com.trademaster.auth.entity.User;
+import com.trademaster.auth.projection.UserStatisticsProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -146,6 +147,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
                                      @Param("currentTime") LocalDateTime currentTime);
 
     /**
+     * Update mobile number
+     */
+    @Modifying
+    @Query("UPDATE User u SET u.mobileNumber = :mobileNumber, u.updatedAt = :currentTime WHERE u.id = :userId")
+    void updateMobileNumber(@Param("userId") Long userId, 
+                          @Param("mobileNumber") String mobileNumber, 
+                          @Param("currentTime") LocalDateTime currentTime);
+
+    /**
      * Update KYC status
      */
     @Modifying
@@ -208,13 +218,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query(value = """
         SELECT 
-            COUNT(*) as total_users,
-            COUNT(CASE WHEN account_status = 'ACTIVE' THEN 1 END) as active_users,
-            COUNT(CASE WHEN account_status = 'LOCKED' THEN 1 END) as locked_users,
-            COUNT(CASE WHEN account_status = 'SUSPENDED' THEN 1 END) as suspended_users,
-            COUNT(CASE WHEN email_verified = true THEN 1 END) as verified_users,
-            COUNT(CASE WHEN last_login_at >= NOW() - INTERVAL '30 days' THEN 1 END) as recent_logins
+            COUNT(*) as totalUsers,
+            COUNT(CASE WHEN account_status = 'ACTIVE' THEN 1 END) as activeUsers,
+            COUNT(CASE WHEN account_status = 'LOCKED' THEN 1 END) as lockedUsers,
+            COUNT(CASE WHEN account_status = 'SUSPENDED' THEN 1 END) as suspendedUsers,
+            COUNT(CASE WHEN email_verified = true THEN 1 END) as verifiedUsers,
+            COUNT(CASE WHEN last_login_at >= NOW() - INTERVAL '30 days' THEN 1 END) as recentLogins
         FROM users
         """, nativeQuery = true)
-    Object[] getUserStatistics();
+    UserStatisticsProjection getUserStatistics();
 }

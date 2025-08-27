@@ -1,11 +1,14 @@
 package com.trademaster.auth.config;
 
+import com.trademaster.auth.constants.AuthConstants;
+import com.trademaster.auth.pattern.VirtualThreadFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -29,6 +32,33 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class VirtualThreadConfiguration {
 
     /**
+     * Factory method to create a configured virtual thread executor
+     * Follows Template Method pattern for consistent configuration
+     */
+    private SimpleAsyncTaskExecutor createVirtualThreadExecutor(String namePrefix, Integer concurrencyLimit) {
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
+        executor.setVirtualThreads(true);
+        executor.setThreadNamePrefix(namePrefix);
+        executor.setThreadFactory(VirtualThreadFactory.createFactory(namePrefix));
+        
+        if (concurrencyLimit != null) {
+            executor.setConcurrencyLimit(concurrencyLimit);
+        }
+        
+        return executor;
+    }
+    
+    /**
+     * Factory method to create a configured virtual thread scheduler
+     */
+    private SimpleAsyncTaskScheduler createVirtualThreadScheduler(String namePrefix) {
+        SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
+        scheduler.setVirtualThreads(true);
+        scheduler.setThreadNamePrefix(namePrefix);
+        return scheduler;
+    }
+
+    /**
      * Primary AsyncTaskExecutor using virtual threads.
      * This executor will be used by:
      * - @Async methods in services
@@ -39,19 +69,7 @@ public class VirtualThreadConfiguration {
     @Bean(name = "applicationTaskExecutor")
     @Primary
     public AsyncTaskExecutor applicationTaskExecutor() {
-        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
-        executor.setVirtualThreads(true);
-        executor.setThreadNamePrefix("vt-auth-");
-        executor.setTaskDecorator(runnable -> () -> {
-            try {
-                runnable.run();
-            } catch (Exception e) {
-                // Log any uncaught exceptions in virtual threads
-                System.err.println("Uncaught exception in auth virtual thread: " + e.getMessage());
-                throw e;
-            }
-        });
-        return executor;
+        return createVirtualThreadExecutor(AuthConstants.VT_AUTH_PREFIX, null);
     }
 
     /**
@@ -59,10 +77,7 @@ public class VirtualThreadConfiguration {
      */
     @Bean
     public TaskScheduler taskScheduler() {
-        SimpleAsyncTaskExecutor scheduler = new SimpleAsyncTaskExecutor();
-        scheduler.setVirtualThreads(true);
-        scheduler.setThreadNamePrefix("vt-auth-scheduler-");
-        return scheduler;
+        return createVirtualThreadScheduler(AuthConstants.VT_AUTH_SCHEDULER_PREFIX);
     }
 
     /**
@@ -71,11 +86,8 @@ public class VirtualThreadConfiguration {
      */
     @Bean(name = "authenticationExecutor")
     public AsyncTaskExecutor authenticationExecutor() {
-        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
-        executor.setVirtualThreads(true);
-        executor.setThreadNamePrefix("vt-auth-proc-");
-        executor.setConcurrencyLimit(500); // Reasonable limit for auth operations
-        return executor;
+        return createVirtualThreadExecutor(AuthConstants.VT_AUTH_PROC_PREFIX, 
+                                         AuthConstants.AUTH_EXECUTOR_CONCURRENCY_LIMIT);
     }
 
     /**
@@ -83,10 +95,7 @@ public class VirtualThreadConfiguration {
      */
     @Bean(name = "notificationExecutor")
     public AsyncTaskExecutor notificationExecutor() {
-        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
-        executor.setVirtualThreads(true);
-        executor.setThreadNamePrefix("vt-notification-");
-        executor.setConcurrencyLimit(200); // Limit for external notification services
-        return executor;
+        return createVirtualThreadExecutor(AuthConstants.VT_NOTIFICATION_PREFIX, 
+                                         AuthConstants.NOTIFICATION_EXECUTOR_CONCURRENCY_LIMIT);
     }
 }

@@ -1,138 +1,140 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { 
   TrendingUp, 
   TrendingDown,
-  Zap,
-  Clock,
+  Activity, 
   AlertTriangle,
   CheckCircle,
+  Clock,
+  X,
+  Settings,
+  BarChart3,
+  Shield,
   DollarSign,
   Target,
-  Shield,
-  Activity,
-  ArrowUpDown,
+  StopCircle,
+  Play,
   Minus,
-  Plus,
-  Brain,
-  Settings,
-  BarChart3
+  Plus
 } from 'lucide-react'
-import { BrokerSelector } from './BrokerSelector'
-import { CompactBrokerSelector } from './CompactBrokerSelector'
-import { OrderBook } from './OrderBook'
-import { AlgorithmicTradingPanel } from './AlgorithmicTradingPanel'
-import { AdvancedOrderPanel } from './AdvancedOrderPanel'
+import { TradingServiceFactory, Order, Position, RiskMetrics, TradingProfile } from '@/services/tradingProfiles'
+import { OrderForm } from './OrderForm'
+import { PositionManager } from './PositionManager'
+import { QuickTradeButtons } from './QuickTradeButtons'
+import { RiskMeter } from './RiskMeter'
 import { useAuthStore } from '../../stores/auth.store'
+import { useEnhancedPortfolioWebSocket } from '../../hooks/useEnhancedPortfolioWebSocket'
+import { ConnectionStatus } from '../common/ConnectionStatus'
+import { WebSocketErrorBoundary } from '../common/WebSocketErrorBoundary'
 
 interface OrderFormData {
   symbol: string
-  orderType: 'market' | 'limit' | 'stop'
-  side: 'buy' | 'sell'
+  orderType: 'MARKET' | 'LIMIT' | 'STOP_LOSS' | 'BRACKET'
+  side: 'BUY' | 'SELL'
   quantity: number
   price?: number
   stopPrice?: number
+  target?: number
   timeInForce: 'day' | 'gtc' | 'ioc'
+  brokerId?: string
+  brokerName?: string
 }
 
-interface Position {
-  symbol: string
-  quantity: number
-  avgPrice: number
-  currentPrice: number
-  pnl: number
-  pnlPercent: number
-  side: 'long' | 'short'
-}
+// This will be replaced with TradingServiceFactory data
 
-interface Order {
-  id: string
-  symbol: string
-  side: 'buy' | 'sell'
-  quantity: number
-  price: number
-  status: 'pending' | 'filled' | 'cancelled' | 'rejected'
-  timestamp: Date
-  orderType: 'market' | 'limit' | 'stop'
-}
-
-const mockPositions: Position[] = [
-  {
-    symbol: 'RELIANCE',
-    quantity: 10,
-    avgPrice: 2520.50,
-    currentPrice: 2547.30,
-    pnl: 268.00,
-    pnlPercent: 1.06,
-    side: 'long'
-  },
-  {
-    symbol: 'TCS',
-    quantity: 5,
-    avgPrice: 3680.20,
-    currentPrice: 3642.80,
-    pnl: -187.00,
-    pnlPercent: -1.02,
-    side: 'long'
-  },
-  {
-    symbol: 'HDFC',
-    quantity: 15,
-    avgPrice: 1545.30,
-    currentPrice: 1567.25,
-    pnl: 329.25,
-    pnlPercent: 1.42,
-    side: 'long'
-  }
-]
-
-const mockOrders: Order[] = [
-  {
-    id: '1',
-    symbol: 'INFY',
-    side: 'buy',
-    quantity: 8,
-    price: 1420.00,
-    status: 'filled',
-    timestamp: new Date(Date.now() - 30000),
-    orderType: 'market'
-  },
-  {
-    id: '2',
-    symbol: 'ICICIBANK',
-    side: 'sell',
-    quantity: 12,
-    price: 950.00,
-    status: 'pending',
-    timestamp: new Date(Date.now() - 120000),
-    orderType: 'limit'
-  },
-  {
-    id: '3',
-    symbol: 'WIPRO',
-    side: 'buy',
-    quantity: 20,
-    price: 445.50,
-    status: 'cancelled',
-    timestamp: new Date(Date.now() - 300000),
-    orderType: 'limit'
-  }
-]
+// This will be replaced with TradingServiceFactory data
 
 export function TradingInterface() {
   const { user } = useAuthStore()
-  const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'orderbook' | 'advanced' | 'algorithmic'>('positions')
-  const [activeOrderPanel, setActiveOrderPanel] = useState<'buy' | 'sell'>('buy')
-  const [availableBalance, setAvailableBalance] = useState(45230) // Default balance
-  const [orderForm, setOrderForm] = useState<OrderFormData>({
-    symbol: 'RELIANCE',
-    orderType: 'market',
-    side: 'buy',
-    quantity: 1,
-    timeInForce: 'day'
-  })
-  const [positions] = useState(mockPositions)
-  const [orders] = useState(mockOrders)
-  const [showOrderConfirmation, setShowOrderConfirmation] = useState(false)
+  const [activeTab, setActiveTab] = useState<'order' | 'positions' | 'history'>('order')
+  const [orders, setOrders] = useState<Order[]>([])
+  const [positions, setPositions] = useState<Position[]>([])
+  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [currentProfile, setCurrentProfile] = useState<TradingProfile>(TradingServiceFactory.getCurrentProfile())
+  const [showProfileSwitch, setShowProfileSwitch] = useState(false)
+  
+  // Real-time portfolio and trading data with fallback
+  const {
+    portfolio,
+    positions: portfolioPositions,
+    orders: portfolioOrders,
+    isConnected,
+    connectionStatus,
+    lastUpdate
+  } = useEnhancedPortfolioWebSocket(user?.id || 'demo-user')
+
+  // Load initial data
+  useEffect(() => {
+    loadTradingData()
+  }, [currentProfile])
+
+  const loadTradingData = async () => {
+    setIsLoading(true)
+    try {
+      const [ordersData, positionsData, riskData] = await Promise.all([
+        TradingServiceFactory.getOrders(),
+        TradingServiceFactory.getPositions(),
+        TradingServiceFactory.getRiskMetrics()
+      ])
+      
+      setOrders(ordersData)
+      setPositions(positionsData)
+      setRiskMetrics(riskData)
+    } catch (error) {
+      console.error('Failed to load trading data:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleProfileSwitch = (profile: TradingProfile) => {
+    TradingServiceFactory.setProfile(profile)
+    setCurrentProfile(profile)
+    setShowProfileSwitch(false)
+    loadTradingData()
+  }
+
+  const handleOrderPlaced = async (orderData: Partial<Order>) => {
+    try {
+      const newOrder = await TradingServiceFactory.placeOrder(orderData)
+      setOrders(prev => [newOrder, ...prev])
+      await loadTradingData() // Refresh all data
+    } catch (error) {
+      console.error('Failed to place order:', error)
+    }
+  }
+
+  const handleOrderCancel = async (orderId: string) => {
+    try {
+      await TradingServiceFactory.cancelOrder(orderId)
+      await loadTradingData() // Refresh data
+    } catch (error) {
+      console.error('Failed to cancel order:', error)
+    }
+  }
+
+  const pendingOrders = useMemo(() => 
+    orders.filter(order => order.status === 'PENDING'), [orders])
+  const executedOrders = useMemo(() => 
+    orders.filter(order => order.status === 'EXECUTED'), [orders])
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount)
+  }
+
+  const formatNumber = (num: number, decimals: number = 2) => {
+    return num.toLocaleString('en-IN', { 
+      minimumFractionDigits: decimals, 
+      maximumFractionDigits: decimals 
+    })
+  }
 
   const handleBrokerChange = (broker: any) => {
     setAvailableBalance(broker.balance)
@@ -152,7 +154,8 @@ export function TradingInterface() {
   const totalPnL = positions.reduce((sum, position) => sum + position.pnl, 0)
 
   return (
-    <div className="space-y-6">
+    <WebSocketErrorBoundary>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -160,12 +163,31 @@ export function TradingInterface() {
           <p className="text-slate-400">Execute trades and manage your positions</p>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="glass-card px-4 py-2 rounded-xl">
+          {/* Connection Status */}
+          <ConnectionStatus
+            status={connectionStatus}
+            lastUpdate={lastUpdate}
+            showDetails={false}
+            className="px-3 py-2"
+          />
+          
+          {/* Trading Status */}
+          <div className={`glass-card px-4 py-2 rounded-xl ${
+            isConnected ? 'border-green-500/30' : 'border-orange-500/30'
+          }`}>
             <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-sm font-medium text-green-400">Live Trading</span>
+              <div className={`w-2 h-2 rounded-full ${
+                isConnected ? 'bg-green-400 animate-pulse' : 'bg-orange-400'
+              }`} />
+              <span className={`text-sm font-medium ${
+                isConnected ? 'text-green-400' : 'text-orange-400'
+              }`}>
+                {isConnected ? 'Live Trading' : 'Offline Mode'}
+              </span>
             </div>
           </div>
+          
+          {/* Available Balance */}
           <div className="glass-card px-4 py-2 rounded-xl">
             <div className="text-sm text-slate-400">
               Available: <span className="text-white font-semibold">₹{availableBalance.toLocaleString()}</span>
@@ -522,7 +544,7 @@ export function TradingInterface() {
           </div>
         </div>
       </div>
-
-    </div>
+      </div>
+    </WebSocketErrorBoundary>
   )
 }

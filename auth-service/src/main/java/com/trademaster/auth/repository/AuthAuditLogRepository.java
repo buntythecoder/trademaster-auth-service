@@ -4,6 +4,7 @@ import com.trademaster.auth.entity.AuthAuditLog;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -50,6 +51,11 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, Long
      * Find audit logs by IP address
      */
     List<AuthAuditLog> findByIpAddressOrderByCreatedAtDesc(java.net.InetAddress ipAddress);
+    
+    /**
+     * Find audit logs by ID range for integrity verification
+     */
+    List<AuthAuditLog> findByIdBetweenOrderById(Long startId, Long endId);
 
     /**
      * Find high-risk audit logs
@@ -147,6 +153,7 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, Long
     /**
      * Delete old audit logs (for cleanup - use carefully!)
      */
+    @Modifying
     @Query("DELETE FROM AuthAuditLog a WHERE a.createdAt < :cutoffDate AND a.eventType NOT IN ('SECURITY_VIOLATION', 'SUSPICIOUS_ACTIVITY')")
     void deleteOldAuditLogs(@Param("cutoffDate") LocalDateTime cutoffDate);
 

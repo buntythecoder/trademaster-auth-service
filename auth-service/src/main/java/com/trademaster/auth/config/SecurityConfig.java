@@ -1,5 +1,6 @@
 package com.trademaster.auth.config;
 
+import com.trademaster.auth.constants.AuthConstants;
 import com.trademaster.auth.security.JwtAuthenticationFilter;
 import com.trademaster.auth.security.JwtAuthenticationEntryPoint;
 import com.trademaster.auth.service.UserService;
@@ -73,16 +74,16 @@ public class SecurityConfig {
             // Configure authorization rules
             .authorizeHttpRequests(authz -> authz
                 // Public endpoints
-                .requestMatchers("/api/v1/auth/register", 
-                               "/api/v1/auth/login",
-                               "/api/v1/auth/forgot-password",
-                               "/api/v1/auth/reset-password",
-                               "/api/v1/auth/verify-email").permitAll()
+                .requestMatchers(AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_REGISTER, 
+                               AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_LOGIN,
+                               AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_FORGOT_PASSWORD,
+                               AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_RESET_PASSWORD,
+                               AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_VERIFY_EMAIL).permitAll()
                 
                 // Actuator endpoints (health check, metrics)
                 .requestMatchers("/actuator/health", 
                                "/actuator/info").permitAll()
-                .requestMatchers("/actuator/**").hasRole("ADMIN")
+                .requestMatchers("/actuator/**").hasRole(AuthConstants.ROLE_ADMIN)
                 
                 // API documentation
                 .requestMatchers("/swagger-ui/**", 
@@ -91,19 +92,19 @@ public class SecurityConfig {
                                "/webjars/**").permitAll()
                 
                 // MFA endpoints - require authentication
-                .requestMatchers("/api/v1/auth/mfa/**").authenticated()
+                .requestMatchers(AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_MFA).authenticated()
                 
                 // Token refresh - require authentication
-                .requestMatchers("/api/v1/auth/refresh").authenticated()
+                .requestMatchers(AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_REFRESH).authenticated()
                 
                 // Logout - require authentication
-                .requestMatchers("/api/v1/auth/logout").authenticated()
+                .requestMatchers(AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_LOGOUT).authenticated()
                 
                 // Profile management - require authentication
-                .requestMatchers("/api/v1/profile/**").authenticated()
+                .requestMatchers(AuthConstants.ENDPOINT_PROFILE).authenticated()
                 
                 // Admin endpoints
-                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                .requestMatchers(AuthConstants.ENDPOINT_ADMIN).hasRole(AuthConstants.ROLE_ADMIN)
                 
                 // All other requests require authentication
                 .anyRequest().authenticated())
@@ -116,7 +117,7 @@ public class SecurityConfig {
                 .frameOptions(frameOptions -> frameOptions.deny())
                 .contentTypeOptions(Customizer.withDefaults())
                 .httpStrictTransportSecurity(hsts -> hsts
-                    .maxAgeInSeconds(31536000)
+                    .maxAgeInSeconds(AuthConstants.SECURITY_HEADER_MAX_AGE_SECONDS)
                     .includeSubDomains(true)))
             
             // Configure authentication provider
@@ -133,17 +134,12 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         
         // Allow specific origins in production
-        configuration.setAllowedOriginPatterns(Arrays.asList(
-            "http://localhost:3000",  // React dev server
-            "http://localhost:8080",  // API Gateway
-            "https://*.trademaster.com",  // Production domains
-            "https://trademaster.com"
-        ));
+        configuration.setAllowedOriginPatterns(Arrays.asList(AuthConstants.ALLOWED_ORIGINS));
         
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(Arrays.asList(AuthConstants.ALLOWED_METHODS));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
-        configuration.setMaxAge(3600L);
+        configuration.setMaxAge(AuthConstants.CORS_MAX_AGE_SECONDS);
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
@@ -156,7 +152,7 @@ public class SecurityConfig {
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(12); // Strong hashing with 12 rounds
+        return new BCryptPasswordEncoder(AuthConstants.BCRYPT_STRENGTH);
     }
 
     /**
@@ -175,7 +171,7 @@ public class SecurityConfig {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
         authProvider.setUserDetailsService(userService);
         authProvider.setPasswordEncoder(passwordEncoder());
-        authProvider.setHideUserNotFoundExceptions(false); // For better error messages
+        authProvider.setHideUserNotFoundExceptions(AuthConstants.HIDE_USER_NOT_FOUND_EXCEPTIONS);
         return authProvider;
     }
 }

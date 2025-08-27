@@ -46,6 +46,10 @@ public class RegistrationRequest {
     private String timezone;
 
     private UserProfile.RiskTolerance riskTolerance;
+    
+    private java.time.LocalDate dateOfBirth;
+    
+    private String address;
 
     private UserProfile.TradingExperience tradingExperience;
 
@@ -53,6 +57,7 @@ public class RegistrationRequest {
 
     private boolean agreeToPrivacyPolicy;
 
+    @Builder.Default
     private boolean subscribeToNewsletter = false;
 
     // Marketing and referral information

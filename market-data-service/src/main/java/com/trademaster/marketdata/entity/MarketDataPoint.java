@@ -2,7 +2,10 @@ package com.trademaster.marketdata.entity;
 
 import com.influxdb.annotations.Column;
 import com.influxdb.annotations.Measurement;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,69 +22,71 @@ import java.time.Instant;
  * @version 1.0.0
  */
 @Measurement(name = "market_data")
+@Data
 @Builder
-public record MarketDataPoint(
+@NoArgsConstructor
+@AllArgsConstructor
+public class MarketDataPoint {
     
     // Tags (indexed)
     @Column(tag = true)
-    String symbol,
+    private String symbol;
     
     @Column(tag = true)
-    String exchange,
+    private String exchange;
     
     @Column(tag = true)
-    String dataType,
+    private String dataType;
     
     @Column(tag = true)
-    String source,
+    private String source;
     
     // Fields (values)
     @Column
-    BigDecimal price,
+    private BigDecimal price;
     
     @Column
-    Long volume,
+    private Long volume;
     
     @Column
-    BigDecimal bid,
+    private BigDecimal bid;
     
     @Column
-    BigDecimal ask,
+    private BigDecimal ask;
     
     @Column
-    BigDecimal high,
+    private BigDecimal high;
     
     @Column
-    BigDecimal low,
+    private BigDecimal low;
     
     @Column
-    BigDecimal open,
+    private BigDecimal open;
     
     @Column
-    BigDecimal previousClose,
+    private BigDecimal previousClose;
     
     @Column
-    BigDecimal change,
+    private BigDecimal change;
     
     @Column
-    BigDecimal changePercent,
+    private BigDecimal changePercent;
     
     @Column
-    Long bidSize,
+    private Long bidSize;
     
     @Column
-    Long askSize,
+    private Long askSize;
     
     @Column
-    String marketStatus,
+    private String marketStatus;
     
     @Column
-    Double qualityScore,
+    private Double qualityScore;
     
     // Timestamp
     @Column(timestamp = true)
-    Instant timestamp
-) {
+    private Instant timestamp;
     
     /**
      * Create tick data point (real-time price update)
@@ -161,7 +166,7 @@ public record MarketDataPoint(
                bidSize != null && askSize != null;
     }
     
-    public BigDecimal getSpread() {
+    public BigDecimal getMarketSpread() {
         return hasOrderBookData() ? ask.subtract(bid) : null;
     }
     
@@ -169,7 +174,7 @@ public record MarketDataPoint(
         if (!hasOrderBookData() || bid.compareTo(BigDecimal.ZERO) == 0) {
             return null;
         }
-        return getSpread().divide(bid, 4, java.math.RoundingMode.HALF_UP)
+        return getMarketSpread().divide(bid, 4, java.math.RoundingMode.HALF_UP)
                .multiply(BigDecimal.valueOf(100));
     }
     

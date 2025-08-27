@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class AuthenticationResponse {
 
+    private Long requestId; // Request tracking ID
     private String accessToken;
     private String refreshToken;
     private String tokenType;
@@ -34,4 +35,10 @@ public class AuthenticationResponse {
     // Additional security information
     private String deviceFingerprint;
     private Long sessionTimeout;
+    
+    // Agent orchestration fields
+    private String status;
+    private java.util.List<String> processingResults;
+    private Long processingTimeMs;
+    private String errorMessage;
 }

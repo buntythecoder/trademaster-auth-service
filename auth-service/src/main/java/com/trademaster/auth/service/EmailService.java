@@ -1,9 +1,23 @@
 package com.trademaster.auth.service;
 
+import com.trademaster.auth.pattern.SafeOperations;
+import com.trademaster.auth.pattern.VirtualThreadFactory;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.logstash.logback.argument.StructuredArguments;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.MailException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.thymeleaf.TemplateEngine;
+
+import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Email Service for sending verification and notification emails
@@ -16,8 +30,18 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class EmailService {
 
+    private final JavaMailSender mailSender;
+    private final TemplateEngine templateEngine;
+    // Using VirtualThreadFactory pattern for consistent virtual thread management
+    
     @Value("${trademaster.frontend.base-url:http://localhost:3000}")
     private String frontendBaseUrl;
+    
+    @Value("${spring.mail.username:noreply@trademaster.com}")
+    private String fromAddress;
+    
+    @Value("${app.email.enabled:true}")
+    private boolean emailEnabled;
 
     /**
      * Send email verification
@@ -29,17 +53,8 @@ public class EmailService {
             
             log.info("Sending email verification to: {} with token: {}", email, verificationToken.substring(0, 8) + "...");
             
-            // In a production environment, this would integrate with:
-            // - AWS SES
-            // - SendGrid
-            // - Mailgun
-            // - Or other email service providers
-            
             String emailBody = buildEmailVerificationBody(verificationUrl);
-            
-            // Placeholder for actual email sending
-            log.info("Email verification URL: {}", verificationUrl);
-            log.info("Email body preview: {}", emailBody.substring(0, Math.min(100, emailBody.length())) + "...");
+            sendEmailInternal(email, "TradeMaster - Verify Your Email", emailBody, verificationUrl);
             
         } catch (Exception e) {
             log.error("Failed to send email verification to {}: {}", email, e.getMessage());
@@ -59,9 +74,7 @@ public class EmailService {
             
             String emailBody = buildPasswordResetBody(resetUrl);
             
-            // Placeholder for actual email sending
-            log.info("Password reset URL: {}", resetUrl);
-            log.info("Email body preview: {}", emailBody.substring(0, Math.min(100, emailBody.length())) + "...");
+            sendEmailInternal(email, "TradeMaster - Password Reset", emailBody, resetUrl);
             
         } catch (Exception e) {
             log.error("Failed to send password reset email to {}: {}", email, e.getMessage());
@@ -78,9 +91,7 @@ public class EmailService {
             
             String emailBody = buildMfaCodeBody(code);
             
-            // Placeholder for actual email sending
-            log.info("MFA code: {} (this would be sent via email)", code);
-            log.info("Email body preview: {}", emailBody.substring(0, Math.min(100, emailBody.length())) + "...");
+            sendEmailInternal(email, "TradeMaster - MFA Verification Code", emailBody, null);
             
         } catch (Exception e) {
             log.error("Failed to send MFA code to {}: {}", email, e.getMessage());
@@ -138,5 +149,77 @@ public class EmailService {
             </body>
             </html>
             """, code);
+    }
+
+    /**
+     * Production-ready email sending with retry mechanism and async processing.
+     */
+    @Retryable(value = {MailException.class, MessagingException.class}, 
+               maxAttempts = 3, backoff = @Backoff(delay = 2000))
+    private void sendEmailInternal(String recipient, String subject, String htmlBody, String actionUrl) {
+        // Functional approach - replaces if-else
+        Optional.of(emailEnabled)
+            .filter(enabled -> !enabled)
+            .ifPresent(enabled -> {
+                log.info("Email sending disabled - logging email details", 
+                    StructuredArguments.kv("recipient", recipient),
+                    StructuredArguments.kv("subject", subject));
+                return;
+            });
+            
+        Optional.of(emailEnabled)
+            .filter(enabled -> enabled)
+            .ifPresent(enabled -> sendEmailFunctionally(recipient, subject, htmlBody, actionUrl));
+
+    }
+    
+    private void sendEmailFunctionally(String recipient, String subject, String htmlBody, String actionUrl) {
+        VirtualThreadFactory.INSTANCE.runAsync(() -> 
+            SafeOperations.safelyToResult(() -> {
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper;
+                
+                try {
+                    helper = new MimeMessageHelper(message, true, "UTF-8");
+                    helper.setFrom(fromAddress);
+                    helper.setTo(recipient);
+                    helper.setSubject(subject);
+                    helper.setText(htmlBody, true);
+                } catch (MessagingException e) {
+                    throw new RuntimeException("Failed to prepare email message: " + e.getMessage(), e);
+                }
+                
+                mailSender.send(message);
+                return "Email sent successfully";
+            })
+            .map(result -> {
+                log.info("Email sent successfully", 
+                    StructuredArguments.kv("recipient", recipient),
+                    StructuredArguments.kv("subject", subject),
+                    StructuredArguments.kv("timestamp", Instant.now()),
+                    StructuredArguments.kv("service", "email-delivery"));
+                return result;
+            })
+            .mapError(error -> {
+                log.error("Email delivery failed", 
+                    StructuredArguments.kv("recipient", recipient),
+                    StructuredArguments.kv("subject", subject),
+                    StructuredArguments.kv("error", error),
+                    StructuredArguments.kv("errorType", "EmailDeliveryError"));
+                return error;
+            })
+        );
+    }
+    
+    /**
+     * Fallback method for email sending failures
+     */
+    private void handleEmailFailure(MailException ex, String recipient, String subject, String htmlBody, String actionUrl) {
+        log.error("All email delivery attempts failed for recipient: {}", recipient, ex);
+        
+        // Could implement fallback strategies here:
+        // - Queue for later retry
+        // - Use alternative email service
+        // - Send notification to admin team
     }
 }
