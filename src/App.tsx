@@ -12,6 +12,7 @@ import { TradingInterface } from './components/trading/TradingInterface'
 import { PortfolioAnalytics } from './components/portfolio/PortfolioAnalytics'
 import { MultiBrokerInterface } from './components/trading/MultiBrokerInterface'
 import { RiskManagementDashboard } from './components/risk/RiskManagementDashboard'
+import { GamificationPage } from './pages/GamificationPage'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 import { TutorialManager } from './components/onboarding/TutorialOverlay'
 import { AchievementSystem, ACHIEVEMENTS } from './components/onboarding/AchievementSystem'
@@ -244,6 +245,16 @@ function App() {
                     <MultiBrokerInterface />
                   </div>
                 </PageLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* FRONT-012: Gamification Dashboard Route */}
+          <Route
+            path="/gamification"
+            element={
+              <ProtectedRoute>
+                <GamificationPage />
               </ProtectedRoute>
             }
           />
