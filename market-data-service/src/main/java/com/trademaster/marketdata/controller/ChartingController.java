@@ -1,6 +1,7 @@
 package com.trademaster.marketdata.controller;
 
 import com.trademaster.marketdata.dto.OHLCVData;
+import com.trademaster.marketdata.dto.ResponseBuilder;
 import com.trademaster.marketdata.entity.ChartData;
 import com.trademaster.marketdata.service.ChartingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -73,14 +74,13 @@ public class ChartingController {
         
         var ohlcvData = chartingService.getOHLCVData(symbol, timeframe, startTime, endTime);
         
-        return ResponseEntity.ok(Map.of(
-            "symbol", symbol,
-            "timeframe", timeframe,
-            "startTime", startTime,
-            "endTime", endTime,
-            "data", ohlcvData,
-            "count", ohlcvData.size()
-        ));
+        return ResponseBuilder.<OHLCVData>create()
+            .addSymbol(symbol)
+            .addTimeframe(timeframe)
+            .addTimeRange(startTime, endTime)
+            .add("data", ohlcvData)
+            .add("count", ohlcvData.size())
+            .ok();
     }
     
     /**
@@ -102,15 +102,14 @@ public class ChartingController {
         
         var chartData = chartingService.getCompleteChartData(symbol, timeframe, startTime, endTime);
         
-        return ResponseEntity.ok(Map.of(
-            "symbol", symbol,
-            "timeframe", timeframe,
-            "startTime", startTime,
-            "endTime", endTime,
-            "data", chartData,
-            "count", chartData.size(),
-            "hasIndicators", !chartData.isEmpty() && chartData.get(0).hasAllIndicators()
-        ));
+        return ResponseBuilder.<Object>create()
+            .addSymbol(symbol)
+            .addTimeframe(timeframe)
+            .addTimeRange(startTime, endTime)
+            .add("data", chartData)
+            .add("count", chartData.size())
+            .add("hasIndicators", !chartData.isEmpty() && chartData.get(0).hasAllIndicators())
+            .ok();
     }
     
     /**
@@ -132,14 +131,13 @@ public class ChartingController {
         
         var indicators = chartingService.getTechnicalIndicators(symbol, timeframe, startTime, endTime);
         
-        return ResponseEntity.ok(Map.of(
-            "symbol", symbol,
-            "timeframe", timeframe,
-            "startTime", startTime,
-            "endTime", endTime,
-            "indicators", indicators,
-            "availableIndicators", indicators.keySet()
-        ));
+        return ResponseBuilder.<Object>create()
+            .addSymbol(symbol)
+            .addTimeframe(timeframe)
+            .addTimeRange(startTime, endTime)
+            .add("indicators", indicators)
+            .add("availableIndicators", indicators.keySet())
+            .ok();
     }
     
     /**
@@ -317,19 +315,12 @@ public class ChartingController {
         var pageable = PageRequest.of(page, size);
         var chartDataPage = chartingService.getChartDataPaged(symbol, timeframe, startTime, endTime, pageable);
         
-        return ResponseEntity.ok(Map.of(
-            "symbol", symbol,
-            "timeframe", timeframe,
-            "startTime", startTime,
-            "endTime", endTime,
-            "data", chartDataPage.getContent(),
-            "page", chartDataPage.getNumber(),
-            "size", chartDataPage.getSize(),
-            "totalElements", chartDataPage.getTotalElements(),
-            "totalPages", chartDataPage.getTotalPages(),
-            "hasNext", chartDataPage.hasNext(),
-            "hasPrevious", chartDataPage.hasPrevious()
-        ));
+        return ResponseBuilder.<ChartData>create()
+            .addSymbol(symbol)
+            .addTimeframe(timeframe)
+            .addTimeRange(startTime, endTime)
+            .addPageInfo(chartDataPage)
+            .ok();
     }
     
     /**

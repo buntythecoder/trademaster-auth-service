@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.dto;
 
+import com.trademaster.marketdata.constants.ResponseMessages;
 import com.trademaster.marketdata.entity.PriceAlert;
 import lombok.Builder;
 
@@ -436,7 +437,7 @@ public record PriceAlertResponse(
             AlertAnalytics analytics) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alerts retrieved successfully")
+            .message(ResponseMessages.ALERTS_RETRIEVED_SUCCESS)
             .timestamp(Instant.now())
             .alerts(alerts)
             .pagination(pagination)
@@ -449,7 +450,7 @@ public record PriceAlertResponse(
     public static PriceAlertResponse success(PriceAlertDto alert) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alert processed successfully")
+            .message(ResponseMessages.ALERT_PROCESSED_SUCCESS)
             .timestamp(Instant.now())
             .singleAlert(alert)
             .validationErrors(List.of())
@@ -460,7 +461,7 @@ public record PriceAlertResponse(
     public static PriceAlertResponse created(PriceAlertDto alert) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alert created successfully")
+            .message(ResponseMessages.ALERT_CREATED_SUCCESS)
             .timestamp(Instant.now())
             .singleAlert(alert)
             .validationErrors(List.of())
@@ -471,7 +472,7 @@ public record PriceAlertResponse(
     public static PriceAlertResponse updated(PriceAlertDto alert) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alert updated successfully")
+            .message(ResponseMessages.ALERT_UPDATED_SUCCESS)
             .timestamp(Instant.now())
             .singleAlert(alert)
             .validationErrors(List.of())
@@ -482,7 +483,7 @@ public record PriceAlertResponse(
     public static PriceAlertResponse deleted() {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alert deleted successfully")
+            .message(ResponseMessages.ALERT_DELETED_SUCCESS)
             .timestamp(Instant.now())
             .validationErrors(List.of())
             .warnings(List.of())
@@ -492,7 +493,7 @@ public record PriceAlertResponse(
     public static PriceAlertResponse validationError(List<ValidationError> errors) {
         return PriceAlertResponse.builder()
             .success(false)
-            .message("Validation failed")
+            .message(ResponseMessages.VALIDATION_FAILED)
             .timestamp(Instant.now())
             .validationErrors(errors)
             .warnings(List.of())
@@ -514,7 +515,7 @@ public record PriceAlertResponse(
             SystemHealth systemHealth, List<AlertRecommendation> recommendations) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alerts with analytics retrieved successfully")
+            .message(ResponseMessages.ALERTS_WITH_ANALYTICS_SUCCESS)
             .timestamp(Instant.now())
             .alerts(alerts)
             .analytics(analytics)
@@ -530,7 +531,7 @@ public record PriceAlertResponse(
             MarketContext marketContext) {
         return PriceAlertResponse.builder()
             .success(true)
-            .message("Alerts with market context retrieved successfully")
+            .message(ResponseMessages.ALERTS_WITH_CONTEXT_SUCCESS)
             .timestamp(Instant.now())
             .alerts(alerts)
             .marketContext(marketContext)

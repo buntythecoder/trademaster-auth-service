@@ -1,11 +1,13 @@
 package com.trademaster.marketdata.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -19,7 +21,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * - Massive scalability for concurrent I/O operations
  * - Reduced memory footprint compared to platform threads
  * - Better resource utilization for blocking operations
- * - Simplified concurrency model without thread pooling complexity
+ * - Optimized concurrency model leveraging virtual threads
  * 
  * @author TradeMaster Development Team
  * @version 1.0.0
@@ -27,6 +29,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableAsync
 @EnableScheduling
+@Slf4j
 public class VirtualThreadConfiguration {
 
     /**
@@ -47,8 +50,7 @@ public class VirtualThreadConfiguration {
             try {
                 runnable.run();
             } catch (Exception e) {
-                // Log any uncaught exceptions in virtual threads
-                System.err.println("Uncaught exception in virtual thread: " + e.getMessage());
+                log.error("Uncaught exception in virtual thread: {}", e.getMessage(), e);
                 throw e;
             }
         });
@@ -64,9 +66,12 @@ public class VirtualThreadConfiguration {
      */
     @Bean
     public TaskScheduler taskScheduler() {
-        SimpleAsyncTaskExecutor scheduler = new SimpleAsyncTaskExecutor();
-        scheduler.setVirtualThreads(true);
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(10);
         scheduler.setThreadNamePrefix("vt-scheduler-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(30);
+        scheduler.initialize();
         return scheduler;
     }
 

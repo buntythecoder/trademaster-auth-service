@@ -232,4 +232,13 @@ public record MarketDataResponse(
         long dataAge,
         String source
     ) {}
+    
+    // Compatibility methods for tests expecting JavaBean-style getters
+    public Long getRequestId() {
+        return requestId;
+    }
+    
+    public String getStatus() {
+        return status;
+    }
 }

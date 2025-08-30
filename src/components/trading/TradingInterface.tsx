@@ -27,6 +27,9 @@ import { useAuthStore } from '../../stores/auth.store'
 import { useEnhancedPortfolioWebSocket } from '../../hooks/useEnhancedPortfolioWebSocket'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 import { WebSocketErrorBoundary } from '../common/WebSocketErrorBoundary'
+import { MultiBrokerService, BrokerConnection } from '../../services/brokerService'
+import { BrokerSelector } from './BrokerSelector'
+import { CompactBrokerSelector } from './CompactBrokerSelector'
 
 interface OrderFormData {
   symbol: string
@@ -54,8 +57,21 @@ export function TradingInterface() {
   const [isLoading, setIsLoading] = useState(true)
   const [currentProfile, setCurrentProfile] = useState<TradingProfile>(TradingServiceFactory.getCurrentProfile())
   const [showProfileSwitch, setShowProfileSwitch] = useState(false)
+  const [selectedBroker, setSelectedBroker] = useState<BrokerConnection | null>(null)
+  const [availableBrokers, setAvailableBrokers] = useState<BrokerConnection[]>([])
+  const [showOrderConfirmation, setShowOrderConfirmation] = useState(false)
+  const [availableBalance, setAvailableBalance] = useState(250000)
+  const [orderForm, setOrderForm] = useState({
+    symbol: 'RELIANCE',
+    side: 'buy' as 'buy' | 'sell',
+    quantity: 1,
+    orderType: 'MARKET' as 'MARKET' | 'LIMIT',
+    price: 0
+  })
   
   // Real-time portfolio and trading data with fallback
+  const portfolioData = useEnhancedPortfolioWebSocket(user?.id || 'demo-user')
+  
   const {
     portfolio,
     positions: portfolioPositions,
@@ -63,12 +79,37 @@ export function TradingInterface() {
     isConnected,
     connectionStatus,
     lastUpdate
-  } = useEnhancedPortfolioWebSocket(user?.id || 'demo-user')
+  } = portfolioData || {}
+  
+  // Ensure we have safe defaults
+  const safeIsConnected = isConnected ?? false
+  const safeConnectionStatus = connectionStatus ?? 'disconnected'
 
-  // Load initial data
+  // Load initial data and broker connections
   useEffect(() => {
     loadTradingData()
+    loadBrokerConnections()
   }, [currentProfile])
+
+  const loadBrokerConnections = async () => {
+    try {
+      // Initialize mock brokers if none exist
+      MultiBrokerService.initializeMockBrokers()
+      
+      // Get connected brokers
+      const brokers = MultiBrokerService.getConnectedBrokers().filter(b => b.status === 'connected')
+      setAvailableBrokers(brokers)
+      
+      // Set default broker
+      const defaultBroker = MultiBrokerService.getDefaultBroker()
+      if (defaultBroker) {
+        setSelectedBroker(defaultBroker)
+        setAvailableBalance(defaultBroker.balance?.availableMargin || 250000)
+      }
+    } catch (error) {
+      console.error('Failed to load broker connections:', error)
+    }
+  }
 
   const loadTradingData = async () => {
     setIsLoading(true)
@@ -136,14 +177,34 @@ export function TradingInterface() {
     })
   }
 
-  const handleBrokerChange = (broker: any) => {
-    setAvailableBalance(broker.balance)
+  const handleBrokerSelect = (brokerConnection: BrokerConnection) => {
+    setSelectedBroker(brokerConnection)
+    setAvailableBalance(brokerConnection.balance?.availableMargin || 250000)
+    
+    // Set as default broker in the service
+    MultiBrokerService.setDefaultBroker(brokerConnection.id)
   }
 
-  const handleOrderSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setShowOrderConfirmation(true)
-    setTimeout(() => setShowOrderConfirmation(false), 3000)
+  const handleOrderSubmit = async (orderData: OrderFormData) => {
+    try {
+      if (selectedBroker) {
+        // Route order through selected broker
+        const order = await MultiBrokerService.placeOrder({
+          ...orderData,
+          brokerId: selectedBroker.id
+        })
+        
+        setOrders(prev => [order, ...prev])
+        setShowOrderConfirmation(true)
+        setTimeout(() => setShowOrderConfirmation(false), 3000)
+        
+        await loadTradingData()
+      } else {
+        throw new Error('No broker selected')
+      }
+    } catch (error) {
+      console.error('Failed to place order:', error)
+    }
   }
 
   const calculateOrderValue = () => {
@@ -165,7 +226,7 @@ export function TradingInterface() {
         <div className="flex items-center space-x-4">
           {/* Connection Status */}
           <ConnectionStatus
-            status={connectionStatus}
+            status={safeConnectionStatus}
             lastUpdate={lastUpdate}
             showDetails={false}
             className="px-3 py-2"
@@ -173,16 +234,16 @@ export function TradingInterface() {
           
           {/* Trading Status */}
           <div className={`glass-card px-4 py-2 rounded-xl ${
-            isConnected ? 'border-green-500/30' : 'border-orange-500/30'
+            safeIsConnected ? 'border-green-500/30' : 'border-orange-500/30'
           }`}>
             <div className="flex items-center space-x-2">
               <div className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-green-400 animate-pulse' : 'bg-orange-400'
+                safeIsConnected ? 'bg-green-400 animate-pulse' : 'bg-orange-400'
               }`} />
               <span className={`text-sm font-medium ${
-                isConnected ? 'text-green-400' : 'text-orange-400'
+                safeIsConnected ? 'text-green-400' : 'text-orange-400'
               }`}>
-                {isConnected ? 'Live Trading' : 'Offline Mode'}
+                {safeIsConnected ? 'Live Trading' : 'Offline Mode'}
               </span>
             </div>
           </div>
@@ -197,10 +258,65 @@ export function TradingInterface() {
       </div>
 
       {/* Broker Selection */}
-      {user?.role === 'ADMIN' ? (
-        <BrokerSelector />
-      ) : (
-        <CompactBrokerSelector onBrokerChange={handleBrokerChange} />
+      {availableBrokers.length > 0 && (
+        <div className="glass-card rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Building2 className="w-5 h-5 text-cyan-400" />
+              <span className="font-semibold text-white">Active Broker</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-sm text-green-400">Connected</span>
+            </div>
+          </div>
+          
+          {selectedBroker ? (
+            <div className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/30">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-lg bg-purple-500/20">
+                  <Building2 className="w-4 h-4 text-purple-400" />
+                </div>
+                <div>
+                  <div className="font-semibold text-white">{selectedBroker.displayName}</div>
+                  <div className="text-sm text-slate-400">Account: {selectedBroker.accountId}</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-slate-400">Available Margin</div>
+                <div className="font-semibold text-green-400">
+                  ₹{(selectedBroker.balance?.availableMargin || 0).toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 text-center">
+              <AlertTriangle className="w-6 h-6 text-orange-400 mx-auto mb-2" />
+              <div className="text-orange-400 font-medium">No broker selected</div>
+              <div className="text-sm text-slate-400">Please select a broker to start trading</div>
+            </div>
+          )}
+          
+          {availableBrokers.length > 1 && (
+            <div className="mt-3">
+              <select
+                value={selectedBroker?.id || ''}
+                onChange={(e) => {
+                  const broker = availableBrokers.find(b => b.id === e.target.value)
+                  if (broker) handleBrokerSelect(broker)
+                }}
+                className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-2 text-white focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/50"
+              >
+                <option value="">Switch Broker</option>
+                {availableBrokers.map(broker => (
+                  <option key={broker.id} value={broker.id}>
+                    {broker.displayName} - ₹{(broker.balance?.availableMargin || 0).toLocaleString('en-IN')} available
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">

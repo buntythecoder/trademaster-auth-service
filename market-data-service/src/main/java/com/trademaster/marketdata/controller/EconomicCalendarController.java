@@ -125,17 +125,11 @@ public class EconomicCalendarController {
             @Parameter(description = "Include upcoming analysis")
             @RequestParam(defaultValue = "true") Boolean includeAnalysis) {
         
-        var requestBuilder = EconomicCalendarRequest.thisWeek().toBuilder()
-            .includeAnalysis(includeAnalysis);
+        var request = EconomicCalendarRequest.thisWeek().toBuilder()
+            .includeAnalysis(includeAnalysis)
+            .build();
         
-        if (highImpactOnly) {
-            requestBuilder.importance(Set.of(
-                EconomicEvent.EventImportance.HIGH, 
-                EconomicEvent.EventImportance.CRITICAL
-            ));
-        }
-        
-        return economicCalendarService.getCalendarEvents(requestBuilder.build())
+        return economicCalendarService.getCalendarEvents(request)
             .thenApply(ResponseEntity::ok);
     }
     
@@ -326,14 +320,15 @@ public class EconomicCalendarController {
             @Parameter(description = "Countries to include")
             @RequestParam(required = false) Set<String> countries) {
         
-        var requestBuilder = EconomicCalendarRequest.centralBankEvents().toBuilder();
+        LocalDate today = LocalDate.now();
+        var requestBuilder = EconomicCalendarRequest.centralBankEvents().toBuilder()
+            .startDate(today)
+            .endDate(today.plusDays(daysAhead))
+            .includeAnalysis(true);
         
         if (countries != null && !countries.isEmpty()) {
             requestBuilder.countries(countries);
         }
-        
-        LocalDate today = LocalDate.now();
-        requestBuilder.startDate(today).endDate(today.plusDays(daysAhead));
         
         return economicCalendarService.getCalendarEvents(requestBuilder.build())
             .thenApply(ResponseEntity::ok);

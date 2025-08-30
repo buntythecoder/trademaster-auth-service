@@ -99,8 +99,8 @@ public class RedisConfig {
     /**
      * Connection pool configuration for high performance
      */
-    private org.apache.commons.pool2.impl.GenericObjectPoolConfig<org.apache.commons.pool2.PooledObject> getPoolConfig() {
-        var poolConfig = new org.apache.commons.pool2.impl.GenericObjectPoolConfig<>();
+    private org.apache.commons.pool2.impl.GenericObjectPoolConfig<io.lettuce.core.api.StatefulConnection<?, ?>> getPoolConfig() {
+        var poolConfig = new org.apache.commons.pool2.impl.GenericObjectPoolConfig<io.lettuce.core.api.StatefulConnection<?, ?>>();
         poolConfig.setMaxTotal(maxActive);
         poolConfig.setMaxIdle(maxIdle);
         poolConfig.setMinIdle(minIdle);
@@ -149,8 +149,8 @@ public class RedisConfig {
     /**
      * String-only Redis template for simple caching
      */
-    @Bean("stringRedisTemplate")
-    public RedisTemplate<String, String> stringRedisTemplate(RedisConnectionFactory connectionFactory) {
+    @Bean("customStringRedisTemplate")
+    public RedisTemplate<String, String> customStringRedisTemplate(RedisConnectionFactory connectionFactory) {
         RedisTemplate<String, String> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
         

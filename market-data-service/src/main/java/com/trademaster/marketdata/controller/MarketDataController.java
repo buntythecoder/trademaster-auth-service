@@ -165,39 +165,36 @@ public class MarketDataController {
             
             // Try cache first
             var cachedData = cacheService.getOHLCData(symbol, exchange, interval);
-            if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(
+            return cachedData.map(cachedOHLCS -> CompletableFuture.completedFuture(
                     ResponseEntity.ok(MarketDataResponse.success(
-                        Map.of(
-                            "symbol", symbol,
-                            "exchange", exchange,
-                            "interval", interval,
-                            "data", cachedData.get(),
-                            "source", "cache"
-                        )
+                            Map.of(
+                                    "symbol", symbol,
+                                    "exchange", exchange,
+                                    "interval", interval,
+                                    "data", cachedOHLCS,
+                                    "source", "cache"
+                            )
                     ))
-                );
-            }
+            )).orElseGet(() -> marketDataService.getHistoricalData(symbol, exchange, from, to, interval)
+                    .thenApply(data -> {
+                        // Cache the result
+                        cacheService.cacheOHLCData(symbol, exchange, interval, data);
+
+                        return ResponseEntity.ok(MarketDataResponse.success(
+                                Map.of(
+                                        "symbol", symbol,
+                                        "exchange", exchange,
+                                        "interval", interval,
+                                        "from", from,
+                                        "to", to,
+                                        "data", data,
+                                        "count", data.size(),
+                                        "source", "database"
+                                )
+                        ));
+                    }));
             
             // Fetch from database
-            return marketDataService.getHistoricalData(symbol, exchange, from, to, interval)
-                .thenApply(data -> {
-                    // Cache the result
-                    cacheService.cacheOHLCData(symbol, exchange, interval, data);
-                    
-                    return ResponseEntity.ok(MarketDataResponse.success(
-                        Map.of(
-                            "symbol", symbol,
-                            "exchange", exchange,
-                            "interval", interval,
-                            "from", from,
-                            "to", to,
-                            "data", data,
-                            "count", data.size(),
-                            "source", "database"
-                        )
-                    ));
-                });
         });
     }
 
@@ -287,18 +284,15 @@ public class MarketDataController {
             @RequestParam(defaultValue = "NSE") String exchange,
             @AuthenticationPrincipal UserDetails userDetails) {
         
-        return tierValidator.validateAndExecuteAsync(userDetails, SubscriptionTierValidator.DataAccess.SYMBOL_LIST, () -> {
-            
-            return marketDataService.getActiveSymbols(exchange, 60) // Last 60 minutes
-                .thenApply(symbols -> ResponseEntity.ok(MarketDataResponse.success(
-                    Map.of(
-                        "exchange", exchange,
-                        "symbols", symbols,
-                        "count", symbols.size(),
-                        "timestamp", Instant.now()
-                    )
-                )));
-        });
+        return tierValidator.validateAndExecuteAsync(userDetails, SubscriptionTierValidator.DataAccess.SYMBOL_LIST, () -> marketDataService.getActiveSymbols(exchange, 60) // Last 60 minutes
+            .thenApply(symbols -> ResponseEntity.ok(MarketDataResponse.success(
+                Map.of(
+                    "exchange", exchange,
+                    "symbols", symbols,
+                    "count", symbols.size(),
+                    "timestamp", Instant.now()
+                )
+            ))));
     }
 
     /**

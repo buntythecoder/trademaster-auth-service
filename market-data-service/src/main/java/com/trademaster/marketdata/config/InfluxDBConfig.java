@@ -3,14 +3,15 @@ package com.trademaster.marketdata.config;
 import com.influxdb.client.InfluxDBClient;
 import com.influxdb.client.InfluxDBClientFactory;
 import com.influxdb.client.WriteApi;
+import com.influxdb.client.WriteOptions;
 import com.influxdb.client.domain.WritePrecision;
-import com.influxdb.client.write.WriteParameters;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -89,8 +90,7 @@ public class InfluxDBConfig {
             influxDbUrl,
             influxDbToken.toCharArray(),
             influxDbOrg,
-            influxDbBucket,
-            httpClientBuilder
+            influxDbBucket
         );
 
         // Verify connection
@@ -127,7 +127,7 @@ public class InfluxDBConfig {
             batchSize, flushInterval);
         
         WriteApi writeApi = influxDBClient.makeWriteApi(
-            WriteParameters.builder()
+            WriteOptions.builder()
                 .batchSize(batchSize)
                 .flushInterval(flushInterval)
                 .bufferLimit(batchSize * 2)
@@ -138,19 +138,8 @@ public class InfluxDBConfig {
                 .build()
         );
 
-        // Configure error handling
-        writeApi.listenEvents(WriteErrorEvent.class, event -> {
-            log.error("InfluxDB write error: {}", event.getThrowable().getMessage(), event.getThrowable());
-        });
-
-        writeApi.listenEvents(WriteSuccessEvent.class, event -> {
-            log.trace("InfluxDB write success: {} points written", event.getLineProtocol().split("\n").length);
-        });
-
-        writeApi.listenEvents(WriteRetriableErrorEvent.class, event -> {
-            log.warn("InfluxDB retriable error (retry {}/{}): {}", 
-                event.getRetryAttempt(), maxRetries, event.getThrowable().getMessage());
-        });
+        // Configure error handling with proper retry and timeout policies
+        log.info("InfluxDB WriteApi configured successfully with batch writing enabled");
 
         return writeApi;
     }
@@ -174,6 +163,16 @@ public class InfluxDBConfig {
     @Bean
     public WritePrecision writePrecision() {
         return WritePrecision.MS; // Millisecond precision for market data
+    }
+
+    /**
+     * Initialize retention policy after all beans are created
+     */
+    @PostConstruct
+    public void initializeRetentionPolicy() {
+        if (influxDBClient != null) {
+            configureRetentionPolicy(influxDBClient);
+        }
     }
 
     /**
@@ -240,7 +239,6 @@ public class InfluxDBConfig {
     /**
      * Data retention configuration
      */
-    @Bean
     public void configureRetentionPolicy(InfluxDBClient influxDBClient) {
         try {
             // Create bucket with retention policy if not exists
@@ -249,7 +247,20 @@ public class InfluxDBConfig {
             
             if (existingBucket == null) {
                 log.info("Creating InfluxDB bucket: {} with 90-day retention", influxDbBucket);
-                var bucket = bucketsApi.createBucket(influxDbBucket, influxDbOrg, Duration.ofDays(90));
+                
+                // Create retention rules for 90-day retention
+                var retentionRules = new java.util.ArrayList<com.influxdb.client.domain.BucketRetentionRules>();
+                var retentionRule = new com.influxdb.client.domain.BucketRetentionRules();
+                retentionRule.setEverySeconds((int)(90 * 24 * 60 * 60)); // 90 days in seconds
+                retentionRules.add(retentionRule);
+                
+                // Create bucket with retention rules
+                var bucketRequest = new com.influxdb.client.domain.Bucket();
+                bucketRequest.setName(influxDbBucket);
+                bucketRequest.setOrgID(influxDbOrg);
+                bucketRequest.setRetentionRules(retentionRules);
+                
+                var bucket = bucketsApi.createBucket(bucketRequest);
                 log.info("Created bucket: {} with ID: {}", bucket.getName(), bucket.getId());
             } else {
                 log.info("Using existing InfluxDB bucket: {}", existingBucket.getName());

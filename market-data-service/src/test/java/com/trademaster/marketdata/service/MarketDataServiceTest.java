@@ -417,7 +417,6 @@ class MarketDataServiceTest {
             
             var repoReport = new MarketDataRepository.DataQualityReport(
                 symbol, exchange, 1000L, 5L, 0.95,
-                MarketDataRepository.DataQualityReport.QualityLevel.HIGH,
                 Instant.now()
             );
             

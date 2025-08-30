@@ -5,6 +5,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import static com.trademaster.marketdata.agentos.AgentConstants.*;
+
 /**
  * Event Handler Annotation
  * 
@@ -28,7 +30,7 @@ public @interface EventHandler {
     /**
      * Priority level for this handler (higher values = higher priority)
      */
-    int priority() default 0;
+    int priority() default DEFAULT_EVENT_PRIORITY;
     
     /**
      * Whether this handler should be called asynchronously
@@ -38,5 +40,5 @@ public @interface EventHandler {
     /**
      * Maximum processing time in milliseconds before timeout
      */
-    long timeoutMs() default 30000L;
+    long timeoutMs() default DEFAULT_OPERATION_TIMEOUT_MS;
 }

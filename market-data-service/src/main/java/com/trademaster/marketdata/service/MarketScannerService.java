@@ -14,7 +14,14 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.function.Predicate;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import com.trademaster.marketdata.pattern.Result;
+import com.trademaster.marketdata.pattern.Either;
+import com.trademaster.marketdata.pattern.StreamUtils;
+import com.trademaster.marketdata.pattern.IO;
 
 /**
  * Market Scanner Service
@@ -35,6 +42,63 @@ public class MarketScannerService {
     private final MarketDataService marketDataService;
     private final TechnicalAnalysisService technicalAnalysisService;
     private final MarketDataCacheService cacheService;
+    
+    // Functional Filter Chain Implementation  
+    @FunctionalInterface
+    public interface BiPredicate<T, U> {
+        boolean test(T t, U u);
+    }
+    
+    public static class FilterChain<T, R> {
+        private final List<BiPredicate<T, R>> filters;
+        
+        private FilterChain(List<BiPredicate<T, R>> filters) {
+            this.filters = filters;
+        }
+        
+        public boolean test(T data, R request) {
+            return filters.stream().allMatch(filter -> filter.test(data, request));
+        }
+        
+        public static <T, R> Builder<T, R> builder() {
+            return new Builder<>();
+        }
+        
+        public static class Builder<T, R> {
+            private final List<BiPredicate<T, R>> filters = new ArrayList<>();
+            
+            public Builder<T, R> addFilter(BiPredicate<T, R> filter) {
+                filters.add(filter);
+                return this;
+            }
+            
+            public FilterChain<T, R> build() {
+                return new FilterChain<>(filters);
+            }
+        }
+    }
+    
+    // Functional Filter Chains (Strategy Pattern)
+    private final FilterChain<MarketDataPoint, MarketScannerRequest> basicFilters = FilterChain.<MarketDataPoint, MarketScannerRequest>builder()
+        .addFilter(this::validatePriceRange)
+        .addFilter(this::validateVolumeRange)  
+        .addFilter(this::validateDataQuality)
+        .build();
+    
+    private final FilterChain<Map<String, Object>, MarketScannerRequest> technicalFilters = FilterChain.<Map<String, Object>, MarketScannerRequest>builder()
+        .addFilter(this::validateTechnicalIndicators)
+        .build();
+    
+    private final FilterChain<Map<String, BigDecimal>, MarketScannerRequest> performanceFilters = FilterChain.<Map<String, BigDecimal>, MarketScannerRequest>builder()
+        .addFilter(this::validateDayChange)
+        .addFilter(this::validateWeekChange)
+        .addFilter(this::validateMonthChange)
+        .build();
+    
+    private final FilterChain<Map<String, BigDecimal>, MarketScannerRequest> fundamentalFilters = FilterChain.<Map<String, BigDecimal>, MarketScannerRequest>builder()
+        .addFilter(this::validatePERatio)
+        .addFilter(this::validateDivYield)
+        .build();
     
     /**
      * Execute market scan with comprehensive filtering
@@ -218,168 +282,60 @@ public class MarketScannerService {
     }
     
     /**
-     * Apply basic price and volume filters
+     * Apply basic price and volume filters - Functional approach
      */
     private boolean passesBasicFilters(MarketDataPoint data, MarketScannerRequest request) {
-        // Price filter
-        if (request.priceRange() != null && data.price() != null) {
-            if (!request.priceRange().isInRange(data.price())) {
-                return false;
-            }
-        }
-        
-        // Volume filter
-        if (request.volumeRange() != null && data.volume() != null) {
-            BigDecimal volume = new BigDecimal(data.volume());
-            if (!request.volumeRange().isInRange(volume)) {
-                return false;
-            }
-        }
-        
-        // Data quality filter
-        if (request.minDataQuality() != null) {
-            double quality = data.qualityScore() != null ? data.qualityScore() : 0.0;
-            if (quality * 100 < request.minDataQuality()) {
-                return false;
-            }
-        }
-        
-        return true;
+        return basicFilters.test(data, request);
     }
     
     /**
-     * Apply technical indicator filters
+     * Apply technical indicator filters - Functional approach
      */
     private boolean passesTechnicalFilters(Map<String, BigDecimal> indicators, 
             MarketScannerRequest request) {
         
-        if (!request.hasTechnicalFilters()) {
-            return true;
-        }
-        
-        for (var filter : request.technicalFilters()) {
-            BigDecimal indicatorValue = indicators.get(filter.indicatorType());
-            if (indicatorValue == null) {
-                continue; // Skip if indicator not available
-            }
-            
-            boolean passes = switch (filter.condition().toUpperCase()) {
-                case "ABOVE" -> indicatorValue.compareTo(filter.value()) > 0;
-                case "BELOW" -> indicatorValue.compareTo(filter.value()) < 0;
-                case "EQUALS" -> indicatorValue.compareTo(filter.value()) == 0;
-                case "BETWEEN" -> filter.secondValue() != null && 
-                    indicatorValue.compareTo(filter.value()) >= 0 &&
-                    indicatorValue.compareTo(filter.secondValue()) <= 0;
-                case "CROSSING_ABOVE", "CROSSING_BELOW" -> 
-                    checkCrossing(indicatorValue, filter); // Implement crossing logic
-                default -> true;
-            };
-            
-            if (!passes) {
-                return false;
-            }
-        }
-        
-        return true;
+        return !request.hasTechnicalFilters() || 
+            request.technicalFilters().stream()
+                .allMatch(filter -> 
+                    Optional.ofNullable(indicators.get(filter.indicatorType()))
+                        .map(indicatorValue -> evaluateTechnicalCondition(indicatorValue, filter))
+                        .orElse(false));
     }
     
     /**
-     * Apply performance filters
+     * Apply performance filters - Functional approach
      */
     private boolean passesPerformanceFilters(Map<String, BigDecimal> performance, 
             MarketScannerRequest request) {
         
-        if (request.dayChangePercent() != null) {
-            BigDecimal dayChange = performance.get("dayChangePercent");
-            if (dayChange == null || !request.dayChangePercent().isInRange(dayChange)) {
-                return false;
-            }
-        }
-        
-        if (request.weekChangePercent() != null) {
-            BigDecimal weekChange = performance.get("weekChangePercent");
-            if (weekChange == null || !request.weekChangePercent().isInRange(weekChange)) {
-                return false;
-            }
-        }
-        
-        if (request.monthChangePercent() != null) {
-            BigDecimal monthChange = performance.get("monthChangePercent");
-            if (monthChange == null || !request.monthChangePercent().isInRange(monthChange)) {
-                return false;
-            }
-        }
-        
-        return true;
+        return performanceFilters.test(performance, request);
     }
     
     /**
-     * Apply fundamental filters
+     * Apply fundamental filters - Functional approach
      */
     private boolean passesFundamentalFilters(Map<String, BigDecimal> fundamentals, 
             MarketScannerRequest request) {
         
-        if (request.peRatio() != null) {
-            BigDecimal pe = fundamentals.get("peRatio");
-            if (pe == null || !request.peRatio().isInRange(pe)) {
-                return false;
-            }
-        }
-        
-        if (request.divYield() != null) {
-            BigDecimal divYield = fundamentals.get("dividendYield");
-            if (divYield == null || !request.divYield().isInRange(divYield)) {
-                return false;
-            }
-        }
-        
-        return true;
+        return fundamentalFilters.test(fundamentals, request);
     }
     
     /**
-     * Apply pattern filters
+     * Apply pattern filters - Functional approach
      */
     private boolean passesPatternFilters(List<String> patterns, List<String> candlestickPatterns,
             MarketScannerRequest request) {
         
-        if (request.chartPatterns() != null && !request.chartPatterns().isEmpty()) {
-            boolean hasMatchingPattern = patterns.stream()
-                .anyMatch(pattern -> request.chartPatterns().contains(pattern));
-            if (!hasMatchingPattern) {
-                return false;
-            }
-        }
-        
-        if (request.candlestickPatterns() != null && !request.candlestickPatterns().isEmpty()) {
-            boolean hasMatchingPattern = candlestickPatterns.stream()
-                .anyMatch(pattern -> request.candlestickPatterns().contains(pattern));
-            if (!hasMatchingPattern) {
-                return false;
-            }
-        }
-        
-        return true;
+        return validateChartPatterns(patterns, request) && validateCandlestickPatterns(candlestickPatterns, request);
     }
     
     /**
-     * Apply breakout filters
+     * Apply breakout filters - Functional approach
      */
     private boolean passesBreakoutFilters(MarketScannerResult.ScanResultItem.BreakoutAnalysis breakoutAnalysis,
             MarketScannerRequest request) {
         
-        if (request.priceBreakout() != null && request.priceBreakout()) {
-            if (breakoutAnalysis == null || !Boolean.TRUE.equals(breakoutAnalysis.priceBreakout())) {
-                return false;
-            }
-        }
-        
-        if (request.volumeBreakout() != null && request.volumeBreakout()) {
-            if (breakoutAnalysis == null || !Boolean.TRUE.equals(breakoutAnalysis.volumeBreakout())) {
-                return false;
-            }
-        }
-        
-        return true;
+        return validatePriceBreakout(breakoutAnalysis, request) && validateVolumeBreakout(breakoutAnalysis, request);
     }
     
     // Helper methods (implementation stubs for demonstration)
@@ -478,8 +434,9 @@ public class MarketScannerService {
             List<MarketScannerResult.ScanResultItem> results, MarketScannerRequest request) {
         
         return results.stream()
-            .filter(item -> request.excludeSymbols() == null || 
-                !request.excludeSymbols().contains(item.symbol()))
+            .filter(item -> Optional.ofNullable(request.excludeSymbols())
+                .map(excluded -> !excluded.contains(item.symbol()))
+                .orElse(true))
             .toList();
     }
     
@@ -513,11 +470,7 @@ public class MarketScannerService {
         int start = (request.pageNumber() - 1) * request.pageSize();
         int end = Math.min(start + request.pageSize(), results.size());
         
-        if (start >= results.size()) {
-            return List.of();
-        }
-        
-        return results.subList(start, end);
+        return start >= results.size() ? List.of() : results.subList(start, end);
     }
     
     private MarketScannerResult.ScanStatistics buildStatistics(List<String> symbols,
@@ -543,14 +496,15 @@ public class MarketScannerService {
             List<MarketScannerResult.ScanResultItem> allResults, MarketScannerRequest request) {
         
         int totalPages = (int) Math.ceil((double) allResults.size() / request.pageSize());
+        int currentPage = request.pageNumber();
         
         return MarketScannerResult.PaginationInfo.builder()
-            .currentPage(request.pageNumber())
+            .currentPage(currentPage)
             .pageSize(request.pageSize())
             .totalPages(totalPages)
             .totalResults((long) allResults.size())
-            .hasNext(request.pageNumber() < totalPages)
-            .hasPrevious(request.pageNumber() > 1)
+            .hasNext(currentPage < totalPages)
+            .hasPrevious(currentPage > 1)
             .build();
     }
     
@@ -559,6 +513,153 @@ public class MarketScannerService {
             Integer.toHexString(new Random().nextInt());
     }
     
+    // Functional Validator Methods (replacing if-else chains)
+    private boolean validatePriceRange(MarketDataPoint data, MarketScannerRequest request) {
+        return Optional.ofNullable(request.priceRange())
+            .map(range -> Optional.ofNullable(data.price())
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateVolumeRange(MarketDataPoint data, MarketScannerRequest request) {
+        return Optional.ofNullable(request.volumeRange())
+            .map(range -> Optional.ofNullable(data.volume())
+                .map(BigDecimal::valueOf)
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateDataQuality(MarketDataPoint data, MarketScannerRequest request) {
+        return Optional.ofNullable(request.minDataQuality())
+            .map(minQuality -> calculateDataQuality(data) * 100 >= minQuality)
+            .orElse(true);
+    }
+    
+    private boolean validateTechnicalIndicators(Map<String, Object> indicators, MarketScannerRequest request) {
+        return !request.hasTechnicalFilters() || 
+            request.technicalFilters().stream()
+                .allMatch(filter -> Optional.ofNullable(indicators.get(filter.indicatorType()))
+                    .filter(BigDecimal.class::isInstance)
+                    .map(BigDecimal.class::cast)
+                    .map(value -> evaluateTechnicalCondition(value, filter))
+                    .orElse(false));
+    }
+    
+    private boolean validateDayChange(Map<String, BigDecimal> metrics, MarketScannerRequest request) {
+        return Optional.ofNullable(request.dayChangePercent())
+            .map(range -> Optional.ofNullable(metrics.get("dayChange"))
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateWeekChange(Map<String, BigDecimal> metrics, MarketScannerRequest request) {
+        return Optional.ofNullable(request.weekChangePercent())
+            .map(range -> Optional.ofNullable(metrics.get("weekChange"))
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateMonthChange(Map<String, BigDecimal> metrics, MarketScannerRequest request) {
+        return Optional.ofNullable(request.monthChangePercent())
+            .map(range -> Optional.ofNullable(metrics.get("monthChange"))
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validatePERatio(Map<String, BigDecimal> fundamentals, MarketScannerRequest request) {
+        return Optional.ofNullable(request.peRatio())
+            .map(range -> Optional.ofNullable(fundamentals.get("pe"))
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateDivYield(Map<String, BigDecimal> fundamentals, MarketScannerRequest request) {
+        return Optional.ofNullable(request.divYield())
+            .map(range -> Optional.ofNullable(fundamentals.get("divYield"))
+                .map(range::isInRange)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private double calculateDataQuality(MarketDataPoint data) {
+        // Functional quality score calculation
+        double baseScore = 1.0;
+        
+        Function<Predicate<MarketDataPoint>, Double> penalize = condition -> 
+            condition.test(data) ? 0.0 : -0.3;
+        
+        double priceScore = penalize.apply(point -> 
+            Optional.ofNullable(point.price())
+                .map(price -> price.compareTo(BigDecimal.ZERO) > 0)
+                .orElse(false));
+        
+        double volumeScore = penalize.apply(point -> 
+            Optional.ofNullable(point.volume())
+                .map(volume -> volume > 0)
+                .orElse(false)) * 0.67; // Adjust penalty
+        
+        double timestampScore = penalize.apply(point -> 
+            Optional.ofNullable(point.timestamp()).isPresent()) * 0.67; // Adjust penalty
+        
+        return Math.max(0.0, baseScore + priceScore + volumeScore + timestampScore);
+    }
+    
+    // Additional Functional Helper Methods
+    
+    private boolean evaluateTechnicalCondition(BigDecimal indicatorValue, MarketScannerRequest.TechnicalIndicatorFilter filter) {
+        return switch (filter.condition().toUpperCase()) {
+            case "ABOVE" -> indicatorValue.compareTo(filter.value()) > 0;
+            case "BELOW" -> indicatorValue.compareTo(filter.value()) < 0;
+            case "EQUALS" -> indicatorValue.compareTo(filter.value()) == 0;
+            case "BETWEEN" -> Optional.ofNullable(filter.secondValue())
+                .map(secondValue -> indicatorValue.compareTo(filter.value()) >= 0 &&
+                                   indicatorValue.compareTo(secondValue) <= 0)
+                .orElse(false);
+            case "CROSSING_ABOVE", "CROSSING_BELOW" -> checkCrossing(indicatorValue, filter);
+            default -> true;
+        };
+    }
+    
+    private boolean validateChartPatterns(List<String> patterns, MarketScannerRequest request) {
+        return Optional.ofNullable(request.chartPatterns())
+            .filter(chartPatterns -> !chartPatterns.isEmpty())
+            .map(chartPatterns -> patterns.stream().anyMatch(chartPatterns::contains))
+            .orElse(true);
+    }
+    
+    private boolean validateCandlestickPatterns(List<String> candlestickPatterns, MarketScannerRequest request) {
+        return Optional.ofNullable(request.candlestickPatterns())
+            .filter(patterns -> !patterns.isEmpty())
+            .map(patterns -> candlestickPatterns.stream().anyMatch(patterns::contains))
+            .orElse(true);
+    }
+    
+    private boolean validatePriceBreakout(MarketScannerResult.ScanResultItem.BreakoutAnalysis breakoutAnalysis, 
+            MarketScannerRequest request) {
+        return Optional.ofNullable(request.priceBreakout())
+            .map(required -> required && Optional.ofNullable(breakoutAnalysis)
+                .map(MarketScannerResult.ScanResultItem.BreakoutAnalysis::priceBreakout)
+                .map(Boolean.TRUE::equals)
+                .orElse(false))
+            .orElse(true);
+    }
+    
+    private boolean validateVolumeBreakout(MarketScannerResult.ScanResultItem.BreakoutAnalysis breakoutAnalysis, 
+            MarketScannerRequest request) {
+        return Optional.ofNullable(request.volumeBreakout())
+            .map(required -> required && Optional.ofNullable(breakoutAnalysis)
+                .map(MarketScannerResult.ScanResultItem.BreakoutAnalysis::volumeBreakout)
+                .map(Boolean.TRUE::equals)
+                .orElse(false))
+            .orElse(true);
+    }
+
     // AgentOS Integration Methods
     
     /**

@@ -145,9 +145,11 @@ public class ChartData {
     
     // Metadata
     @Column
+    @Builder.Default
     private Boolean isComplete = true; // Is this candle complete
     
     @Column
+    @Builder.Default
     private Boolean hasGaps = false; // Trading gaps detected
     
     @Column

@@ -1,12 +1,12 @@
 package com.trademaster.marketdata.security;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.CompletableFuture;
@@ -32,6 +32,7 @@ public class SubscriptionTierValidator {
     /**
      * Data access types requiring tier validation
      */
+    @Getter
     public enum DataAccess {
         CURRENT_PRICE("Current price data"),
         HISTORICAL_DATA("Historical data access"),
@@ -47,14 +48,12 @@ public class SubscriptionTierValidator {
             this.description = description;
         }
 
-        public String getDescription() {
-            return description;
-        }
     }
 
     /**
      * Subscription tiers with capabilities
      */
+    @Getter
     public enum SubscriptionTier {
         FREE("Free", false, false, false, 10, 7, 100),
         SMART_TRADER("Smart Trader", true, true, false, 50, 30, 1000),
@@ -81,13 +80,9 @@ public class SubscriptionTierValidator {
             this.dailyRequestLimit = dailyRequestLimit;
         }
 
-        public String getDisplayName() { return displayName; }
         public boolean hasRealtimeAccess() { return realtimeAccess; }
         public boolean hasHistoricalAccess() { return historicalAccess; }
         public boolean hasOrderBookAccess() { return orderBookAccess; }
-        public int getMaxSymbolsPerRequest() { return maxSymbolsPerRequest; }
-        public int getMaxHistoricalDays() { return maxHistoricalDays; }
-        public int getDailyRequestLimit() { return dailyRequestLimit; }
     }
 
     /**
@@ -262,6 +257,7 @@ public class SubscriptionTierValidator {
     /**
      * Custom exception for subscription tier violations
      */
+    @Getter
     public static class SubscriptionTierException extends RuntimeException {
         private final SubscriptionTier currentTier;
         private final SubscriptionTier requiredTier;
@@ -273,12 +269,5 @@ public class SubscriptionTierValidator {
             this.requiredTier = requiredTier;
         }
 
-        public SubscriptionTier getCurrentTier() {
-            return currentTier;
-        }
-
-        public SubscriptionTier getRequiredTier() {
-            return requiredTier;
-        }
     }
 }

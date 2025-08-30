@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.config;
 
+import com.trademaster.marketdata.util.MetricsRecorder;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -48,6 +49,7 @@ public class MetricsConfiguration {
     public static class MarketDataMetrics {
         
         private final MeterRegistry meterRegistry;
+        private final MetricsRecorder metricsRecorder;
         
         // Market Data Ingestion Metrics
         private final Counter marketDataMessages;
@@ -117,6 +119,7 @@ public class MetricsConfiguration {
         
         public MarketDataMetrics(MeterRegistry meterRegistry) {
             this.meterRegistry = meterRegistry;
+            this.metricsRecorder = new MetricsRecorder(meterRegistry);
             
             // Initialize Market Data Ingestion Metrics
             this.marketDataMessages = Counter.builder("marketdata.ingestion.messages")
@@ -338,301 +341,283 @@ public class MetricsConfiguration {
             this.concurrentUsers = new AtomicInteger(0);
             
             // Register Gauge metrics for real-time values
-            Gauge.builder("marketdata.websocket.active_connections")
+            Gauge.builder("marketdata.websocket.active_connections", activeConnections, AtomicInteger::get)
                 .description("Active WebSocket connections")
                 .tag("service", "market-data")
-                .register(meterRegistry, activeConnections, AtomicInteger::get);
+                .register(meterRegistry);
             
-            Gauge.builder("marketdata.symbols.subscribed")
+            Gauge.builder("marketdata.symbols.subscribed", subscribedSymbols, AtomicInteger::get)
                 .description("Subscribed symbols")
                 .tag("service", "market-data")
-                .register(meterRegistry, subscribedSymbols, AtomicInteger::get);
+                .register(meterRegistry);
             
-            Gauge.builder("marketdata.streaming.messages_per_second")
+            Gauge.builder("marketdata.streaming.messages_per_second", messagesPerSecond, AtomicLong::get)
                 .description("Messages per second")
                 .tag("service", "market-data")
-                .register(meterRegistry, messagesPerSecond, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("marketdata.symbols.total")
+            Gauge.builder("marketdata.symbols.total", totalSymbols, AtomicLong::get)
                 .description("Total symbols")
                 .tag("service", "market-data")
-                .register(meterRegistry, totalSymbols, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("marketdata.subscriptions.active")
+            Gauge.builder("marketdata.subscriptions.active", activeSubscriptions, AtomicLong::get)
                 .description("Active subscriptions")
                 .tag("service", "market-data")
-                .register(meterRegistry, activeSubscriptions, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("marketdata.users.concurrent")
+            Gauge.builder("marketdata.users.concurrent", concurrentUsers, AtomicInteger::get)
                 .description("Concurrent users")
                 .tag("service", "market-data")
-                .register(meterRegistry, concurrentUsers, AtomicInteger::get);
+                .register(meterRegistry);
             
             log.info("Market Data Service metrics initialized successfully");
         }
         
         // Market Data Ingestion Methods
         public void recordMarketDataMessage(String symbol, String messageType, long latencyMs) {
-            marketDataMessages.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "type", messageType
-                )
-            );
-            marketDataLatency.record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            metricsRecorder.counter("marketdata.messages")
+                .symbol(symbol)
+                .tag("type", messageType)
+                .increment();
+            metricsRecorder.timer("marketdata.latency").record(latencyMs);
         }
         
         public void recordPriceUpdate(String symbol, String exchange, double price) {
-            priceUpdates.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "exchange", exchange
-                )
-            );
+            metricsRecorder.counter("marketdata.price.updates")
+                .symbol(symbol)
+                .exchange(exchange)
+                .increment();
         }
         
         public void recordVolumeUpdate(String symbol, String exchange, long volume) {
-            volumeUpdates.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "exchange", exchange
-                )
-            );
+            metricsRecorder.counter("marketdata.volume.updates")
+                .symbol(symbol)
+                .exchange(exchange)
+                .increment();
         }
         
         public void recordOrderBookUpdate(String symbol, String side, int levels) {
-            orderBookUpdates.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "side", side,
-                    "levels", String.valueOf(levels)
-                )
-            );
+            metricsRecorder.counter("marketdata.orderbook.updates")
+                .symbol(symbol)
+                .tag("side", side)
+                .tag("levels", String.valueOf(levels))
+                .increment();
         }
         
         public void recordTradeEvent(String symbol, String exchange, double amount) {
-            tradeEvents.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "exchange", exchange
-                )
-            );
+            metricsRecorder.counter("marketdata.trade.events")
+                .symbol(symbol)
+                .exchange(exchange)
+                .increment();
         }
         
         // Data Quality Methods
         public void recordDataQualityIssue(String symbol, String issueType, String severity) {
-            dataQualityIssues.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "issue_type", issueType,
-                    "severity", severity
-                )
-            );
+            metricsRecorder.counter("marketdata.dataquality.issues")
+                .symbol(symbol)
+                .tag("issue_type", issueType)
+                .tag("severity", severity)
+                .increment();
         }
         
         public void recordMissingDataPoint(String symbol, String dataType) {
-            missingDataPoints.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "data_type", dataType
-                )
-            );
+            metricsRecorder.counter("marketdata.missing.datapoints")
+                .symbol(symbol)
+                .tag("data_type", dataType)
+                .increment();
         }
         
         public void recordOutlierDetection(String symbol, String field, double value) {
-            outlierDetections.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "field", field
-                )
-            );
+            metricsRecorder.counter("marketdata.outlier.detections")
+                .symbol(symbol)
+                .tag("field", field)
+                .increment();
         }
         
         public void recordDataProcessing(String operation, long durationMs, boolean success) {
-            dataProcessingDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of(
-                    "operation", operation,
-                    "success", String.valueOf(success)
-                )
-            );
+            metricsRecorder.timer("marketdata.dataprocessing.duration")
+                .operation(operation)
+                .success(success)
+                .record(durationMs);
         }
         
         // WebSocket Connection Methods
         public void recordWebSocketConnection(String clientId, String subscriptionType) {
-            websocketConnections.increment(
+            meterRegistry.counter("marketdata.websocket.connections", 
                 io.micrometer.core.instrument.Tags.of(
                     "client_id", clientId,
                     "subscription_type", subscriptionType
                 )
-            );
+            ).increment();
             activeConnections.incrementAndGet();
         }
         
         public void recordWebSocketDisconnection(String clientId, String reason) {
-            websocketDisconnections.increment(
+            meterRegistry.counter("marketdata.websocket.disconnections", 
                 io.micrometer.core.instrument.Tags.of(
                     "client_id", clientId,
                     "reason", reason
                 )
-            );
+            ).increment();
             activeConnections.decrementAndGet();
         }
         
         public void recordWebSocketError(String errorType, String severity) {
-            websocketErrors.increment(
+            meterRegistry.counter("marketdata.websocket.errors", 
                 io.micrometer.core.instrument.Tags.of(
                     "error_type", errorType,
                     "severity", severity
                 )
-            );
+            ).increment();
         }
         
         public void recordWebSocketLatency(long latencyMs, String messageType) {
-            websocketLatency.record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS,
+            meterRegistry.timer("marketdata.websocket.latency", 
                 io.micrometer.core.instrument.Tags.of("message_type", messageType)
-            );
+            ).record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         // External Provider Methods
         public void recordProviderRequest(String provider, String endpoint, int statusCode, long durationMs) {
-            providerRequests.increment(
+            meterRegistry.counter("marketdata.provider.requests", 
                 io.micrometer.core.instrument.Tags.of(
                     "provider", provider,
                     "endpoint", endpoint,
                     "status_code", String.valueOf(statusCode)
                 )
-            );
-            providerResponseTime.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            ).increment();
+            meterRegistry.timer("marketdata.provider.responsetime").record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (statusCode >= 400) {
-                providerErrors.increment(
+                meterRegistry.counter("marketdata.provider.errors", 
                     io.micrometer.core.instrument.Tags.of(
                         "provider", provider,
                         "status_code", String.valueOf(statusCode)
                     )
-                );
+                ).increment();
             }
         }
         
         public void recordProviderTimeout(String provider, String endpoint) {
-            providerTimeouts.increment(
+            meterRegistry.counter("marketdata.provider.timeouts", 
                 io.micrometer.core.instrument.Tags.of(
                     "provider", provider,
                     "endpoint", endpoint
                 )
-            );
+            ).increment();
         }
         
         public void recordRateLimitHit(String provider, String endpoint) {
-            rateLimitHits.increment(
+            meterRegistry.counter("marketdata.ratelimit.hits", 
                 io.micrometer.core.instrument.Tags.of(
                     "provider", provider,
                     "endpoint", endpoint
                 )
-            );
+            ).increment();
         }
         
         // Market Event Methods
         public void recordMarketEvent(String eventType, String market, String symbol) {
             switch (eventType.toLowerCase()) {
-                case "market_open" -> marketOpenEvents.increment(
+                case "market_open" -> meterRegistry.counter("marketdata.events.market.open", 
                     io.micrometer.core.instrument.Tags.of("market", market)
-                );
-                case "market_close" -> marketCloseEvents.increment(
+                ).increment();
+                case "market_close" -> meterRegistry.counter("marketdata.events.market.close", 
                     io.micrometer.core.instrument.Tags.of("market", market)
-                );
-                case "circuit_breaker" -> circuitBreakerEvents.increment(
+                ).increment();
+                case "circuit_breaker" -> meterRegistry.counter("marketdata.events.circuitbreaker", 
                     io.micrometer.core.instrument.Tags.of("market", market, "symbol", symbol)
-                );
-                case "trading_halt" -> tradingHalts.increment(
+                ).increment();
+                case "trading_halt" -> meterRegistry.counter("marketdata.events.trading.halts", 
                     io.micrometer.core.instrument.Tags.of("market", market, "symbol", symbol)
-                );
-                case "after_hours_trade" -> afterHoursTrades.increment(
+                ).increment();
+                case "after_hours_trade" -> meterRegistry.counter("marketdata.events.afterhours.trades", 
                     io.micrometer.core.instrument.Tags.of("symbol", symbol)
-                );
+                ).increment();
             }
         }
         
         // Streaming Methods
         public void recordStreamingMessage(String messageType, long processingTimeMs) {
-            streamingMessages.increment(
+            meterRegistry.counter("marketdata.streaming.messages", 
                 io.micrometer.core.instrument.Tags.of("message_type", messageType)
-            );
-            messageProcessingTime.record(processingTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            ).increment();
+            meterRegistry.timer("marketdata.message.processingtime").record(processingTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordStreamingError(String errorType, String severity) {
-            streamingErrors.increment(
+            meterRegistry.counter("marketdata.streaming.errors", 
                 io.micrometer.core.instrument.Tags.of(
                     "error_type", errorType,
                     "severity", severity
                 )
-            );
+            ).increment();
         }
         
         // Cache Methods
         public void recordCacheOperation(String operation, boolean hit, long durationMs) {
-            cacheOperationDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
+            meterRegistry.timer("marketdata.cache.operation.duration", 
                 io.micrometer.core.instrument.Tags.of("operation", operation)
-            );
+            ).record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (hit) {
-                cacheHits.increment(
+                meterRegistry.counter("marketdata.cache.hits", 
                     io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                ).increment();
             } else {
-                cacheMisses.increment(
+                meterRegistry.counter("marketdata.cache.misses", 
                     io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                ).increment();
             }
         }
         
         // Database Methods
         public void recordDatabaseQuery(String queryType, String table, long durationMs) {
-            databaseQueryDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
+            meterRegistry.timer("marketdata.database.query.duration", 
                 io.micrometer.core.instrument.Tags.of(
                     "query_type", queryType,
                     "table", table
                 )
-            );
+            ).record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordTimeSeriesWrite(String measurement, int pointCount, long durationMs) {
-            timeSeriesWrites.increment(
+            meterRegistry.counter("marketdata.timeseries.writes", 
                 io.micrometer.core.instrument.Tags.of(
                     "measurement", measurement,
                     "point_count", String.valueOf(pointCount)
                 )
-            );
+            ).increment();
         }
         
         public void recordTimeSeriesRead(String measurement, String timeRange, long durationMs) {
-            timeSeriesReads.increment(
+            meterRegistry.counter("marketdata.timeseries.reads", 
                 io.micrometer.core.instrument.Tags.of(
                     "measurement", measurement,
                     "time_range", timeRange
                 )
-            );
+            ).increment();
         }
         
         // API Methods
         public void recordApiRequest(String endpoint, String method, int statusCode, long durationMs) {
-            apiRequests.increment(
+            meterRegistry.counter("marketdata.api.requests", 
                 io.micrometer.core.instrument.Tags.of(
                     "endpoint", endpoint,
                     "method", method,
                     "status_code", String.valueOf(statusCode)
                 )
-            );
-            apiRequestDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            ).increment();
+            meterRegistry.timer("marketdata.api.request.duration").record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (statusCode >= 400) {
-                apiErrors.increment(
+                meterRegistry.counter("marketdata.api.errors", 
                     io.micrometer.core.instrument.Tags.of(
                         "endpoint", endpoint,
                         "status_code", String.valueOf(statusCode)
                     )
-                );
+                ).increment();
             }
         }
         

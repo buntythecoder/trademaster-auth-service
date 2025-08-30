@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MarketDataCacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
-    private final RedisTemplate<String, String> stringRedisTemplate;
+    private final RedisTemplate<String, String> customStringRedisTemplate;
     private final RedisConfig.MarketDataCacheConfig cacheConfig;
     private final RedisConfig.RedisKeyPatterns keyPatterns;
 
@@ -118,7 +118,7 @@ public class MarketDataCacheService {
                 
                 var cacheTask = scope.fork(() -> {
                     // Use Redis pipeline for batch operations
-                    redisTemplate.executePipelined(connection -> {
+                    redisTemplate.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
                         for (MarketDataPoint point : dataPoints) {
                             if (point.isValid()) {
                                 String key = keyPatterns.priceKey(point.symbol(), point.exchange());

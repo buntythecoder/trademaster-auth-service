@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.agentos;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -35,13 +36,29 @@ import java.time.LocalDateTime;
 @Configuration
 @EnableScheduling
 @RequiredArgsConstructor
+@Getter
 public class MarketDataAgentOSConfig implements ApplicationRunner {
     
     private final MarketDataAgent marketDataAgent;
     private final MarketDataCapabilityRegistry capabilityRegistry;
     
+    /**
+     * -- GETTER --
+     *  Get agent registration status
+     * -- GETTER --
+     *  Get agent registration status
+
+     */
     private volatile boolean agentRegistered = false;
+    /**
+     * -- GETTER --
+     *  Get time of last health check
+     */
     private volatile LocalDateTime lastHealthCheck = LocalDateTime.now();
+    /**
+     * -- GETTER --
+     *  Get agent registration time
+     */
     private volatile LocalDateTime registrationTime;
     
     /**
@@ -259,14 +276,7 @@ public class MarketDataAgentOSConfig implements ApplicationRunner {
             log.error("Error during Market Data Agent deregistration", e);
         }
     }
-    
-    /**
-     * Get agent registration status
-     */
-    public boolean isAgentRegistered() {
-        return agentRegistered;
-    }
-    
+
     /**
      * Get time of last health check
      */

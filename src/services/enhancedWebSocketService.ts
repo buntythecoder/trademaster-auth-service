@@ -1,0 +1,85 @@
+// Enhanced WebSocket Service for Real-time Market Data
+// FRONT-003: Real-time Market Data Enhancement
+
+import { EventEmitter } from 'events'
+
+export interface MarketDataUpdate {
+  symbol: string
+  price: number
+  change: number
+  changePercent: number
+  volume: number
+  high: number
+  low: number
+  open: number
+  bid?: number
+  ask?: number
+  marketCap?: number
+  timestamp: Date
+}
+
+export interface OrderBookLevel {
+  price: number
+  quantity: number
+  orders: number
+}
+
+export interface OrderBookUpdate {
+  symbol: string
+  bids: OrderBookLevel[]
+  asks: OrderBookLevel[]
+  spread: number
+  timestamp: Date
+}
+
+export interface TechnicalIndicator {
+  name: string
+  value: number
+  signal: 'BUY' | 'SELL' | 'HOLD' | 'NEUTRAL'
+  color: string
+  timestamp: Date
+}
+
+export interface CandlestickData {
+  timestamp: Date
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+interface StreamSubscription {
+  symbol: string
+  type: 'market_data' | 'order_book' | 'candlestick' | 'indicators'
+  callback: (data: any) => void
+  isActive: boolean
+  subscribed: Date
+  dataPoints: number
+}
+
+export class EnhancedWebSocketService extends EventEmitter {
+  private ws: WebSocket | null = null
+  private subscriptions = new Map<string, StreamSubscription>()
+  private reconnectAttempts = 0
+  private maxReconnectAttempts = 5
+  private reconnectInterval = 1000
+  private isConnecting = false
+  private heartbeatInterval: NodeJS.Timeout | null = null
+  private dataGenerationInterval: NodeJS.Timeout | null = null
+  private connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error' = 'disconnected'
+
+  // Mock data generators for realistic simulation
+  private baseData: Record<string, any> = {
+    'RELIANCE': { basePrice: 2456.75, volatility: 0.02, sector: 'Oil & Gas' },
+    'TCS': { basePrice: 3789.40, volatility: 0.015, sector: 'IT' },
+    'HDFCBANK': { basePrice: 1687.25, volatility: 0.018, sector: 'Banking' },
+    'INFY': { basePrice: 1456.80, volatility: 0.016, sector: 'IT' },
+    'ICICIBANK': { basePrice: 987.35, volatility: 0.019, sector: 'Banking' },
+    'WIPRO': { basePrice: 445.60, volatility: 0.017, sector: 'IT' },
+    'TATASTEEL': { basePrice: 134.25, volatility: 0.025, sector: 'Steel' },
+    'BAJFINANCE': { basePrice: 6789.50, volatility: 0.022, sector: 'Financial Services' },
+    'AAPL': { basePrice: 195.89, volatility: 0.014, sector: 'Technology' },
+    'MSFT': { basePrice: 378.85, volatility: 0.013, sector: 'Technology' },
+    'GOOGL': { basePrice: 2789.34, volatility: 0.016, sector: 'Technology' },
+    'AMZN': { basePrice: 3378.23, volatility: 0.018, sector: 'E-commerce' }\n  }\n\n  private priceHistory = new Map<string, number[]>()\n  private candlestickHistory = new Map<string, CandlestickData[]>()\n\n  constructor(private wsUrl: string = 'wss://mock-market-data.trademaster.com') {\n    super()\n    this.setMaxListeners(100) // Allow many subscribers\n  }\n\n  // Connect to WebSocket server (simulated)\n  connect(): Promise<void> {\n    return new Promise((resolve, reject) => {\n      if (this.ws?.readyState === WebSocket.OPEN) {\n        resolve()\n        return\n      }\n\n      if (this.isConnecting) {\n        this.once('connected', resolve)\n        this.once('error', reject)\n        return\n      }\n\n      this.isConnecting = true\n      this.connectionStatus = 'connecting'\n      this.emit('status', this.connectionStatus)\n\n      // Simulate WebSocket connection\n      setTimeout(() => {\n        try {\n          this.connectionStatus = 'connected'\n          this.isConnecting = false\n          this.reconnectAttempts = 0\n          \n          // Start heartbeat and data generation\n          this.startHeartbeat()\n          this.startDataGeneration()\n          \n          this.emit('connected')\n          this.emit('status', this.connectionStatus)\n          \n          console.log('Enhanced WebSocket connected (simulated)')\n          resolve()\n        } catch (error) {\n          this.connectionStatus = 'error'\n          this.isConnecting = false\n          this.emit('error', error)\n          this.emit('status', this.connectionStatus)\n          reject(error)\n        }\n      }, 500 + Math.random() * 1000) // Simulate connection time\n    })\n  }\n\n  // Disconnect from WebSocket\n  disconnect(): void {\n    if (this.ws) {\n      this.ws.close()\n      this.ws = null\n    }\n\n    if (this.heartbeatInterval) {\n      clearInterval(this.heartbeatInterval)\n      this.heartbeatInterval = null\n    }\n\n    if (this.dataGenerationInterval) {\n      clearInterval(this.dataGenerationInterval)\n      this.dataGenerationInterval = null\n    }\n\n    this.connectionStatus = 'disconnected'\n    this.emit('status', this.connectionStatus)\n    this.emit('disconnected')\n  }\n\n  // Subscribe to market data stream\n  subscribeMarketData(symbol: string, callback: (data: MarketDataUpdate) => void): string {\n    const subscriptionId = `market_${symbol}_${Date.now()}`\n    \n    const subscription: StreamSubscription = {\n      symbol,\n      type: 'market_data',\n      callback,\n      isActive: true,\n      subscribed: new Date(),\n      dataPoints: 0\n    }\n\n    this.subscriptions.set(subscriptionId, subscription)\n    \n    // Initialize price history if needed\n    if (!this.priceHistory.has(symbol)) {\n      this.priceHistory.set(symbol, [])\n    }\n\n    console.log(`Subscribed to market data for ${symbol}`)\n    this.emit('subscription', { type: 'market_data', symbol, subscriptionId })\n    \n    return subscriptionId\n  }\n\n  // Subscribe to order book stream\n  subscribeOrderBook(symbol: string, callback: (data: OrderBookUpdate) => void): string {\n    const subscriptionId = `orderbook_${symbol}_${Date.now()}`\n    \n    const subscription: StreamSubscription = {\n      symbol,\n      type: 'order_book',\n      callback,\n      isActive: true,\n      subscribed: new Date(),\n      dataPoints: 0\n    }\n\n    this.subscriptions.set(subscriptionId, subscription)\n    console.log(`Subscribed to order book for ${symbol}`)\n    \n    return subscriptionId\n  }\n\n  // Subscribe to candlestick data stream\n  subscribeCandlestick(symbol: string, timeframe: string, callback: (data: CandlestickData) => void): string {\n    const subscriptionId = `candlestick_${symbol}_${timeframe}_${Date.now()}`\n    \n    const subscription: StreamSubscription = {\n      symbol,\n      type: 'candlestick',\n      callback,\n      isActive: true,\n      subscribed: new Date(),\n      dataPoints: 0\n    }\n\n    this.subscriptions.set(subscriptionId, subscription)\n    \n    // Initialize candlestick history\n    if (!this.candlestickHistory.has(symbol)) {\n      this.candlestickHistory.set(symbol, [])\n    }\n\n    console.log(`Subscribed to ${timeframe} candlesticks for ${symbol}`)\n    \n    return subscriptionId\n  }\n\n  // Subscribe to technical indicators\n  subscribeIndicators(symbol: string, indicators: string[], callback: (data: TechnicalIndicator[]) => void): string {\n    const subscriptionId = `indicators_${symbol}_${Date.now()}`\n    \n    const subscription: StreamSubscription = {\n      symbol,\n      type: 'indicators',\n      callback,\n      isActive: true,\n      subscribed: new Date(),\n      dataPoints: 0\n    }\n\n    this.subscriptions.set(subscriptionId, subscription)\n    console.log(`Subscribed to indicators [${indicators.join(', ')}] for ${symbol}`)\n    \n    return subscriptionId\n  }\n\n  // Unsubscribe from a stream\n  unsubscribe(subscriptionId: string): void {\n    const subscription = this.subscriptions.get(subscriptionId)\n    if (subscription) {\n      subscription.isActive = false\n      this.subscriptions.delete(subscriptionId)\n      console.log(`Unsubscribed from ${subscription.type} for ${subscription.symbol}`)\n      this.emit('unsubscription', { subscriptionId, ...subscription })\n    }\n  }\n\n  // Get connection status\n  getConnectionStatus() {\n    return {\n      status: this.connectionStatus,\n      isConnected: this.connectionStatus === 'connected',\n      subscriptions: this.subscriptions.size,\n      reconnectAttempts: this.reconnectAttempts\n    }\n  }\n\n  // Get active subscriptions\n  getActiveSubscriptions() {\n    return Array.from(this.subscriptions.entries()).map(([id, sub]) => ({\n      id,\n      ...sub\n    }))\n  }\n\n  // Generate realistic market data\n  private generateMarketData(symbol: string): MarketDataUpdate {\n    const base = this.baseData[symbol] || { \n      basePrice: 1000 + Math.random() * 500, \n      volatility: 0.02, \n      sector: 'Unknown' \n    }\n    \n    const priceHistory = this.priceHistory.get(symbol) || []\n    const lastPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1] : base.basePrice\n    \n    // Random walk with mean reversion\n    const randomWalk = (Math.random() - 0.5) * base.volatility * 2\n    const meanReversion = (base.basePrice - lastPrice) * 0.001\n    const priceChange = randomWalk + meanReversion\n    \n    const newPrice = Math.max(0.01, lastPrice * (1 + priceChange))\n    const change = newPrice - base.basePrice\n    const changePercent = (change / base.basePrice) * 100\n    \n    // Update price history (keep last 1000 points)\n    priceHistory.push(newPrice)\n    if (priceHistory.length > 1000) {\n      priceHistory.shift()\n    }\n    this.priceHistory.set(symbol, priceHistory)\n    \n    // Calculate high/low from recent history\n    const recentPrices = priceHistory.slice(-100)\n    const high = Math.max(...recentPrices, newPrice)\n    const low = Math.min(...recentPrices, newPrice)\n    const open = priceHistory.length > 50 ? priceHistory[priceHistory.length - 50] : newPrice\n    \n    return {\n      symbol,\n      price: newPrice,\n      change,\n      changePercent,\n      volume: Math.floor(Math.random() * 5000000) + 100000,\n      high,\n      low,\n      open,\n      bid: newPrice * (0.999 - Math.random() * 0.002),\n      ask: newPrice * (1.001 + Math.random() * 0.002),\n      marketCap: base.marketCap || Math.floor(newPrice * 1000000000),\n      timestamp: new Date()\n    }\n  }\n\n  // Generate order book data\n  private generateOrderBook(symbol: string): OrderBookUpdate {\n    const marketData = this.generateMarketData(symbol)\n    const price = marketData.price\n    \n    const bids: OrderBookLevel[] = []\n    const asks: OrderBookLevel[] = []\n    \n    // Generate 10 bid levels\n    for (let i = 0; i < 10; i++) {\n      const levelPrice = price * (1 - (i + 1) * 0.001)\n      bids.push({\n        price: levelPrice,\n        quantity: Math.floor(Math.random() * 10000) + 100,\n        orders: Math.floor(Math.random() * 50) + 1\n      })\n    }\n    \n    // Generate 10 ask levels\n    for (let i = 0; i < 10; i++) {\n      const levelPrice = price * (1 + (i + 1) * 0.001)\n      asks.push({\n        price: levelPrice,\n        quantity: Math.floor(Math.random() * 10000) + 100,\n        orders: Math.floor(Math.random() * 50) + 1\n      })\n    }\n    \n    const spread = asks[0].price - bids[0].price\n    \n    return {\n      symbol,\n      bids,\n      asks,\n      spread,\n      timestamp: new Date()\n    }\n  }\n\n  // Generate candlestick data\n  private generateCandlestick(symbol: string): CandlestickData {\n    const priceHistory = this.priceHistory.get(symbol) || []\n    if (priceHistory.length < 2) {\n      this.generateMarketData(symbol) // Generate some history\n    }\n    \n    const recent = priceHistory.slice(-15) // Last 15 data points for 1-minute candle\n    if (recent.length === 0) return null\n    \n    const open = recent[0]\n    const close = recent[recent.length - 1]\n    const high = Math.max(...recent)\n    const low = Math.min(...recent)\n    const volume = Math.floor(Math.random() * 500000) + 50000\n    \n    return {\n      timestamp: new Date(),\n      open,\n      high,\n      low,\n      close,\n      volume\n    }\n  }\n\n  // Generate technical indicators\n  private generateTechnicalIndicators(symbol: string): TechnicalIndicator[] {\n    const priceHistory = this.priceHistory.get(symbol) || []\n    if (priceHistory.length < 20) return []\n    \n    const recent = priceHistory.slice(-20)\n    const currentPrice = recent[recent.length - 1]\n    \n    // Simple RSI calculation\n    const gains = []\n    const losses = []\n    \n    for (let i = 1; i < recent.length; i++) {\n      const change = recent[i] - recent[i - 1]\n      if (change > 0) {\n        gains.push(change)\n        losses.push(0)\n      } else {\n        gains.push(0)\n        losses.push(Math.abs(change))\n      }\n    }\n    \n    const avgGain = gains.reduce((a, b) => a + b, 0) / gains.length\n    const avgLoss = losses.reduce((a, b) => a + b, 0) / losses.length\n    const rs = avgGain / (avgLoss || 0.01)\n    const rsi = 100 - (100 / (1 + rs))\n    \n    // Simple Moving Averages\n    const sma20 = recent.reduce((a, b) => a + b, 0) / recent.length\n    const sma10 = recent.slice(-10).reduce((a, b) => a + b, 0) / 10\n    \n    // MACD approximation\n    const ema12 = this.calculateEMA(recent, 12)\n    const ema26 = this.calculateEMA(recent, 26)\n    const macd = ema12 - ema26\n    \n    return [\n      {\n        name: 'RSI',\n        value: rsi,\n        signal: rsi > 70 ? 'SELL' : rsi < 30 ? 'BUY' : 'HOLD',\n        color: rsi > 70 ? '#ef4444' : rsi < 30 ? '#10b981' : '#f59e0b',\n        timestamp: new Date()\n      },\n      {\n        name: 'SMA20',\n        value: sma20,\n        signal: currentPrice > sma20 ? 'BUY' : 'SELL',\n        color: currentPrice > sma20 ? '#10b981' : '#ef4444',\n        timestamp: new Date()\n      },\n      {\n        name: 'MACD',\n        value: macd,\n        signal: macd > 0 ? 'BUY' : 'SELL',\n        color: macd > 0 ? '#10b981' : '#ef4444',\n        timestamp: new Date()\n      }\n    ]\n  }\n\n  // Calculate EMA helper\n  private calculateEMA(data: number[], period: number): number {\n    const k = 2 / (period + 1)\n    let ema = data[0]\n    \n    for (let i = 1; i < data.length; i++) {\n      ema = data[i] * k + ema * (1 - k)\n    }\n    \n    return ema\n  }\n\n  // Start heartbeat to maintain connection\n  private startHeartbeat(): void {\n    this.heartbeatInterval = setInterval(() => {\n      if (this.connectionStatus === 'connected') {\n        // Simulate occasional connection issues\n        if (Math.random() < 0.02) { // 2% chance\n          this.simulateConnectionIssue()\n        }\n      }\n    }, 30000) // Check every 30 seconds\n  }\n\n  // Start data generation for active subscriptions\n  private startDataGeneration(): void {\n    this.dataGenerationInterval = setInterval(() => {\n      if (this.connectionStatus !== 'connected') return\n      \n      // Process all active subscriptions\n      for (const [subscriptionId, subscription] of this.subscriptions) {\n        if (!subscription.isActive) continue\n        \n        try {\n          switch (subscription.type) {\n            case 'market_data':\n              const marketData = this.generateMarketData(subscription.symbol)\n              subscription.callback(marketData)\n              break\n              \n            case 'order_book':\n              const orderBook = this.generateOrderBook(subscription.symbol)\n              subscription.callback(orderBook)\n              break\n              \n            case 'candlestick':\n              const candlestick = this.generateCandlestick(subscription.symbol)\n              if (candlestick) {\n                subscription.callback(candlestick)\n              }\n              break\n              \n            case 'indicators':\n              const indicators = this.generateTechnicalIndicators(subscription.symbol)\n              if (indicators.length > 0) {\n                subscription.callback(indicators)\n              }\n              break\n          }\n          \n          subscription.dataPoints++\n        } catch (error) {\n          console.error(`Error generating data for ${subscription.symbol}:`, error)\n          this.emit('error', error)\n        }\n      }\n    }, 1000) // Generate data every second\n  }\n\n  // Simulate connection issues for testing\n  private simulateConnectionIssue(): void {\n    console.log('Simulating connection issue...')\n    this.connectionStatus = 'connecting'\n    this.emit('status', this.connectionStatus)\n    \n    setTimeout(() => {\n      this.connectionStatus = 'connected'\n      this.emit('status', this.connectionStatus)\n      console.log('Connection restored')\n    }, 2000 + Math.random() * 3000)\n  }\n\n  // Cleanup on destroy\n  destroy(): void {\n    this.disconnect()\n    this.subscriptions.clear()\n    this.priceHistory.clear()\n    this.candlestickHistory.clear()\n    this.removeAllListeners()\n  }\n}\n\n// Singleton instance\nexport const enhancedWebSocketService = new EnhancedWebSocketService()\nexport default enhancedWebSocketService

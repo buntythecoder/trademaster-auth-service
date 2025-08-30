@@ -19,10 +19,14 @@ import {
   Save,
   Building2,
   Star,
-  Lock
+  Lock,
+  Target,
+  PieChart
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth.store'
 import { MultiBrokerService, BrokerConnection, IndianBrokerType } from '../../services/brokerService'
+import { MultiBrokerPositionDashboard } from './MultiBrokerPositionDashboard'
+import { MultiBrokerPnLDashboard } from './MultiBrokerPnLDashboard'
 
 interface BrokerCredentialsForm {
   brokerType: string
@@ -82,6 +86,7 @@ export const MultiBrokerInterface: React.FC = () => {
   const { user } = useAuthStore()
   const [brokerConnections, setBrokerConnections] = useState<BrokerConnection[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'connections' | 'positions' | 'pnl'>('connections')
   
   // Multi-broker interface is available to all authenticated users
   const [showAddModal, setShowAddModal] = useState(false)
@@ -255,6 +260,27 @@ export const MultiBrokerInterface: React.FC = () => {
     }
   }
 
+  const tabs = [
+    {
+      id: 'connections',
+      label: 'Broker Connections',
+      icon: Building2,
+      description: 'Manage broker connections'
+    },
+    {
+      id: 'positions',
+      label: 'Position Dashboard',
+      icon: Target,
+      description: 'Aggregated positions across brokers'
+    },
+    {
+      id: 'pnl',
+      label: 'P&L Dashboard',
+      icon: PieChart,
+      description: 'Profit & Loss analysis'
+    }
+  ]
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -274,203 +300,244 @@ export const MultiBrokerInterface: React.FC = () => {
           <h1 className="text-3xl font-bold gradient-text mb-2">Multi-Broker Interface</h1>
           <p className="text-slate-400">Manage your trading broker connections and routing preferences</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Add Broker</span>
-        </button>
+        {activeTab === 'connections' && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="cyber-button px-6 py-3 rounded-xl font-semibold flex items-center space-x-2"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Add Broker</span>
+          </button>
+        )}
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-green-500/20">
-              <CheckCircle className="w-6 h-6 text-green-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-green-400">
-                {brokerConnections.filter(b => b.status === 'connected').length}
-              </div>
-              <div className="text-sm text-slate-400">Connected</div>
-            </div>
-          </div>
-          <h3 className="text-green-400 font-semibold mb-1">Active Brokers</h3>
-          <p className="text-slate-400 text-sm">Currently connected</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-purple-500/20">
-              <Building2 className="w-6 h-6 text-purple-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-purple-400">
-                {brokerConnections.length}
-              </div>
-              <div className="text-sm text-slate-400">Total</div>
-            </div>
-          </div>
-          <h3 className="text-purple-400 font-semibold mb-1">Total Brokers</h3>
-          <p className="text-slate-400 text-sm">Configured brokers</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-blue-500/20">
-              <Activity className="w-6 h-6 text-blue-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-blue-400">
-                {Math.round(brokerConnections.reduce((sum, b) => sum + b.performance.successRate, 0) / brokerConnections.length || 0)}%
-              </div>
-              <div className="text-sm text-slate-400">Avg Success</div>
-            </div>
-          </div>
-          <h3 className="text-blue-400 font-semibold mb-1">Success Rate</h3>
-          <p className="text-slate-400 text-sm">Order execution</p>
-        </div>
-
-        <div className="glass-card p-6 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-xl bg-orange-500/20">
-              <Zap className="w-6 h-6 text-orange-400" />
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-orange-400">
-                {Math.round(brokerConnections.reduce((sum, b) => sum + b.performance.avgExecutionTime, 0) / brokerConnections.length || 0)}ms
-              </div>
-              <div className="text-sm text-slate-400">Avg Speed</div>
-            </div>
-          </div>
-          <h3 className="text-orange-400 font-semibold mb-1">Execution Time</h3>
-          <p className="text-slate-400 text-sm">Average latency</p>
+      {/* Tab Navigation */}
+      <div className="glass-card rounded-2xl p-2">
+        <div className="flex space-x-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-purple-500/20 text-purple-300'
+                    : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/30'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <div className="text-left">
+                  <div className="font-semibold text-sm">{tab.label}</div>
+                  <div className="text-xs opacity-75">{tab.description}</div>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* Broker Connections */}
-      <div className="space-y-4">
-        {brokerConnections.map((broker) => {
-          const brokerInfo = brokerTypes.find(b => b.value === broker.brokerType)
-          
-          return (
-            <div key={broker.id} className="glass-card rounded-2xl p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="text-3xl">{brokerInfo?.icon}</div>
-                  
-                  <div>
-                    <div className="flex items-center space-x-3 mb-2">
-                      <h3 className="text-xl font-semibold text-white">{broker.displayName}</h3>
-                      {broker.isDefault && (
-                        <div className="flex items-center space-x-1 px-3 py-1 rounded-full bg-purple-500/20 text-purple-400">
-                          <Star className="w-3 h-3" />
-                          <span className="text-xs font-medium">Default</span>
-                        </div>
-                      )}
-                      <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${getStatusBg(broker.status)} ${getStatusColor(broker.status)}`}>
-                        {getStatusIcon(broker.status)}
-                        <span className="text-xs font-medium capitalize">{broker.status}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-4 text-sm text-slate-400">
-                      <span>Account: {broker.accountId || 'Not configured'}</span>
-                      {broker.lastConnected && (
-                        <span>Last: {new Date(broker.lastConnected).toLocaleTimeString()}</span>
-                      )}
-                      <div className="flex items-center space-x-1">
-                        <Activity className="w-3 h-3" />
-                        <span>{broker.performance.totalOrders} orders</span>
-                      </div>
-                      {broker.balance && (
-                        <div className="flex items-center space-x-1">
-                          <span>₹{broker.balance.availableMargin.toLocaleString('en-IN')} available</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+      {/* Tab Content */}
+      {activeTab === 'connections' && (
+        <>
+          {/* Stats Cards */}
+          <div className="grid gap-6 md:grid-cols-4">
+            <div className="glass-card p-6 rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-green-500/20">
+                  <CheckCircle className="w-6 h-6 text-green-400" />
                 </div>
-                
-                <div className="flex items-center space-x-3">
-                  {/* Performance Metrics */}
-                  <div className="hidden lg:flex space-x-6 text-sm">
-                    <div className="text-center">
-                      <div className="text-green-400 font-semibold">{broker.performance.successRate}%</div>
-                      <div className="text-slate-400 text-xs">Success</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-400 font-semibold">{broker.performance.avgExecutionTime}ms</div>
-                      <div className="text-slate-400 text-xs">Latency</div>
-                    </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-green-400">
+                    {brokerConnections.filter(b => b.status === 'connected').length}
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center space-x-2">
-                    {broker.status === 'connected' ? (
-                      <button
-                        onClick={() => handleDisconnect(broker.id)}
-                        className="px-4 py-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors font-medium"
-                      >
-                        Disconnect
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleConnect(broker.id)}
-                        disabled={broker.status === 'connecting'}
-                        className="px-4 py-2 rounded-xl bg-green-500/20 text-green-400 hover:bg-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                      >
-                        {broker.status === 'connecting' ? 'Connecting...' : 'Connect'}
-                      </button>
-                    )}
-                    
-                    {!broker.isDefault && broker.status === 'connected' && (
-                      <button
-                        onClick={() => handleSetDefault(broker.id)}
-                        className="px-4 py-2 rounded-xl bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors font-medium"
-                      >
-                        Set Default
-                      </button>
-                    )}
-                    
-                    <button
-                      onClick={() => alert(`Configuration for ${broker.displayName} coming soon! This will allow you to modify API settings, timeouts, and broker-specific options.`)}
-                      className="p-2 rounded-xl bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-600/50 transition-colors"
-                      title="Configure"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      onClick={() => setDeleteConfirm(broker.id)}
-                      className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <div className="text-sm text-slate-400">Connected</div>
                 </div>
               </div>
+              <h3 className="text-green-400 font-semibold mb-1">Active Brokers</h3>
+              <p className="text-slate-400 text-sm">Currently connected</p>
+            </div>
+
+            <div className="glass-card p-6 rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-purple-500/20">
+                  <Building2 className="w-6 h-6 text-purple-400" />
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-purple-400">
+                    {brokerConnections.length}
+                  </div>
+                  <div className="text-sm text-slate-400">Total</div>
+                </div>
+              </div>
+              <h3 className="text-purple-400 font-semibold mb-1">Total Brokers</h3>
+              <p className="text-slate-400 text-sm">Configured brokers</p>
+            </div>
+
+            <div className="glass-card p-6 rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-blue-500/20">
+                  <Activity className="w-6 h-6 text-blue-400" />
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-blue-400">
+                    {Math.round(brokerConnections.reduce((sum, b) => sum + b.performance.successRate, 0) / brokerConnections.length || 0)}%
+                  </div>
+                  <div className="text-sm text-slate-400">Avg Success</div>
+                </div>
+              </div>
+              <h3 className="text-blue-400 font-semibold mb-1">Success Rate</h3>
+              <p className="text-slate-400 text-sm">Order execution</p>
+            </div>
+
+            <div className="glass-card p-6 rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 rounded-xl bg-orange-500/20">
+                  <Zap className="w-6 h-6 text-orange-400" />
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-orange-400">
+                    {Math.round(brokerConnections.reduce((sum, b) => sum + b.performance.avgExecutionTime, 0) / brokerConnections.length || 0)}ms
+                  </div>
+                  <div className="text-sm text-slate-400">Avg Speed</div>
+                </div>
+              </div>
+              <h3 className="text-orange-400 font-semibold mb-1">Execution Time</h3>
+              <p className="text-slate-400 text-sm">Average latency</p>
+            </div>
+          </div>
+
+          {/* Broker Connections */}
+          <div className="space-y-4">
+            {brokerConnections.map((broker) => {
+              const brokerInfo = brokerTypes.find(b => b.value === broker.brokerType)
               
-              {/* Capabilities */}
-              <div className="mt-4 pt-4 border-t border-slate-700/50">
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-slate-400">Capabilities:</span>
-                  <div className="flex flex-wrap gap-2">
-                    {broker.capabilities.map((cap, index) => (
-                      <span key={index} className="px-2 py-1 rounded-lg bg-slate-800/50 text-xs text-slate-300 capitalize">
-                        {cap}
-                      </span>
-                    ))}
+              return (
+                <div key={broker.id} className="glass-card rounded-2xl p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="text-3xl">{brokerInfo?.icon}</div>
+                      
+                      <div>
+                        <div className="flex items-center space-x-3 mb-2">
+                          <h3 className="text-xl font-semibold text-white">{broker.displayName}</h3>
+                          {broker.isDefault && (
+                            <div className="flex items-center space-x-1 px-3 py-1 rounded-full bg-purple-500/20 text-purple-400">
+                              <Star className="w-3 h-3" />
+                              <span className="text-xs font-medium">Default</span>
+                            </div>
+                          )}
+                          <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${getStatusBg(broker.status)} ${getStatusColor(broker.status)}`}>
+                            {getStatusIcon(broker.status)}
+                            <span className="text-xs font-medium capitalize">{broker.status}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4 text-sm text-slate-400">
+                          <span>Account: {broker.accountId || 'Not configured'}</span>
+                          {broker.lastConnected && (
+                            <span>Last: {new Date(broker.lastConnected).toLocaleTimeString()}</span>
+                          )}
+                          <div className="flex items-center space-x-1">
+                            <Activity className="w-3 h-3" />
+                            <span>{broker.performance.totalOrders} orders</span>
+                          </div>
+                          {broker.balance && (
+                            <div className="flex items-center space-x-1">
+                              <span>₹{broker.balance.availableMargin.toLocaleString('en-IN')} available</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-3">
+                      {/* Performance Metrics */}
+                      <div className="hidden lg:flex space-x-6 text-sm">
+                        <div className="text-center">
+                          <div className="text-green-400 font-semibold">{broker.performance.successRate}%</div>
+                          <div className="text-slate-400 text-xs">Success</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-blue-400 font-semibold">{broker.performance.avgExecutionTime}ms</div>
+                          <div className="text-slate-400 text-xs">Latency</div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center space-x-2">
+                        {broker.status === 'connected' ? (
+                          <button
+                            onClick={() => handleDisconnect(broker.id)}
+                            className="px-4 py-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors font-medium"
+                          >
+                            Disconnect
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleConnect(broker.id)}
+                            disabled={broker.status === 'connecting'}
+                            className="px-4 py-2 rounded-xl bg-green-500/20 text-green-400 hover:bg-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                          >
+                            {broker.status === 'connecting' ? 'Connecting...' : 'Connect'}
+                          </button>
+                        )}
+                        
+                        {!broker.isDefault && broker.status === 'connected' && (
+                          <button
+                            onClick={() => handleSetDefault(broker.id)}
+                            className="px-4 py-2 rounded-xl bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors font-medium"
+                          >
+                            Set Default
+                          </button>
+                        )}
+                        
+                        <button
+                          onClick={() => alert(`Configuration for ${broker.displayName} coming soon! This will allow you to modify API settings, timeouts, and broker-specific options.`)}
+                          className="p-2 rounded-xl bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-600/50 transition-colors"
+                          title="Configure"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                        
+                        <button
+                          onClick={() => setDeleteConfirm(broker.id)}
+                          className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Capabilities */}
+                  <div className="mt-4 pt-4 border-t border-slate-700/50">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-slate-400">Capabilities:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {broker.capabilities.map((cap, index) => (
+                          <span key={index} className="px-2 py-1 rounded-lg bg-slate-800/50 text-xs text-slate-300 capitalize">
+                            {cap}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {activeTab === 'positions' && (
+        <MultiBrokerPositionDashboard />
+      )}
+
+      {activeTab === 'pnl' && (
+        <MultiBrokerPnLDashboard />
+      )}
 
       {/* Add Broker Modal */}
       {showAddModal && (
@@ -527,7 +594,6 @@ export const MultiBrokerInterface: React.FC = () => {
                         </div>
                       </button>
                     ))}
-                    
                   </div>
                 </div>
 
@@ -587,30 +653,6 @@ export const MultiBrokerInterface: React.FC = () => {
                         {showSecrets.secretKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">TOTP Key (Optional)</label>
-                    <div className="relative">
-                      <input
-                        type={showSecrets.totpKey ? 'text' : 'password'}
-                        value={newCredentials.additionalConfig.totpKey || ''}
-                        onChange={(e) => setNewCredentials(prev => ({ 
-                          ...prev, 
-                          additionalConfig: { ...prev.additionalConfig, totpKey: e.target.value }
-                        }))}
-                        className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-white focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/50 pr-12"
-                        placeholder="Enter your TOTP secret key for 2FA"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowSecrets(prev => ({ ...prev, totpKey: !prev.totpKey }))}
-                        className="absolute right-3 top-3 text-slate-400 hover:text-white"
-                      >
-                        {showSecrets.totpKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">Required for brokers with 2FA enabled</p>
                   </div>
 
                   <div className="flex items-center space-x-3">

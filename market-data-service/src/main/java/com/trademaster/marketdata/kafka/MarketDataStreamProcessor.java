@@ -450,14 +450,14 @@ public class MarketDataStreamProcessor {
             MarketDataPoint data, String messageType) {
         
         return com.trademaster.marketdata.dto.MarketDataMessage.builder()
-            .type(messageType)
+            .type(convertToMarketDataType(messageType))
             .symbol(data.symbol())
             .exchange(data.exchange())
             .price(data.price())
             .volume(data.volume())
             .bid(data.bid())
             .ask(data.ask())
-            .timestamp(data.timestamp())
+            .timestamp(data.timestamp().atZone(java.time.ZoneOffset.UTC).toLocalDateTime())
             .build();
     }
 
@@ -471,6 +471,18 @@ public class MarketDataStreamProcessor {
             processingErrors.get(),
             Instant.now()
         );
+    }
+
+    /**
+     * Convert message type string to MarketDataType enum
+     */
+    private com.trademaster.marketdata.dto.MarketDataMessage.MarketDataType convertToMarketDataType(String messageType) {
+        return switch (messageType) {
+            case "PRICE_UPDATE" -> com.trademaster.marketdata.dto.MarketDataMessage.MarketDataType.TICK;
+            case "ORDER_BOOK_UPDATE" -> com.trademaster.marketdata.dto.MarketDataMessage.MarketDataType.ORDER_BOOK;
+            case "TRADE_EVENT" -> com.trademaster.marketdata.dto.MarketDataMessage.MarketDataType.TRADE;
+            default -> com.trademaster.marketdata.dto.MarketDataMessage.MarketDataType.TICK;
+        };
     }
 
     /**

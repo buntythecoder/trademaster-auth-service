@@ -17,11 +17,9 @@ import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
-import org.springframework.kafka.support.serializer.JsonSerializer;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 
 /**
  * Kafka Configuration for Market Data Service
@@ -232,8 +230,10 @@ public class KafkaConfig {
     public org.springframework.kafka.listener.CommonErrorHandler marketDataErrorHandler() {
         return new org.springframework.kafka.listener.DefaultErrorHandler((record, exception) -> {
             log.error("Error processing market data record: {}", record, exception);
-            // Send to DLQ topic
-            kafkaTemplate().send(DLQ_TOPIC, record.key(), record.value());
+            // Send to DLQ topic with proper type conversion
+            kafkaTemplate().send(DLQ_TOPIC, 
+                record.key() != null ? record.key().toString() : null, 
+                record.value() != null ? record.value().toString() : null);
         });
     }
 

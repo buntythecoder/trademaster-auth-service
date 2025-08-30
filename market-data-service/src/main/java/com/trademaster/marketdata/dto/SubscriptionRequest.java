@@ -240,6 +240,13 @@ public class SubscriptionRequest {
     }
 
     /**
+     * Get primary exchange (convenience method for backward compatibility)
+     */
+    public String getExchange() {
+        return exchanges != null && !exchanges.isEmpty() ? exchanges.iterator().next() : null;
+    }
+    
+    /**
      * Create high-frequency subscription for trading
      */
     public static SubscriptionRequest createHighFrequency(List<String> symbols) {

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -81,8 +82,8 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
     // Strategy Pattern: URL Builders (Functional approach)
     private final Map<String, Function<String, String>> urlBuilders;
     private final Map<String, Function<Map<String, Object>, List<MarketDataMessage>>> responseParsers;
-    private final Function<MarketDataRequest, ValidationResult> validationChain;
-    private final Function<MarketDataProvider.ProviderConfig, Boolean> configValidator;
+    private final Function<MarketDataRequest, Result<MarketDataRequest, String>> validationChain;
+    private final Predicate<MarketDataProvider.ProviderConfig> configValidator;
     private final Function<String, Boolean> exchangeValidator;
 
     // Railway Oriented Programming: Result type
@@ -121,9 +122,9 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
 
     // Strategy Pattern - URL Building Strategies
     public enum UrlBuildingStrategy {
-        HISTORICAL_DATA((symbol, apiKey) -> BASE_URL + "?function=TIME_SERIES_DAILY&symbol=" + symbol + "&apikey=" + apiKey),
-        CURRENT_PRICE((symbol, apiKey) -> BASE_URL + "?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKey),
-        CONNECTION_TEST((symbol, apiKey) -> BASE_URL + "?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKey);
+        HISTORICAL_DATA(symbol -> apiKey -> BASE_URL + "?function=TIME_SERIES_DAILY&symbol=" + symbol + "&apikey=" + apiKey),
+        CURRENT_PRICE(symbol -> apiKey -> BASE_URL + "?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKey),
+        CONNECTION_TEST(symbol -> apiKey -> BASE_URL + "?function=GLOBAL_QUOTE&symbol=" + symbol + "&apikey=" + apiKey);
         
         private final Function<String, Function<String, String>> urlBuilder;
         
@@ -171,13 +172,13 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
         );
     }
 
-    private Function<MarketDataRequest, ValidationResult> initializeValidationChain() {
+    private Function<MarketDataRequest, Result<MarketDataRequest, String>> initializeValidationChain() {
         return request -> validateSymbol(request)
-            .flatMap(r -> validateExchange(r))
-            .flatMap(r -> validateTimeRange(r));
+            .flatMap(this::validateExchange)
+            .flatMap(this::validateTimeRange);
     }
 
-    private Function<MarketDataProvider.ProviderConfig, Boolean> initializeConfigValidator() {
+    private Predicate<MarketDataProvider.ProviderConfig> initializeConfigValidator() {
         return config -> Optional.ofNullable(config)
             .map(ProviderConfig::getApiKey)
             .filter(key -> !key.isBlank())
@@ -435,7 +436,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
                 scope.throwIfFailed();
                 
                 return tasks.stream()
-                    .map(StructuredTaskScope.Subtask::resultNow)
+                    .map(task -> task.get())
                     .toList();
                     
             } catch (InterruptedException e) {
@@ -457,10 +458,9 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
                 .successfulRequests(successCount.get())
                 .failedRequests(failureCount.get())
                 .successRate(getSuccessRate())
-                .averageLatencyMs(lastLatencyMs.get())
-                .lastRequestTime(lastRequestTime.get())
+                .avgLatencyMs(lastLatencyMs.get())
                 .isHealthy(isHealthy())
-                .dailyRateLimit(getDailyRateLimit())
+                .dailyRequestsLimit(getDailyRateLimit())
                 .costPerRequest(getCostPerRequest())
                 .build();
         }, virtualExecutor);
@@ -490,7 +490,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
 
     @Override
     public boolean validateConfiguration() {
-        return configValidator.apply(config.get());
+        return configValidator.test(config.get());
     }
 
     @Override
@@ -521,7 +521,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
     private List<MarketDataMessage> parseHistoricalDataFunctional(Map<String, Object> response) {
         return Optional.ofNullable(response.get("Time Series (Daily)"))
             .filter(Map.class::isInstance)
-            .map(Map.class::cast)
+            .map(obj -> (Map<String, Object>) obj)
             .map(timeSeries -> timeSeries.entrySet().stream()
                 .map(entry -> parseTimeSeriesEntry(entry.getKey(), (Map<String, Object>) entry.getValue()))
                 .toList())

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.stream.Collectors;
 
 /**
  * Core Market Data Service
@@ -120,8 +121,10 @@ public class MarketDataService {
                 
                 Map<String, MarketDataPoint> results = new java.util.concurrent.ConcurrentHashMap<>();
                 
-                // Process symbols in parallel using virtual threads
-                List<CompletableFuture<Void>> tasks = symbols.stream()
+                // Process symbols in parallel using virtual threads with parallel stream
+                List<CompletableFuture<Void>> tasks = symbols.parallelStream()
+                    .collect(Collectors.toList()) // Parallel collection processing
+                    .stream()
                     .map(symbol -> scope.fork(() -> {
                         getCurrentPrice(symbol, exchange)
                             .thenAccept(dataPoint -> {

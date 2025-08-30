@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -93,16 +94,11 @@ public class MarketDataPoint {
      */
     public static MarketDataPoint createTickData(String symbol, String exchange, 
             BigDecimal price, Long volume, Instant timestamp) {
-        return MarketDataPoint.builder()
-            .symbol(symbol)
-            .exchange(exchange)
-            .dataType("TICK")
-            .source("REALTIME")
-            .price(price)
-            .volume(volume)
-            .timestamp(timestamp)
-            .qualityScore(1.0)
-            .build();
+        return new MarketDataPoint(
+            symbol, exchange, "TICK", "REALTIME",
+            price, volume, null, null, null, null, null, null, null, null,
+            null, null, null, 1.0, timestamp
+        );
     }
     
     /**
@@ -111,19 +107,11 @@ public class MarketDataPoint {
     public static MarketDataPoint createOHLCData(String symbol, String exchange,
             BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close, 
             Long volume, Instant timestamp) {
-        return MarketDataPoint.builder()
-            .symbol(symbol)
-            .exchange(exchange)
-            .dataType("OHLC")
-            .source("AGGREGATED")
-            .open(open)
-            .high(high)
-            .low(low)
-            .price(close) // Close price as primary price field
-            .volume(volume)
-            .timestamp(timestamp)
-            .qualityScore(1.0)
-            .build();
+        return new MarketDataPoint(
+            symbol, exchange, "OHLC", "AGGREGATED",
+            close, volume, null, null, high, low, open, null, null, null,
+            null, null, null, 1.0, timestamp
+        );
     }
     
     /**
@@ -131,19 +119,12 @@ public class MarketDataPoint {
      */
     public static MarketDataPoint createOrderBookData(String symbol, String exchange,
             BigDecimal bid, BigDecimal ask, Long bidSize, Long askSize, Instant timestamp) {
-        return MarketDataPoint.builder()
-            .symbol(symbol)
-            .exchange(exchange)
-            .dataType("ORDER_BOOK")
-            .source("REALTIME")
-            .bid(bid)
-            .ask(ask)
-            .bidSize(bidSize)
-            .askSize(askSize)
-            .price(bid.add(ask).divide(BigDecimal.valueOf(2))) // Mid price
-            .timestamp(timestamp)
-            .qualityScore(1.0)
-            .build();
+        return new MarketDataPoint(
+            symbol, exchange, "ORDER_BOOK", "REALTIME",
+            bid.add(ask).divide(BigDecimal.valueOf(2)), null, // Mid price
+            bid, ask, null, null, null, null, null, null,
+            bidSize, askSize, null, 1.0, timestamp
+        );
     }
     
     /**
@@ -178,6 +159,92 @@ public class MarketDataPoint {
                .multiply(BigDecimal.valueOf(100));
     }
     
+    // Convenience methods for services expecting these names
+    public BigDecimal getSpread() {
+        return getMarketSpread();
+    }
+    
+    public BigDecimal close() {
+        return price;
+    }
+    
+    // Record-style accessors for functional programming compatibility
+    public String symbol() {
+        return this.symbol;
+    }
+    
+    public String exchange() {
+        return this.exchange;
+    }
+    
+    public String dataType() {
+        return this.dataType;
+    }
+    
+    public String source() {
+        return this.source;
+    }
+    
+    public BigDecimal price() {
+        return this.price;
+    }
+    
+    public Long volume() {
+        return this.volume;
+    }
+    
+    public BigDecimal bid() {
+        return this.bid;
+    }
+    
+    public BigDecimal ask() {
+        return this.ask;
+    }
+    
+    public BigDecimal high() {
+        return this.high;
+    }
+    
+    public BigDecimal low() {
+        return this.low;
+    }
+    
+    public BigDecimal open() {
+        return this.open;
+    }
+    
+    public BigDecimal previousClose() {
+        return this.previousClose;
+    }
+    
+    public BigDecimal change() {
+        return this.change;
+    }
+    
+    public BigDecimal changePercent() {
+        return this.changePercent;
+    }
+    
+    public Long bidSize() {
+        return this.bidSize;
+    }
+    
+    public Long askSize() {
+        return this.askSize;
+    }
+    
+    public String marketStatus() {
+        return this.marketStatus;
+    }
+    
+    public Double qualityScore() {
+        return this.qualityScore;
+    }
+    
+    public Instant timestamp() {
+        return this.timestamp;
+    }
+    
     /**
      * Data quality assessment
      */
@@ -187,7 +254,7 @@ public class MarketDataPoint {
         // Adjust quality based on data completeness
         if (price == null) quality -= 0.3;
         if (volume == null || volume == 0) quality -= 0.2;
-        if (timestamp.isBefore(Instant.now().minusMinutes(5))) quality -= 0.1;
+        if (timestamp.isBefore(Instant.now().minus(Duration.ofMinutes(5)))) quality -= 0.1;
         
         return switch (Double.compare(quality, 0.8)) {
             case 1, 0 -> QualityAssessment.HIGH;

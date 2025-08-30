@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,8 +56,8 @@ public class MarketDataSubscriptionService {
                 // Create subscription info
                 SubscriptionInfo subscription = new SubscriptionInfo(
                     sessionId,
-                    request.getSymbols(),
-                    request.getDataTypes(),
+                    new ArrayList<>(request.getSymbols()),
+                    request.getDataTypes().stream().map(Enum::name).toList(),
                     request.getExchange(),
                     System.currentTimeMillis()
                 );

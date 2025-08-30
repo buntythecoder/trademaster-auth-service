@@ -5,6 +5,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import static com.trademaster.marketdata.agentos.AgentConstants.*;
+
 /**
  * Agent Capability Annotation
  * 
@@ -28,7 +30,7 @@ public @interface AgentCapability {
     /**
      * The proficiency level of this capability
      */
-    String proficiency() default "INTERMEDIATE";
+    String proficiency() default PROFICIENCY_INTERMEDIATE;
     
     /**
      * Whether this capability is currently active
@@ -48,5 +50,5 @@ public @interface AgentCapability {
     /**
      * Performance characteristics of this capability
      */
-    String performanceProfile() default "STANDARD";
+    String performanceProfile() default PERFORMANCE_STANDARD;
 }

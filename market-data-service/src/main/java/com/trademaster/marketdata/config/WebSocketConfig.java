@@ -86,6 +86,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
      */
     @Bean
     public WebSocketConnectionManager webSocketConnectionManager() {
-        return new WebSocketConnectionManager(connectionLimit);
+        return new WebSocketConnectionManager();
     }
 }
