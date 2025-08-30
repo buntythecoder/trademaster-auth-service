@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -404,13 +405,12 @@ public class AlphaVantageProvider implements MarketDataProvider {
                         .symbol(symbol)
                         .exchange(exchange)
                         .timestamp(LocalDateTime.parse(date + "T16:00:00"))
-                        .price(Double.parseDouble(data.get("4. close")))
-                        .open(Double.parseDouble(data.get("1. open")))
-                        .high(Double.parseDouble(data.get("2. high")))
-                        .low(Double.parseDouble(data.get("3. low")))
+                        .price(new BigDecimal(data.get("4. close")))
+                        .open(new BigDecimal(data.get("1. open")))
+                        .high(new BigDecimal(data.get("2. high")))
+                        .low(new BigDecimal(data.get("3. low")))
                         .volume(Long.parseLong(data.get("5. volume")))
-                        .dataType(MarketDataMessage.DataType.OHLCV)
-                        .source(PROVIDER_NAME)
+                        .type(MarketDataMessage.MarketDataType.OHLC)
                         .build();
                     
                     messages.add(message);
@@ -434,12 +434,11 @@ public class AlphaVantageProvider implements MarketDataProvider {
                     .symbol(symbol)
                     .exchange(exchange)
                     .timestamp(LocalDateTime.now())
-                    .price(Double.parseDouble(quote.get("05. price")))
-                    .change(Double.parseDouble(quote.get("09. change")))
-                    .changePercent(Double.parseDouble(quote.get("10. change percent").replace("%", "")))
+                    .price(new BigDecimal(quote.get("05. price")))
+                    .change(new BigDecimal(quote.get("09. change")))
+                    .changePercent(new BigDecimal(quote.get("10. change percent").replace("%", "")))
                     .volume(Long.parseLong(quote.get("06. volume")))
-                    .dataType(MarketDataMessage.DataType.TICK)
-                    .source(PROVIDER_NAME)
+                    .type(MarketDataMessage.MarketDataType.TICK)
                     .build();
             }
         } catch (Exception e) {

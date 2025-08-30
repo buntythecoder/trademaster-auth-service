@@ -1,5 +1,6 @@
 // Portfolio Analytics Components
 export { PortfolioOverview } from './PortfolioOverview'
+export { EnhancedPortfolioOverview } from './EnhancedPortfolioOverview'
 export { PerformanceChart } from './PerformanceChart'
 export { HoldingsTable } from './HoldingsTable'
 export { AssetAllocation } from './AssetAllocation'

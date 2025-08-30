@@ -10,15 +10,13 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -90,7 +88,7 @@ public class BSEDataProvider implements ExchangeDataProvider {
                         BSEQuoteResponse bseResponse = objectMapper.readValue(responseBody, BSEQuoteResponse.class);
                         
                         if (bseResponse != null && bseResponse.Data() != null && !bseResponse.Data().isEmpty()) {
-                            return convertToMarketDataPoint(bseResponse.Data().get(0), symbol);
+                            return convertToMarketDataPoint(bseResponse.Data().getFirst(), symbol);
                         } else {
                             log.warn("No data received from BSE for symbol: {}", symbol);
                             return null;
@@ -118,7 +116,7 @@ public class BSEDataProvider implements ExchangeDataProvider {
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
             .thenApply(v -> futures.stream()
                 .map(CompletableFuture::join)
-                .filter(data -> data != null)
+                .filter(Objects::nonNull)
                 .toList());
     }
 
@@ -200,35 +198,3 @@ public class BSEDataProvider implements ExchangeDataProvider {
     ) {}
 }
 
-/**
- * Configuration for BSE HTTP Client using OkHttp
- */
-@Configuration
-@ConditionalOnProperty(name = "trademaster.exchanges.bse.enabled", havingValue = "true")
-class BSEHttpClientConfig {
-
-    @Value("${trademaster.exchanges.bse.api-key:}")
-    private String apiKey;
-
-    @Bean
-    public OkHttpClient bseHttpClient() {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true);
-
-        // Add interceptor for API key if configured
-        if (!apiKey.isEmpty()) {
-            builder.addInterceptor(chain -> {
-                okhttp3.Request original = chain.request();
-                okhttp3.Request request = original.newBuilder()
-                    .header("Authorization", "Bearer " + apiKey)
-                    .build();
-                return chain.proceed(request);
-            });
-        }
-
-        return builder.build();
-    }
-}

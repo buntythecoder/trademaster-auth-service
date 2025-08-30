@@ -60,8 +60,7 @@ public class MarketNewsController {
             .thenApply(response -> ResponseEntity.ok(response))
             .exceptionally(throwable -> {
                 log.error("Error searching market news", throwable);
-                return ResponseEntity.internalServerError()
-                    .body(MarketNewsResponse.error("Failed to retrieve market news"));
+                return ResponseEntity.internalServerError().build();
             });
     }
     

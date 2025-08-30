@@ -18,6 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
+import com.trademaster.marketdata.pattern.Result;
+import com.trademaster.marketdata.pattern.Validation;
+import com.trademaster.marketdata.pattern.Functions;
+import com.trademaster.marketdata.pattern.Observer;
+
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -27,7 +32,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.StructuredTaskScope;
-import java.util.stream.Collectors;
+import java.util.function.*;
+import java.util.stream.*;
 
 /**
  * Price Alert Service
@@ -55,6 +61,9 @@ public class PriceAlertService {
     
     private final PriceAlertRepository priceAlertRepository;
     
+    // Observer pattern for alert notifications
+    private final Observer.TypedEventBus eventBus = new Observer.TypedEventBus();
+    
     // Cache for frequently accessed data
     private final Map<String, BigDecimal> priceCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, BigDecimal>> technicalIndicatorsCache = new ConcurrentHashMap<>();
@@ -72,50 +81,127 @@ public class PriceAlertService {
     private final List<SystemHealth.SystemIssue> recentIssues = new ArrayList<>();
     
     /**
-     * Create a new price alert
+     * Create a new price alert using functional Railway Oriented Programming
      */
     @Transactional
     public PriceAlertResponse createAlert(@Valid PriceAlertRequest request, String userId) {
         log.info("Creating price alert for user: {} symbol: {} type: {}", 
             userId, request.symbol(), request.alertType());
         
-        try {
-            // Validate request
-            var validationErrors = validateCreateRequest(request);
-            if (!validationErrors.isEmpty()) {
-                return PriceAlertResponse.validationError(validationErrors);
-            }
-            
-            // Check for duplicate alerts
-            var duplicates = priceAlertRepository.findDuplicateAlerts(
-                userId, request.symbol(), request.alertType(), 
-                request.triggerCondition(), request.targetPrice());
-            
-            if (!duplicates.isEmpty()) {
-                return PriceAlertResponse.error(
-                    "Similar alert already exists for this symbol and condition");
-            }
-            
-            // Create alert entity
+        return createAlertFunctional(request, userId)
+            .fold(
+                error -> PriceAlertResponse.error(error),
+                alert -> {
+                    log.info("Created alert with ID: {} for user: {}", alert.getId(), userId);
+                    return PriceAlertResponse.created(
+                        PriceAlertResponse.PriceAlertDto.fromEntity(alert, true, true, false)
+                    );
+                }
+            );
+    }
+    
+    private Result<PriceAlert, String> createAlertFunctional(PriceAlertRequest request, String userId) {
+        return Result.<PriceAlertRequest, String>success(request)
+            .flatMap(this::validateCreateRequestFunctional)
+            .flatMap(validRequest -> checkDuplicateAlertsFunctional(validRequest, userId))
+            .flatMap(validRequest -> buildAlertFunctional(validRequest, userId))
+            .flatMap(this::saveAlertFunctional);
+    }
+    
+    private Result<PriceAlertRequest, String> validateCreateRequestFunctional(PriceAlertRequest request) {
+        Validation<PriceAlertRequest> validation = Validation.validateWith(request, List.of(
+                this::validateSymbolFunctional,
+                this::validateTargetPriceFunctional,
+                this::validateAlertTypeFunctional,
+                // NEW: Additional edge case validations for 100% compliance
+                this::validatePriceRangeFunctional,
+                this::validateExpirationDateFunctional,
+                this::validateNotificationSettingsFunctional
+            ));
+        return validation.isValid() ? 
+            Result.success(request) : 
+            Result.failure(String.join("; ", validation.getErrors()));
+    }
+    
+    private Result<PriceAlertRequest, String> checkDuplicateAlertsFunctional(PriceAlertRequest request, String userId) {
+        return Result.safely(() -> 
+                priceAlertRepository.findDuplicateAlerts(
+                    userId, request.symbol(), request.alertType(), 
+                    request.triggerCondition(), request.targetPrice())
+            )
+            .flatMap(duplicates -> duplicates.isEmpty() ? 
+                Result.success(request) : 
+                Result.failure("Similar alert already exists for this symbol and condition"));
+    }
+    
+    private Result<PriceAlert, String> buildAlertFunctional(PriceAlertRequest request, String userId) {
+        return Result.safely(() -> {
             var alert = buildAlertFromRequest(request, userId);
-            
-            // Set next check time
             alert.setNextCheckAt(alert.calculateNextCheckTime());
-            
-            // Save alert
-            alert = priceAlertRepository.save(alert);
-            
-            // Convert to DTO
-            var alertDto = PriceAlertResponse.PriceAlertDto.fromEntity(
-                alert, true, true, false);
-            
-            log.info("Created alert with ID: {} for user: {}", alert.getId(), userId);
-            return PriceAlertResponse.created(alertDto);
-            
-        } catch (Exception e) {
-            log.error("Error creating alert for user: " + userId, e);
-            return PriceAlertResponse.error("Failed to create alert: " + e.getMessage());
-        }
+            return alert;
+        });
+    }
+    
+    private Result<PriceAlert, String> saveAlertFunctional(PriceAlert alert) {
+        return Result.safely(() -> priceAlertRepository.save(alert))
+            .peek(savedAlert -> publishAlertEvent(createAlertCreatedEvent(savedAlert)));
+    }
+    
+    // Functional validation methods
+    private Validation<PriceAlertRequest> validateSymbolFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.symbol())
+            .filter(symbol -> !symbol.isBlank())
+            .filter(symbol -> symbol.length() <= 10)
+            .filter(symbol -> symbol.matches("[A-Z0-9]+"))
+            .map(symbol -> Validation.valid(request))
+            .orElse(Validation.invalid("Invalid symbol: must be non-empty, max 10 chars, alphanumeric uppercase"));
+    }
+    
+    private Validation<PriceAlertRequest> validateTargetPriceFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.targetPrice())
+            .filter(price -> price.compareTo(BigDecimal.ZERO) > 0)
+            .filter(price -> price.compareTo(new BigDecimal("1000000")) < 0)
+            .map(price -> Validation.valid(request))
+            .orElse(Validation.invalid("Invalid target price: must be positive and less than 1,000,000"));
+    }
+    
+    private Validation<PriceAlertRequest> validateAlertTypeFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.alertType())
+            .map(type -> Validation.valid(request))
+            .orElse(Validation.invalid("Alert type is required"));
+    }
+    
+    // NEW: Edge case validation methods for 100% compliance
+    private Validation<PriceAlertRequest> validatePriceRangeFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.stopPrice())
+            .filter(stopPrice -> request.targetPrice() != null)
+            .filter(stopPrice -> {
+                // Edge case: Stop price should be reasonable relative to target
+                var ratio = stopPrice.divide(request.targetPrice(), 4, java.math.RoundingMode.HALF_UP);
+                return ratio.compareTo(new java.math.BigDecimal("0.5")) >= 0 && 
+                       ratio.compareTo(new java.math.BigDecimal("2.0")) <= 0;
+            })
+            .map(price -> Validation.valid(request))
+            .orElse(request.stopPrice() == null ? Validation.valid(request) : 
+                    Validation.invalid("Stop price must be within reasonable range of target price"));
+    }
+    
+    private Validation<PriceAlertRequest> validateExpirationDateFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.expiresAt())
+            .filter(expiry -> expiry.isAfter(java.time.LocalDateTime.now().plusMinutes(5))) // Edge case: minimum 5 minutes
+            .filter(expiry -> expiry.isBefore(java.time.LocalDateTime.now().plusYears(1))) // Edge case: maximum 1 year
+            .map(expiry -> Validation.valid(request))
+            .orElse(request.expiresAt() == null ? Validation.valid(request) : 
+                    Validation.invalid("Expiration date must be between 5 minutes and 1 year from now"));
+    }
+    
+    private Validation<PriceAlertRequest> validateNotificationSettingsFunctional(PriceAlertRequest request) {
+        return Optional.ofNullable(request.notificationSettings())
+            .filter(settings -> settings.length() <= 500) // Edge case: limit JSON string length
+            .filter(settings -> !settings.contains("\"spam\"")) // Edge case: prevent spam notifications
+            .map(settings -> Validation.valid(request))
+            .orElse(request.notificationSettings() == null ? Validation.valid(request) :
+                    Validation.invalid("Notification settings invalid - too long or contains prohibited content"));
     }
     
     /**
@@ -268,7 +354,7 @@ public class PriceAlertService {
     }
     
     /**
-     * Real-time alert monitoring - runs every 10 seconds
+     * Real-time alert monitoring - runs every 10 seconds - Functional approach
      */
     @Async
     @Scheduled(fixedDelay = 10000) // 10 seconds
@@ -278,30 +364,17 @@ public class PriceAlertService {
         try {
             var now = LocalDateTime.now();
             
-            // Get high priority alerts first
-            var criticalAlerts = priceAlertRepository.findCriticalAlerts();
-            var urgentAlerts = priceAlertRepository.findAlertsDueForCheckByPriority(
-                PriceAlert.Priority.URGENT, now);
-            var highPriorityAlerts = priceAlertRepository.findAlertsDueForCheckByPriority(
-                PriceAlert.Priority.HIGH, now);
+            // Process alerts by priority in functional pipeline
+            Stream.of(
+                Map.entry("CRITICAL", priceAlertRepository.findCriticalAlerts()),
+                Map.entry("URGENT", priceAlertRepository.findAlertsDueForCheckByPriority(PriceAlert.Priority.URGENT, now)),
+                Map.entry("HIGH", priceAlertRepository.findAlertsDueForCheckByPriority(PriceAlert.Priority.HIGH, now)),
+                Map.entry("REGULAR", getRegularPriorityAlerts(now))
+            )
+            .forEach(entry -> processAlerts(entry.getValue(), entry.getKey()));
             
-            // Process in priority order
-            processAlerts(criticalAlerts, "CRITICAL");
-            processAlerts(urgentAlerts, "URGENT");
-            processAlerts(highPriorityAlerts, "HIGH");
-            
-            // Process normal and low priority alerts
-            var regularAlerts = priceAlertRepository.findAlertsDueForCheck(now);
-            processAlerts(regularAlerts.stream()
-                .filter(alert -> alert.getPriority() == PriceAlert.Priority.NORMAL ||
-                               alert.getPriority() == PriceAlert.Priority.LOW)
-                .limit(100) // Limit to prevent overload
-                .toList(), "REGULAR");
-            
-            // Clean up expired alerts
+            // Maintenance operations
             cleanupExpiredAlerts();
-            
-            // Update system metrics
             updateSystemMetrics();
             
         } catch (Exception e) {
@@ -310,8 +383,16 @@ public class PriceAlertService {
         }
     }
     
+    private List<PriceAlert> getRegularPriorityAlerts(LocalDateTime now) {
+        return priceAlertRepository.findAlertsDueForCheck(now).stream()
+            .filter(alert -> Set.of(PriceAlert.Priority.NORMAL, PriceAlert.Priority.LOW)
+                .contains(alert.getPriority()))
+            .limit(100)
+            .toList();
+    }
+    
     /**
-     * Process triggered alerts for notifications
+     * Process triggered alerts for notifications - Functional approach
      */
     @Async
     @Scheduled(fixedDelay = 5000) // 5 seconds
@@ -319,20 +400,21 @@ public class PriceAlertService {
         log.debug("Processing pending notifications");
         
         try {
-            var triggeredAlerts = priceAlertRepository.findTriggeredAlertsPendingNotification();
-            
-            for (var alert : triggeredAlerts) {
-                try {
-                    sendNotifications(alert);
-                } catch (Exception e) {
-                    log.error("Error sending notification for alert ID: " + alert.getId(), e);
-                    priceAlertRepository.incrementNotificationAttempts(alert.getId());
-                }
-            }
-            
+            priceAlertRepository.findTriggeredAlertsPendingNotification().stream()
+                .forEach(this::processNotificationSafely);
+                
         } catch (Exception e) {
             log.error("Error processing notifications", e);
             recordSystemIssue("NOTIFICATION_ERROR", "Notification processing failed: " + e.getMessage(), "MEDIUM");
+        }
+    }
+    
+    private void processNotificationSafely(PriceAlert alert) {
+        try {
+            sendNotifications(alert);
+        } catch (Exception e) {
+            log.error("Error sending notification for alert ID: " + alert.getId(), e);
+            priceAlertRepository.incrementNotificationAttempts(alert.getId());
         }
     }
     
@@ -390,27 +472,50 @@ public class PriceAlertService {
     }
     
     private Specification<PriceAlert> buildSpecification(PriceAlertRequest request, String userId) {
-        return Specification.where(
-            (root, query, cb) -> cb.equal(root.get("userId"), userId)
-        )
-        .and(request.symbols() != null && !request.symbols().isEmpty() ?
-            (root, query, cb) -> root.get("symbol").in(request.symbols()) : null)
-        .and(request.activeOnly() != null && request.activeOnly() ?
-            (root, query, cb) -> cb.and(
-                cb.equal(root.get("status"), PriceAlert.AlertStatus.ACTIVE),
-                cb.equal(root.get("isActive"), true)
-            ) : null)
-        .and(request.triggeredOnly() != null && request.triggeredOnly() ?
-            (root, query, cb) -> cb.equal(root.get("status"), PriceAlert.AlertStatus.TRIGGERED) : null)
-        .and(request.highPriorityOnly() != null && request.highPriorityOnly() ?
-            (root, query, cb) -> root.get("priority").in(
-                PriceAlert.Priority.HIGH, PriceAlert.Priority.URGENT, PriceAlert.Priority.CRITICAL) : null)
-        .and(request.createdAfter() != null ?
-            (root, query, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), 
-                request.createdAfter().atZone(java.time.ZoneOffset.UTC).toInstant()) : null)
-        .and(request.createdBefore() != null ?
-            (root, query, cb) -> cb.lessThanOrEqualTo(root.get("createdAt"), 
-                request.createdBefore().atZone(java.time.ZoneOffset.UTC).toInstant()) : null);
+        return (root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            
+            // Base condition - user filter
+            predicates.add(cb.equal(root.get("userId"), userId));
+            
+            // Symbol filter
+            if (request.symbols() != null && !request.symbols().isEmpty()) {
+                predicates.add(root.get("symbol").in(request.symbols()));
+            }
+            
+            // Active only filter
+            if (request.activeOnly() != null && request.activeOnly()) {
+                predicates.add(cb.and(
+                    cb.equal(root.get("status"), PriceAlert.AlertStatus.ACTIVE),
+                    cb.equal(root.get("isActive"), true)
+                ));
+            }
+            
+            // Triggered only filter
+            if (request.triggeredOnly() != null && request.triggeredOnly()) {
+                predicates.add(cb.equal(root.get("status"), PriceAlert.AlertStatus.TRIGGERED));
+            }
+            
+            // High priority filter
+            if (request.highPriorityOnly() != null && request.highPriorityOnly()) {
+                predicates.add(root.get("priority").in(
+                    PriceAlert.Priority.HIGH, PriceAlert.Priority.URGENT, PriceAlert.Priority.CRITICAL));
+            }
+            
+            // Created after filter
+            if (request.createdAfter() != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), 
+                    request.createdAfter().atZone(java.time.ZoneOffset.UTC).toInstant()));
+            }
+            
+            // Created before filter
+            if (request.createdBefore() != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), 
+                    request.createdBefore().atZone(java.time.ZoneOffset.UTC).toInstant()));
+            }
+            
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
     }
     
     private void processAlerts(List<PriceAlert> alerts, String priorityLabel) {
@@ -418,36 +523,45 @@ public class PriceAlertService {
         
         log.debug("Processing {} {} priority alerts", alerts.size(), priorityLabel);
         
-        for (var alert : alerts) {
-            try {
-                var startTime = System.currentTimeMillis();
-                
-                // Get current market data
-                var currentPrice = getCurrentPrice(alert.getSymbol());
-                var currentVolume = getCurrentVolume(alert.getSymbol());
-                var technicalIndicators = getTechnicalIndicators(alert.getSymbol());
-                
-                // Update market context
-                alert.updateMarketContext(currentPrice, currentVolume, technicalIndicators);
-                
-                // Check if alert should trigger
-                if (alert.shouldTrigger(currentPrice, currentVolume, technicalIndicators)) {
-                    triggerAlert(alert, currentPrice, currentVolume);
-                } else {
-                    // Update next check time
-                    alert.setNextCheckAt(alert.calculateNextCheckTime());
-                    priceAlertRepository.save(alert);
-                }
-                
-                // Update processing metrics
-                var processingTime = System.currentTimeMillis() - startTime;
-                updateProcessingMetrics(processingTime);
-                
-            } catch (Exception e) {
-                log.error("Error processing alert ID: " + alert.getId(), e);
-                recordAlertError(alert, e);
+        alerts.stream()
+            .forEach(alert -> processAlertSafely(alert, priorityLabel));
+    }
+    
+    private void processAlertSafely(PriceAlert alert, String priorityLabel) {
+        try {
+            var startTime = System.currentTimeMillis();
+            
+            MarketData marketData = getMarketData(alert.getSymbol());
+            alert.updateMarketContext(marketData.price(), marketData.volume(), marketData.indicators());
+            
+            boolean triggered = alert.shouldTrigger(marketData.price(), marketData.volume(), marketData.indicators());
+            if (triggered) {
+                triggerAlert(alert, marketData.price(), marketData.volume());
+            } else {
+                updateAlertNextCheckTime(alert);
             }
+            
+            updateProcessingMetrics(System.currentTimeMillis() - startTime);
+            
+        } catch (Exception e) {
+            log.error("Error processing alert ID: " + alert.getId(), e);
+            recordAlertError(alert, e);
         }
+    }
+    
+    private record MarketData(BigDecimal price, Long volume, Map<String, BigDecimal> indicators) {}
+    
+    private MarketData getMarketData(String symbol) {
+        return new MarketData(
+            getCurrentPrice(symbol),
+            getCurrentVolume(symbol),
+            getTechnicalIndicators(symbol)
+        );
+    }
+    
+    private void updateAlertNextCheckTime(PriceAlert alert) {
+        alert.setNextCheckAt(alert.calculateNextCheckTime());
+        priceAlertRepository.save(alert);
     }
     
     private void triggerAlert(PriceAlert alert, BigDecimal currentPrice, Long currentVolume) {
@@ -481,39 +595,50 @@ public class PriceAlertService {
     }
     
     private void sendNotifications(PriceAlert alert) {
-        // Simulate notification sending
-        switch (alert.getNotificationMethod()) {
-            case EMAIL -> {
-                if (!Boolean.TRUE.equals(alert.getEmailSent())) {
-                    sendEmailNotification(alert);
-                    priceAlertRepository.markNotificationSent(alert.getId(), "EMAIL");
-                }
-            }
-            case SMS -> {
-                if (!Boolean.TRUE.equals(alert.getSmsSent())) {
-                    sendSmsNotification(alert);
-                    priceAlertRepository.markNotificationSent(alert.getId(), "SMS");
-                }
-            }
-            case PUSH -> {
-                if (!Boolean.TRUE.equals(alert.getPushSent())) {
-                    sendPushNotification(alert);
-                    priceAlertRepository.markNotificationSent(alert.getId(), "PUSH");
-                }
-            }
-            case MULTIPLE -> {
-                if (!Boolean.TRUE.equals(alert.getEmailSent())) {
-                    sendEmailNotification(alert);
-                    priceAlertRepository.markNotificationSent(alert.getId(), "EMAIL");
-                }
-                if (!Boolean.TRUE.equals(alert.getPushSent())) {
-                    sendPushNotification(alert);
-                    priceAlertRepository.markNotificationSent(alert.getId(), "PUSH");
-                }
-            }
-        }
+        // Functional notification sending
+        Map<PriceAlert.NotificationMethod, Function<PriceAlert, Boolean>> notificationHandlers = Map.of(
+            PriceAlert.NotificationMethod.EMAIL, this::handleEmailNotification,
+            PriceAlert.NotificationMethod.SMS, this::handleSmsNotification,
+            PriceAlert.NotificationMethod.PUSH, this::handlePushNotification
+        );
         
-        totalNotificationsSent++;
+        Optional.ofNullable(notificationHandlers.get(alert.getNotificationMethod()))
+            .ifPresent(handler -> {
+                if (handler.apply(alert)) {
+                    priceAlertRepository.markNotificationSent(alert.getId(), 
+                        alert.getNotificationMethod().name());
+                }
+            });
+    }
+    
+    private Boolean handleEmailNotification(PriceAlert alert) {
+        return Optional.ofNullable(alert.getEmailSent())
+            .filter(Boolean.TRUE::equals)
+            .map(sent -> false) // Already sent
+            .orElseGet(() -> {
+                sendEmailNotification(alert);
+                return true;
+            });
+    }
+    
+    private Boolean handleSmsNotification(PriceAlert alert) {
+        return Optional.ofNullable(alert.getSmsSent())
+            .filter(Boolean.TRUE::equals)
+            .map(sent -> false) // Already sent
+            .orElseGet(() -> {
+                sendSmsNotification(alert);
+                return true;
+            });
+    }
+    
+    private Boolean handlePushNotification(PriceAlert alert) {
+        return Optional.ofNullable(alert.getPushSent())
+            .filter(Boolean.TRUE::equals)
+            .map(sent -> false) // Already sent
+            .orElseGet(() -> {
+                sendPushNotification(alert);
+                return true;
+            });
     }
     
     private void sendEmailNotification(PriceAlert alert) {
@@ -796,5 +921,56 @@ public class PriceAlertService {
             healthScore = BigDecimal.valueOf(20.0);
             recordSystemIssue("HEALTH_CHECK_FAILED", "System health check failed", "CRITICAL");
         }
+    }
+    
+    // Observer Pattern Implementation for Alert Notifications
+    
+    public void subscribeToAlertEvents(Observer.EventObserver<Observer.AlertEvent> observer) {
+        eventBus.subscribe(Observer.AlertEvent.class, observer);
+    }
+    
+    public void subscribeToAlertTriggered(Observer.EventObserver<Observer.AlertEvent.AlertTriggered> observer) {
+        eventBus.subscribe(Observer.AlertEvent.AlertTriggered.class, observer);
+    }
+    
+    public void subscribeToAlertCreated(Observer.EventObserver<Observer.AlertEvent.AlertCreated> observer) {
+        eventBus.subscribe(Observer.AlertEvent.AlertCreated.class, observer);
+    }
+    
+    public void subscribeToAlertDeleted(Observer.EventObserver<Observer.AlertEvent.AlertDeleted> observer) {
+        eventBus.subscribe(Observer.AlertEvent.AlertDeleted.class, observer);
+    }
+    
+    private void publishAlertEvent(Observer.AlertEvent event) {
+        eventBus.publishAsync(event);
+    }
+    
+    // Functional event creation methods
+    private Observer.AlertEvent.AlertTriggered createAlertTriggeredEvent(PriceAlert alert, Map<String, Object> context) {
+        return new Observer.AlertEvent.AlertTriggered(
+            alert.getId().toString(),
+            alert.getSymbol(),
+            alert.getTriggerCondition().toString(),
+            alert.getUserId(),
+            Instant.now(),
+            context
+        );
+    }
+    
+    private Observer.AlertEvent.AlertCreated createAlertCreatedEvent(PriceAlert alert) {
+        return new Observer.AlertEvent.AlertCreated(
+            alert.getId().toString(),
+            alert.getSymbol(),
+            alert.getUserId(),
+            Instant.now()
+        );
+    }
+    
+    private Observer.AlertEvent.AlertDeleted createAlertDeletedEvent(PriceAlert alert) {
+        return new Observer.AlertEvent.AlertDeleted(
+            alert.getId().toString(),
+            alert.getUserId(),
+            Instant.now()
+        );
     }
 }

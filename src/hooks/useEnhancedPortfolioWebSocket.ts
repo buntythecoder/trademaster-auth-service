@@ -75,7 +75,12 @@ export interface OrderUpdate {
 
 // Enhanced Portfolio Hook
 export const useEnhancedPortfolioWebSocket = (userId: string) => {
-  const { subscribe, connectionStatus, isConnected } = useWebSocket()
+  const webSocketData = useWebSocket()
+  const { 
+    subscribe, 
+    connectionStatus = 'disconnected', 
+    isConnected = false 
+  } = webSocketData || {}
   
   // Portfolio State
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null)
@@ -233,7 +238,7 @@ export const useEnhancedPortfolioWebSocket = (userId: string) => {
 
   // Subscribe to portfolio updates
   useEffect(() => {
-    if (!userId || !isConnected) {
+    if (!userId || !isConnected || !subscribe) {
       setPortfolio(null)
       setPositions([])
       setOrders([])

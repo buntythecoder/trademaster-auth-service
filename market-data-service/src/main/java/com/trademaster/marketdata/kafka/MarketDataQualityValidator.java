@@ -1,6 +1,7 @@
 package com.trademaster.marketdata.kafka;
 
 import com.trademaster.marketdata.entity.MarketDataPoint;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -333,6 +334,7 @@ public class MarketDataQualityValidator {
      * Validation result
      */
     public static class ValidationResult {
+        @Getter
         private final boolean valid;
         private final String errorMessage;
 
@@ -347,10 +349,6 @@ public class MarketDataQualityValidator {
 
         public static ValidationResult invalid(String errorMessage) {
             return new ValidationResult(false, errorMessage);
-        }
-
-        public boolean isValid() {
-            return valid;
         }
 
         public String errorMessage() {

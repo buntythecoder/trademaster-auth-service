@@ -64,7 +64,7 @@
     <!-- File appender for all environments -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/market-data-service.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/market-data-service.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>100MB</maxFileSize>
             <maxHistory>30</maxHistory>
@@ -111,7 +111,7 @@
     <!-- Market data performance log appender -->
     <appender name="MARKET_DATA_PERFORMANCE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/market-data-performance.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/market-data-performance.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>7</maxHistory>
@@ -144,23 +144,12 @@
                 </pattern>
             </providers>
         </encoder>
-        <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
-                <expression>
-                    return event.getMDCPropertyMap().get("category") == "performance" ||
-                           event.getMDCPropertyMap().get("latencyMs") != null ||
-                           event.getMDCPropertyMap().get("durationMs") != null;
-                </expression>
-            </evaluator>
-            <OnMismatch>DENY</OnMismatch>
-            <OnMatch>ACCEPT</OnMatch>
-        </filter>
     </appender>
     
     <!-- Data quality log appender -->
     <appender name="DATA_QUALITY" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/market-data-quality.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/market-data-quality.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>30</maxHistory>
@@ -199,24 +188,12 @@
                 </pattern>
             </providers>
         </encoder>
-        <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
-                <expression>
-                    return event.getMDCPropertyMap().get("dataQuality") != null ||
-                           event.getMessage().contains("data quality") ||
-                           event.getMessage().contains("outlier") ||
-                           event.getMessage().contains("missing");
-                </expression>
-            </evaluator>
-            <OnMismatch>DENY</OnMismatch>
-            <OnMatch>ACCEPT</OnMatch>
-        </filter>
     </appender>
     
     <!-- Trading events audit log appender -->
     <appender name="TRADING_AUDIT" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/market-data-trading-audit.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/market-data-trading-audit.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>100MB</maxFileSize>
             <maxHistory>90</maxHistory>
@@ -255,18 +232,6 @@
                 </pattern>
             </providers>
         </encoder>
-        <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
-                <expression>
-                    return event.getMDCPropertyMap().get("category") == "audit" ||
-                           event.getMessage().contains("trade event") ||
-                           event.getMessage().contains("market event") ||
-                           event.getMessage().contains("audit");
-                </expression>
-            </evaluator>
-            <OnMismatch>DENY</OnMismatch>
-            <OnMatch>ACCEPT</OnMatch>
-        </filter>
     </appender>
     
     <!-- Async appenders for better performance -->
@@ -299,18 +264,25 @@
     </appender>
     
     <!-- Logger configurations -->
-    <logger name="com.trademaster.marketdata" level="${LOG_LEVEL}" additivity="false">
-        <springProfile name="!prod">
+    <springProfile name="!prod">
+        <logger name="com.trademaster.marketdata" level="${LOG_LEVEL}" additivity="false">
             <appender-ref ref="CONSOLE"/>
-        </springProfile>
-        <springProfile name="prod">
+            <appender-ref ref="ASYNC_FILE"/>
+            <appender-ref ref="ASYNC_PERFORMANCE"/>
+            <appender-ref ref="ASYNC_DATA_QUALITY"/>
+            <appender-ref ref="ASYNC_TRADING_AUDIT"/>
+        </logger>
+    </springProfile>
+    
+    <springProfile name="prod">
+        <logger name="com.trademaster.marketdata" level="${LOG_LEVEL}" additivity="false">
             <appender-ref ref="JSON_CONSOLE"/>
-        </springProfile>
-        <appender-ref ref="ASYNC_FILE"/>
-        <appender-ref ref="ASYNC_PERFORMANCE"/>
-        <appender-ref ref="ASYNC_DATA_QUALITY"/>
-        <appender-ref ref="ASYNC_TRADING_AUDIT"/>
-    </logger>
+            <appender-ref ref="ASYNC_FILE"/>
+            <appender-ref ref="ASYNC_PERFORMANCE"/>
+            <appender-ref ref="ASYNC_DATA_QUALITY"/>
+            <appender-ref ref="ASYNC_TRADING_AUDIT"/>
+        </logger>
+    </springProfile>
     
     <!-- High-frequency market data logging (debug level in dev only) -->
     <springProfile name="!prod">
@@ -348,16 +320,20 @@
     <logger name="org.springframework.web.socket" level="INFO"/>
     
     <!-- Root logger -->
-    <root level="${LOG_LEVEL}">
-        <springProfile name="!prod">
+    <springProfile name="!prod">
+        <root level="${LOG_LEVEL}">
             <appender-ref ref="CONSOLE"/>
-        </springProfile>
-        <springProfile name="prod">
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
+    
+    <springProfile name="prod">
+        <root level="${LOG_LEVEL}">
             <appender-ref ref="JSON_CONSOLE"/>
-        </springProfile>
-        <appender-ref ref="ASYNC_FILE"/>
-    </root>
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
     
     <!-- Shutdown hook to ensure all logs are flushed -->
-    <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+    <shutdownHook class="ch.qos.logback.core.hook.DefaultShutdownHook"/>
 </configuration>

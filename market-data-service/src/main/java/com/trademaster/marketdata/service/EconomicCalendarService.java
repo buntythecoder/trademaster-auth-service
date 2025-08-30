@@ -7,6 +7,7 @@ import com.trademaster.marketdata.repository.EconomicEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -127,7 +128,8 @@ public class EconomicCalendarService {
         if (request.hoursAhead() != null) {
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime hoursAhead = now.plusHours(request.hoursAhead());
-            return economicEventRepository.findEventsByTimeRange(now, hoursAhead, pageable);
+            List<EconomicEvent> events = economicEventRepository.findEventsByTimeRange(now, hoursAhead);
+            return new PageImpl<>(events, pageable, events.size());
         }
         
         // Use complex filtering for advanced requests
@@ -454,10 +456,10 @@ public class EconomicCalendarService {
         
         // Check for recent surprises
         long recentSurprises = events.stream()
-            .filter(e -> e.isReleased() && e.getHoursSinceEvent() != null && 
-                        e.getHoursSinceEvent() <= 24 &&
-                        e.getSurpriseFactor() != null &&
-                        e.getSurpriseFactor().abs().compareTo(new BigDecimal("10")) > 0)
+            .filter(e -> e.isReleased())
+            .filter(e -> e.getHoursSinceEvent() <= 24)
+            .filter(e -> e.getSurpriseFactor() != null)
+            .filter(e -> e.getSurpriseFactor().abs().compareTo(new BigDecimal("10")) > 0)
             .count();
         
         if (recentSurprises > 0) {

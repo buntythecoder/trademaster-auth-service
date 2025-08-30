@@ -6,7 +6,7 @@ import { SymbolLookup } from '../common/SymbolLookup'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { notificationService } from '../../services/notification.service'
 import type { Notification } from '../../types/notifications'
-import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Bot, Smartphone } from 'lucide-react'
+import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Bot, Smartphone, Brain, Zap } from 'lucide-react'
 
 interface NavigationProps {
   title?: string
@@ -59,7 +59,7 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
       {
         path: '/trading',
         label: 'Trading',
-        icon: BarChart3,
+        icon: Zap,
         color: 'green'
       },
       {
@@ -91,6 +91,12 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
         label: 'Agents',
         icon: Bot,
         color: 'purple'
+      },
+      {
+        path: '/behavioral',
+        label: 'Psychology',
+        icon: Brain,
+        color: 'pink'
       }
     ] : [
       {
@@ -124,7 +130,9 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
         green: 'text-green-400 bg-green-500/20',
         orange: 'text-orange-400 bg-orange-500/20',
         blue: 'text-blue-400 bg-blue-500/20',
-        indigo: 'text-indigo-400 bg-indigo-500/20'
+        indigo: 'text-indigo-400 bg-indigo-500/20',
+        red: 'text-red-400 bg-red-500/20',
+        pink: 'text-pink-400 bg-pink-500/20'
       }
       return `${baseClasses} ${colorMap[item.color as keyof typeof colorMap]}`
     }
@@ -135,7 +143,9 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
       green: 'text-slate-400 hover:text-green-400 hover:bg-green-500/10',
       orange: 'text-slate-400 hover:text-orange-400 hover:bg-orange-500/10',
       blue: 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10',
-      indigo: 'text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
+      indigo: 'text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10',
+      red: 'text-slate-400 hover:text-red-400 hover:bg-red-500/10',
+      pink: 'text-slate-400 hover:text-pink-400 hover:bg-pink-500/10'
     }
     
     return `${baseClasses} ${hoverColorMap[item.color as keyof typeof hoverColorMap]}`

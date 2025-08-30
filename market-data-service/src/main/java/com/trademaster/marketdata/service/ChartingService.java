@@ -21,7 +21,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
-import java.util.stream.Collectors;
+import java.util.function.*;
+import java.util.stream.*;
 
 /**
  * Charting Service
@@ -102,7 +103,7 @@ public class ChartingService {
     }
     
     /**
-     * Get technical indicators data
+     * Get technical indicators data - Functional approach
      */
     @Cacheable(value = "chart-indicators", key = "#symbol + '_' + #timeframe + '_' + #startTime + '_' + #endTime")
     public Map<String, List<IndicatorPoint>> getTechnicalIndicators(String symbol, 
@@ -114,38 +115,7 @@ public class ChartingService {
             var indicatorData = chartDataRepository.findTechnicalIndicators(
                 symbol, timeframe, startTime, endTime);
             
-            var indicators = new HashMap<String, List<IndicatorPoint>>();
-            
-            // Initialize lists
-            indicators.put("SMA20", new ArrayList<>());
-            indicators.put("SMA50", new ArrayList<>());
-            indicators.put("EMA12", new ArrayList<>());
-            indicators.put("EMA26", new ArrayList<>());
-            indicators.put("RSI", new ArrayList<>());
-            indicators.put("MACD", new ArrayList<>());
-            indicators.put("MACD_SIGNAL", new ArrayList<>());
-            indicators.put("BOLLINGER_UPPER", new ArrayList<>());
-            indicators.put("BOLLINGER_MIDDLE", new ArrayList<>());
-            indicators.put("BOLLINGER_LOWER", new ArrayList<>());
-            
-            // Process data
-            for (var row : indicatorData) {
-                var timestamp = (Instant) row[0];
-                var close = (BigDecimal) row[1];
-                
-                addIndicatorPoint(indicators, "SMA20", timestamp, (BigDecimal) row[2]);
-                addIndicatorPoint(indicators, "SMA50", timestamp, (BigDecimal) row[3]);
-                addIndicatorPoint(indicators, "EMA12", timestamp, (BigDecimal) row[4]);
-                addIndicatorPoint(indicators, "EMA26", timestamp, (BigDecimal) row[5]);
-                addIndicatorPoint(indicators, "RSI", timestamp, (BigDecimal) row[6]);
-                addIndicatorPoint(indicators, "MACD", timestamp, (BigDecimal) row[7]);
-                addIndicatorPoint(indicators, "MACD_SIGNAL", timestamp, (BigDecimal) row[8]);
-                addIndicatorPoint(indicators, "BOLLINGER_UPPER", timestamp, (BigDecimal) row[9]);
-                addIndicatorPoint(indicators, "BOLLINGER_MIDDLE", timestamp, (BigDecimal) row[10]);
-                addIndicatorPoint(indicators, "BOLLINGER_LOWER", timestamp, (BigDecimal) row[11]);
-            }
-            
-            return indicators;
+            return processIndicatorData(indicatorData);
             
         } catch (Exception e) {
             log.error("Error getting technical indicators for symbol: " + symbol, e);
@@ -153,8 +123,32 @@ public class ChartingService {
         }
     }
     
+    private Map<String, List<IndicatorPoint>> processIndicatorData(List<Object[]> indicatorData) {
+        String[] indicatorNames = {"SMA20", "SMA50", "EMA12", "EMA26", "RSI", "MACD", "MACD_SIGNAL", 
+                                  "BOLLINGER_UPPER", "BOLLINGER_MIDDLE", "BOLLINGER_LOWER"};
+        
+        Map<String, List<IndicatorPoint>> indicators = Arrays.stream(indicatorNames)
+            .collect(Collectors.toMap(Function.identity(), name -> new ArrayList<>()));
+        
+        indicatorData.forEach(row -> {
+            var timestamp = (Instant) row[0];
+            IntStream.range(2, Math.min(row.length, 12))
+                .filter(i -> row[i] != null)
+                .forEach(i -> 
+                    indicators.get(indicatorNames[i - 2]).add(
+                        IndicatorPoint.builder()
+                            .timestamp(timestamp)
+                            .value((BigDecimal) row[i])
+                            .build()
+                    )
+                );
+        });
+        
+        return indicators;
+    }
+    
     /**
-     * Get volume analysis data
+     * Get volume analysis data - Functional approach
      */
     @Cacheable(value = "chart-volume", key = "#symbol + '_' + #timeframe + '_' + #startTime + '_' + #endTime")
     public VolumeAnalysis getVolumeAnalysis(String symbol, ChartData.Timeframe timeframe,
@@ -165,49 +159,7 @@ public class ChartingService {
         try {
             var volumeData = chartDataRepository.findVolumeData(symbol, timeframe, startTime, endTime);
             
-            var volumePoints = new ArrayList<VolumePoint>();
-            var totalVolume = 0L;
-            var volumeWeightedPrice = BigDecimal.ZERO;
-            var maxVolume = 0L;
-            var avgVolumeSum = 0L;
-            
-            for (var row : volumeData) {
-                var timestamp = (Instant) row[0];
-                var close = (BigDecimal) row[1];
-                var volume = (Long) row[2];
-                var vwap = (BigDecimal) row[3];
-                var obv = (BigDecimal) row[4];
-                
-                volumePoints.add(VolumePoint.builder()
-                    .timestamp(timestamp)
-                    .price(close)
-                    .volume(volume)
-                    .vwap(vwap)
-                    .obv(obv)
-                    .build());
-                
-                totalVolume += volume;
-                volumeWeightedPrice = volumeWeightedPrice.add(close.multiply(BigDecimal.valueOf(volume)));
-                maxVolume = Math.max(maxVolume, volume);
-                avgVolumeSum += volume;
-            }
-            
-            var averageVolume = volumePoints.isEmpty() ? 0L : avgVolumeSum / volumePoints.size();
-            var vwapOverall = totalVolume > 0 ? 
-                volumeWeightedPrice.divide(BigDecimal.valueOf(totalVolume), 6, RoundingMode.HALF_UP) : 
-                BigDecimal.ZERO;
-            
-            return VolumeAnalysis.builder()
-                .symbol(symbol)
-                .timeframe(timeframe)
-                .startTime(startTime)
-                .endTime(endTime)
-                .volumePoints(volumePoints)
-                .totalVolume(totalVolume)
-                .averageVolume(averageVolume)
-                .maxVolume(maxVolume)
-                .volumeWeightedAveragePrice(vwapOverall)
-                .build();
+            return processVolumeAnalysis(volumeData, symbol, timeframe, startTime, endTime);
             
         } catch (Exception e) {
             log.error("Error getting volume analysis for symbol: " + symbol, e);
@@ -219,8 +171,57 @@ public class ChartingService {
         }
     }
     
+    private VolumeAnalysis processVolumeAnalysis(List<Object[]> volumeData, String symbol, 
+            ChartData.Timeframe timeframe, Instant startTime, Instant endTime) {
+        
+        List<VolumePoint> volumePoints = volumeData.stream()
+            .map(row -> VolumePoint.builder()
+                .timestamp((Instant) row[0])
+                .price((BigDecimal) row[1])
+                .volume((Long) row[2])
+                .vwap((BigDecimal) row[3])
+                .obv((BigDecimal) row[4])
+                .build())
+            .toList();
+        
+        record VolumeStats(long totalVolume, BigDecimal weightedPrice, long maxVolume) {}
+        
+        // Calculate volume statistics functionally
+        long totalVolume = volumeData.stream()
+            .mapToLong(row -> (Long) row[2])
+            .sum();
+            
+        BigDecimal weightedPrice = volumeData.stream()
+            .map(row -> ((BigDecimal) row[1]).multiply(BigDecimal.valueOf((Long) row[2])))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+        long maxVolume = volumeData.stream()
+            .mapToLong(row -> (Long) row[2])
+            .max()
+            .orElse(0L);
+            
+        VolumeStats stats = new VolumeStats(totalVolume, weightedPrice, maxVolume);
+        
+        long averageVolume = volumePoints.isEmpty() ? 0L : stats.totalVolume / volumePoints.size();
+        BigDecimal vwapOverall = stats.totalVolume > 0 ? 
+            stats.weightedPrice.divide(BigDecimal.valueOf(stats.totalVolume), 6, RoundingMode.HALF_UP) : 
+            BigDecimal.ZERO;
+        
+        return VolumeAnalysis.builder()
+            .symbol(symbol)
+            .timeframe(timeframe)
+            .startTime(startTime)
+            .endTime(endTime)
+            .volumePoints(volumePoints)
+            .totalVolume(stats.totalVolume)
+            .averageVolume(averageVolume)
+            .maxVolume(stats.maxVolume)
+            .volumeWeightedAveragePrice(vwapOverall)
+            .build();
+    }
+    
     /**
-     * Get candlestick patterns
+     * Get candlestick patterns - Functional approach
      */
     @Cacheable(value = "chart-patterns", key = "#symbol + '_' + #timeframe + '_' + #startTime + '_' + #endTime")
     public List<CandlestickPattern> getCandlestickPatterns(String symbol, ChartData.Timeframe timeframe,
@@ -230,66 +231,12 @@ public class ChartingService {
         
         try {
             var chartData = chartDataRepository.findCandlestickData(symbol, timeframe, startTime, endTime);
-            var patterns = new ArrayList<CandlestickPattern>();
             
-            for (int i = 0; i < chartData.size(); i++) {
-                var candle = chartData.get(i);
-                var detectedPatterns = new ArrayList<String>();
-                
-                // Single candle patterns
-                if (candle.isDoji()) {
-                    detectedPatterns.add("DOJI");
-                }
-                if (candle.isHammer()) {
-                    detectedPatterns.add("HAMMER");
-                }
-                if (candle.isShootingStar()) {
-                    detectedPatterns.add("SHOOTING_STAR");
-                }
-                
-                // Multi-candle patterns (require previous candles)
-                if (i > 0) {
-                    var prevCandle = chartData.get(i - 1);
-                    
-                    // Bullish engulfing
-                    if (isBullishEngulfing(prevCandle, candle)) {
-                        detectedPatterns.add("BULLISH_ENGULFING");
-                    }
-                    
-                    // Bearish engulfing
-                    if (isBearishEngulfing(prevCandle, candle)) {
-                        detectedPatterns.add("BEARISH_ENGULFING");
-                    }
-                }
-                
-                // Three-candle patterns
-                if (i > 1) {
-                    var candle1 = chartData.get(i - 2);
-                    var candle2 = chartData.get(i - 1);
-                    var candle3 = candle;
-                    
-                    // Morning star
-                    if (isMorningStar(candle1, candle2, candle3)) {
-                        detectedPatterns.add("MORNING_STAR");
-                    }
-                    
-                    // Evening star
-                    if (isEveningStar(candle1, candle2, candle3)) {
-                        detectedPatterns.add("EVENING_STAR");
-                    }
-                }
-                
-                if (!detectedPatterns.isEmpty()) {
-                    patterns.add(CandlestickPattern.builder()
-                        .timestamp(candle.getTimestamp())
-                        .patterns(detectedPatterns)
-                        .confidence(calculatePatternConfidence(detectedPatterns, candle))
-                        .price(candle.getClose())
-                        .build());
-                }
-            }
-            
-            return patterns;
+            return IntStream.range(0, chartData.size())
+                .mapToObj(i -> analyzeCandlePatterns(chartData, i))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .toList();
             
         } catch (Exception e) {
             log.error("Error analyzing candlestick patterns for symbol: " + symbol, e);
@@ -297,8 +244,51 @@ public class ChartingService {
         }
     }
     
+    private Optional<CandlestickPattern> analyzeCandlePatterns(List<ChartData> chartData, int index) {
+        ChartData candle = chartData.get(index);
+        
+        List<String> detectedPatterns = Stream.<Stream<String>>of(
+                detectSingleCandlePatterns(candle),
+                index > 0 ? detectTwoCandlePatterns(chartData.get(index - 1), candle) : Stream.<String>empty(),
+                index > 1 ? detectThreeCandlePatterns(
+                    chartData.get(index - 2), chartData.get(index - 1), candle) : Stream.<String>empty()
+            )
+            .flatMap(Function.identity())
+            .toList();
+        
+        return detectedPatterns.isEmpty() ? Optional.empty() :
+            Optional.of(CandlestickPattern.builder()
+                .timestamp(candle.getTimestamp())
+                .patterns(detectedPatterns)
+                .confidence(calculatePatternConfidence(detectedPatterns, candle))
+                .price(candle.getClose())
+                .build());
+    }
+    
+    private Stream<String> detectSingleCandlePatterns(ChartData candle) {
+        List<String> patterns = new ArrayList<>();
+        if (candle.isDoji()) patterns.add("DOJI");
+        if (candle.isHammer()) patterns.add("HAMMER");
+        if (candle.isShootingStar()) patterns.add("SHOOTING_STAR");
+        return patterns.stream();
+    }
+    
+    private Stream<String> detectTwoCandlePatterns(ChartData prev, ChartData current) {
+        List<String> patterns = new ArrayList<>();
+        if (isBullishEngulfing(prev, current)) patterns.add("BULLISH_ENGULFING");
+        if (isBearishEngulfing(prev, current)) patterns.add("BEARISH_ENGULFING");
+        return patterns.stream();
+    }
+    
+    private Stream<String> detectThreeCandlePatterns(ChartData c1, ChartData c2, ChartData c3) {
+        List<String> patterns = new ArrayList<>();
+        if (isMorningStar(c1, c2, c3)) patterns.add("MORNING_STAR");
+        if (isEveningStar(c1, c2, c3)) patterns.add("EVENING_STAR");
+        return patterns.stream();
+    }
+    
     /**
-     * Get support and resistance levels
+     * Get support and resistance levels - Functional approach
      */
     @Cacheable(value = "chart-levels", key = "#symbol + '_' + #timeframe + '_' + #startTime + '_' + #endTime")
     public SupportResistanceLevels getSupportResistanceLevels(String symbol, 
@@ -310,41 +300,11 @@ public class ChartingService {
             var levels = chartDataRepository.findSupportResistanceLevels(
                 symbol, timeframe, startTime, endTime, 3); // Minimum 3 touches
             
-            var supportLevels = new ArrayList<PriceLevel>();
-            var resistanceLevels = new ArrayList<PriceLevel>();
-            
             var chartData = chartDataRepository.findChartData(symbol, timeframe, startTime, endTime);
-            var currentPrice = chartData.isEmpty() ? BigDecimal.ZERO : chartData.get(chartData.size() - 1).getClose();
+            BigDecimal currentPrice = chartData.isEmpty() ? BigDecimal.ZERO : 
+                chartData.get(chartData.size() - 1).getClose();
             
-            for (var level : levels) {
-                var price = (BigDecimal) level[0];
-                var touchCount = ((Number) level[1]).intValue();
-                
-                var priceLevel = PriceLevel.builder()
-                    .price(price)
-                    .touchCount(touchCount)
-                    .strength(calculateLevelStrength(touchCount, price, currentPrice))
-                    .build();
-                
-                if (price.compareTo(currentPrice) < 0) {
-                    supportLevels.add(priceLevel);
-                } else {
-                    resistanceLevels.add(priceLevel);
-                }
-            }
-            
-            // Sort by strength (descending)
-            supportLevels.sort((a, b) -> b.getStrength().compareTo(a.getStrength()));
-            resistanceLevels.sort((a, b) -> b.getStrength().compareTo(a.getStrength()));
-            
-            return SupportResistanceLevels.builder()
-                .symbol(symbol)
-                .timeframe(timeframe)
-                .currentPrice(currentPrice)
-                .supportLevels(supportLevels.stream().limit(5).toList()) // Top 5
-                .resistanceLevels(resistanceLevels.stream().limit(5).toList()) // Top 5
-                .calculatedAt(Instant.now())
-                .build();
+            return processSupportResistanceLevels(levels, currentPrice, symbol, timeframe);
             
         } catch (Exception e) {
             log.error("Error calculating support/resistance levels for symbol: " + symbol, e);
@@ -357,8 +317,45 @@ public class ChartingService {
         }
     }
     
+    private SupportResistanceLevels processSupportResistanceLevels(List<Object[]> levels, 
+            BigDecimal currentPrice, String symbol, ChartData.Timeframe timeframe) {
+        
+        Map<Boolean, List<PriceLevel>> levelsByType = levels.stream()
+            .map(level -> {
+                BigDecimal price = (BigDecimal) level[0];
+                int touchCount = ((Number) level[1]).intValue();
+                
+                return PriceLevel.builder()
+                    .price(price)
+                    .touchCount(touchCount)
+                    .strength(calculateLevelStrength(touchCount, price, currentPrice))
+                    .build();
+            })
+            .collect(Collectors.partitioningBy(priceLevel -> 
+                priceLevel.price().compareTo(currentPrice) < 0));
+        
+        List<PriceLevel> supportLevels = levelsByType.get(true).stream()
+            .sorted((a, b) -> b.strength().compareTo(a.strength()))
+            .limit(5)
+            .toList();
+        
+        List<PriceLevel> resistanceLevels = levelsByType.get(false).stream()
+            .sorted((a, b) -> b.strength().compareTo(a.strength()))
+            .limit(5)
+            .toList();
+        
+        return SupportResistanceLevels.builder()
+            .symbol(symbol)
+            .timeframe(timeframe)
+            .currentPrice(currentPrice)
+            .supportLevels(supportLevels)
+            .resistanceLevels(resistanceLevels)
+            .calculatedAt(Instant.now())
+            .build();
+    }
+    
     /**
-     * Get chart data for multiple symbols (for correlation analysis)
+     * Get chart data for multiple symbols (for correlation analysis) - Functional approach
      */
     public Map<String, List<OHLCVData>> getMultiSymbolData(List<String> symbols, 
             ChartData.Timeframe timeframe, Instant startTime, Instant endTime) {
@@ -367,26 +364,25 @@ public class ChartingService {
         
         try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
             
-            var futures = new HashMap<String, CompletableFuture<List<OHLCVData>>>();
+            Map<String, CompletableFuture<List<OHLCVData>>> futures = symbols.stream()
+                .collect(Collectors.toMap(
+                    Function.identity(),
+                    symbol -> CompletableFuture.supplyAsync(() -> 
+                        getOHLCVData(symbol, timeframe, startTime, endTime))
+                ));
             
-            // Launch parallel requests for each symbol
-            for (var symbol : symbols) {
-                futures.put(symbol, 
-                    CompletableFuture.supplyAsync(() -> getOHLCVData(symbol, timeframe, startTime, endTime)));
-            }
-            
-            // Collect results
-            var results = new HashMap<String, List<OHLCVData>>();
-            for (var entry : futures.entrySet()) {
-                try {
-                    results.put(entry.getKey(), entry.getValue().get());
-                } catch (Exception e) {
-                    log.error("Error getting data for symbol: " + entry.getKey(), e);
-                    results.put(entry.getKey(), Collections.emptyList());
-                }
-            }
-            
-            return results;
+            return futures.entrySet().stream()
+                .collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> {
+                        try {
+                            return entry.getValue().get();
+                        } catch (Exception e) {
+                            log.error("Error getting data for symbol: " + entry.getKey(), e);
+                            return Collections.<OHLCVData>emptyList();
+                        }
+                    }
+                ));
             
         } catch (Exception e) {
             log.error("Error getting multi-symbol data", e);
@@ -395,37 +391,39 @@ public class ChartingService {
     }
     
     /**
-     * Get data quality report
+     * Get data quality report - Functional approach
      */
     public DataQualityReport getDataQualityReport(String symbol) {
         log.debug("Generating data quality report for symbol: {}", symbol);
         
         try {
             var qualityMetrics = chartDataRepository.getDataQualityMetrics(symbol);
-            var timeframeMetrics = new HashMap<ChartData.Timeframe, DataQualityMetric>();
             
-            for (var metric : qualityMetrics) {
-                var timeframe = (ChartData.Timeframe) metric[0];
-                var totalCount = ((Number) metric[1]).longValue();
-                var completeCount = ((Number) metric[2]).longValue();
-                var gapCount = ((Number) metric[3]).longValue();
-                var earliestData = (Instant) metric[4];
-                var latestData = (Instant) metric[5];
-                
-                var completeness = totalCount > 0 ? 
-                    BigDecimal.valueOf(completeCount * 100.0 / totalCount).setScale(2, RoundingMode.HALF_UP) : 
-                    BigDecimal.ZERO;
-                
-                timeframeMetrics.put(timeframe, DataQualityMetric.builder()
-                    .timeframe(timeframe)
-                    .totalDataPoints(totalCount)
-                    .completeDataPoints(completeCount)
-                    .gapCount(gapCount)
-                    .completenessPercent(completeness)
-                    .earliestData(earliestData)
-                    .latestData(latestData)
-                    .build());
-            }
+            Map<ChartData.Timeframe, DataQualityMetric> timeframeMetrics = qualityMetrics.stream()
+                .collect(Collectors.toMap(
+                    metric -> (ChartData.Timeframe) metric[0],
+                    metric -> {
+                        var totalCount = ((Number) metric[1]).longValue();
+                        var completeCount = ((Number) metric[2]).longValue();
+                        var gapCount = ((Number) metric[3]).longValue();
+                        var earliestData = (Instant) metric[4];
+                        var latestData = (Instant) metric[5];
+                        
+                        var completeness = totalCount > 0 ? 
+                            BigDecimal.valueOf(completeCount * 100.0 / totalCount).setScale(2, RoundingMode.HALF_UP) : 
+                            BigDecimal.ZERO;
+                        
+                        return DataQualityMetric.builder()
+                            .timeframe((ChartData.Timeframe) metric[0])
+                            .totalDataPoints(totalCount)
+                            .completeDataPoints(completeCount)
+                            .gapCount(gapCount)
+                            .completenessPercent(completeness)
+                            .earliestData(earliestData)
+                            .latestData(latestData)
+                            .build();
+                    }
+                ));
             
             return DataQualityReport.builder()
                 .symbol(symbol)
@@ -510,16 +508,6 @@ public class ChartingService {
     
     // Private helper methods
     
-    private void addIndicatorPoint(Map<String, List<IndicatorPoint>> indicators, 
-            String name, Instant timestamp, BigDecimal value) {
-        if (value != null) {
-            indicators.get(name).add(IndicatorPoint.builder()
-                .timestamp(timestamp)
-                .value(value)
-                .build());
-        }
-    }
-    
     private boolean isBullishEngulfing(ChartData prev, ChartData current) {
         return prev.isBearish() && current.isBullish() &&
                current.getOpen().compareTo(prev.getClose()) < 0 &&
@@ -575,44 +563,38 @@ public class ChartingService {
         }
         
         var totalScore = metrics.values().stream()
-            .map(DataQualityMetric::getCompletenessPercent)
+            .map(DataQualityMetric::completenessPercent)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         
         return totalScore.divide(BigDecimal.valueOf(metrics.size()), 2, RoundingMode.HALF_UP);
     }
     
     private BigDecimal calculateVolatility(List<ChartData> data) {
-        if (data.size() < 2) {
-            return BigDecimal.ZERO;
-        }
-        
-        var returns = new ArrayList<BigDecimal>();
-        for (int i = 1; i < data.size(); i++) {
-            var prevPrice = data.get(i - 1).getClose();
-            var currentPrice = data.get(i).getClose();
-            
-            if (prevPrice.compareTo(BigDecimal.ZERO) != 0) {
-                var return_ = currentPrice.divide(prevPrice, 6, RoundingMode.HALF_UP)
-                    .subtract(BigDecimal.ONE);
-                returns.add(return_);
-            }
-        }
-        
-        if (returns.isEmpty()) {
-            return BigDecimal.ZERO;
-        }
-        
-        // Calculate standard deviation of returns
-        var mean = returns.stream()
+        return data.size() < 2 ? BigDecimal.ZERO :
+            IntStream.range(1, data.size())
+                .mapToObj(i -> calculateReturn(data.get(i - 1).getClose(), data.get(i).getClose()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                    Collectors.toList(),
+                    returns -> returns.isEmpty() ? BigDecimal.ZERO : computeVolatility(returns)
+                ));
+    }
+    
+    private BigDecimal calculateReturn(BigDecimal prevPrice, BigDecimal currentPrice) {
+        return prevPrice.compareTo(BigDecimal.ZERO) == 0 ? null :
+            currentPrice.divide(prevPrice, 6, RoundingMode.HALF_UP).subtract(BigDecimal.ONE);
+    }
+    
+    private BigDecimal computeVolatility(List<BigDecimal> returns) {
+        BigDecimal mean = returns.stream()
             .reduce(BigDecimal.ZERO, BigDecimal::add)
             .divide(BigDecimal.valueOf(returns.size()), 6, RoundingMode.HALF_UP);
         
-        var variance = returns.stream()
+        BigDecimal variance = returns.stream()
             .map(ret -> ret.subtract(mean).pow(2))
             .reduce(BigDecimal.ZERO, BigDecimal::add)
             .divide(BigDecimal.valueOf(returns.size()), 6, RoundingMode.HALF_UP);
         
-        // Approximate square root for volatility
         return BigDecimal.valueOf(Math.sqrt(variance.doubleValue()) * 100).setScale(4, RoundingMode.HALF_UP);
     }
     

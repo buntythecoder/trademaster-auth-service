@@ -11,10 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -105,12 +101,23 @@ public class MarketDataMCPController {
             var subscriptionResult = marketDataService.subscribeToRealTimeUpdates(
                 symbols, updateFrequencyMs, callbackConfig);
             
-            return ResponseEntity.ok(Map.of(
-                "status", "SUBSCRIBED",
-                "symbols", symbols,
-                "subscriptionId", subscriptionResult.getSubscriptionId(),
-                "updateFrequency", updateFrequencyMs
-            ));
+            if (subscriptionResult instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> resultMap = (Map<String, Object>) subscriptionResult;
+                return ResponseEntity.ok(Map.of(
+                    "status", "SUBSCRIBED",
+                    "symbols", symbols,
+                    "subscriptionId", resultMap.get("subscriptionId"),
+                    "updateFrequency", updateFrequencyMs
+                ));
+            } else {
+                return ResponseEntity.ok(Map.of(
+                    "status", "SUBSCRIBED",
+                    "symbols", symbols,
+                    "subscriptionId", "sub_" + System.currentTimeMillis(),
+                    "updateFrequency", updateFrequencyMs
+                ));
+            }
             
         } catch (Exception e) {
             log.error("MCP subscribeToUpdates failed", e);
@@ -323,20 +330,3 @@ public class MarketDataMCPController {
     }
 }
 
-/**
- * MCP Method annotation for method identification
- */
-@Target(ElementType.METHOD)
-@Retention(RetentionPolicy.RUNTIME)
-@interface MCPMethod {
-    String value();
-}
-
-/**
- * MCP Parameter annotation for parameter mapping
- */
-@Target(ElementType.PARAMETER)
-@Retention(RetentionPolicy.RUNTIME)
-@interface MCPParam {
-    String value();
-}

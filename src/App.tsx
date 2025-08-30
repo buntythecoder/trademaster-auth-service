@@ -8,8 +8,9 @@ import { ProfileDashboard } from './components/profile/ProfileDashboard'
 import { HeroSection } from './components/landing/HeroSection'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { MarketDataDashboard } from './pages/MarketDataDashboard'
-import { TradingInterface } from './pages/TradingInterface'
+import { UnifiedTradingPage } from './pages/UnifiedTradingPage'
 import { MobileTradingInterface } from './pages/MobileTradingInterface'
+import { BehavioralAIDashboardPage } from './pages/BehavioralAIDashboardPage'
 import { PortfolioAnalyticsDashboard } from './pages/PortfolioAnalyticsDashboard'
 import { MultiBrokerInterface } from './components/trading/MultiBrokerInterface'
 import { RiskManagementDashboard } from './components/risk/RiskManagementDashboard'
@@ -164,14 +165,12 @@ function App() {
             }
           />
 
-          {/* Epic 2: Trading Interface Route */}
+          {/* Unified Trading Interface Route */}
           <Route
             path="/trading"
             element={
               <ProtectedRoute>
-                <PageLayout>
-                  <TradingInterface />
-                </PageLayout>
+                <UnifiedTradingPage />
               </ProtectedRoute>
             }
           />
@@ -182,6 +181,16 @@ function App() {
             element={
               <ProtectedRoute>
                 <MobileTradingInterface />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* FRONT-008: Behavioral AI Dashboard Route */}
+          <Route
+            path="/behavioral"
+            element={
+              <ProtectedRoute>
+                <BehavioralAIDashboardPage />
               </ProtectedRoute>
             }
           />

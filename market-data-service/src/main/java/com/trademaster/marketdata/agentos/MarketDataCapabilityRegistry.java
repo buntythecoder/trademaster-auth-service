@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.agentos;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -8,6 +9,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static com.trademaster.marketdata.agentos.AgentConstants.*;
 
 /**
  * Market Data Agent Capability Registry
@@ -88,8 +91,66 @@ public class MarketDataCapabilityRegistry {
     }
     
     /**
+     * Initialize capabilities for the market data agent
+     */
+    public void initializeCapabilities() {
+        log.info("Initializing market data agent capabilities...");
+        
+        // Initialize core capabilities
+        String[] coreCapabilities = {
+            CAPABILITY_REAL_TIME_DATA,
+            CAPABILITY_HISTORICAL_DATA, 
+            CAPABILITY_TECHNICAL_ANALYSIS,
+            CAPABILITY_MARKET_SCANNING,
+            CAPABILITY_PRICE_ALERTS,
+            CAPABILITY_DATA_CACHING,
+            CAPABILITY_SYMBOL_LOOKUP,
+            CAPABILITY_EXCHANGE_INTEGRATION
+        };
+        
+        for (String capability : coreCapabilities) {
+            getOrCreateMetrics(capability);
+            log.debug("Initialized capability: {}", capability);
+        }
+        
+        log.info("Market data agent capabilities initialized successfully");
+    }
+    
+    /**
+     * Get performance summary for all capabilities
+     */
+    public Map<String, String> getPerformanceSummary() {
+        Map<String, String> summary = new ConcurrentHashMap<>();
+        
+        capabilityMetrics.forEach((name, metrics) -> {
+            double healthScore = metrics.calculateHealthScore();
+            long avgExecutionTime = metrics.getAverageExecutionTime();
+            int successCount = metrics.getSuccessCount();
+            int failureCount = metrics.getFailureCount();
+            
+            String performanceInfo = String.format(
+                "Health: %.2f, AvgTime: %dms, Success: %d, Failures: %d",
+                healthScore, avgExecutionTime, successCount, failureCount
+            );
+            
+            summary.put(name, performanceInfo);
+        });
+        
+        return summary;
+    }
+    
+    /**
+     * Reset capability metrics for a specific capability
+     */
+    public void resetCapabilityMetrics(String capabilityName) {
+        capabilityMetrics.remove(capabilityName);
+        log.info("Reset metrics for capability: {}", capabilityName);
+    }
+    
+    /**
      * Capability performance metrics
      */
+    @Getter
     public static class CapabilityMetrics {
         private final String capabilityName;
         private final AtomicInteger successCount = new AtomicInteger(0);
@@ -120,12 +181,12 @@ public class MarketDataCapabilityRegistry {
         }
         
         public double calculateHealthScore() {
-            int total = successCount.get() + failureCount.get();
+            int total = getSuccessCount() + getFailureCount();
             if (total == 0) {
                 return 1.0; // No executions yet, assume healthy
             }
             
-            double successRate = (double) successCount.get() / total;
+            double successRate = (double) getSuccessCount() / total;
             
             // Factor in recent activity (penalize if no recent executions)
             double activityFactor = 1.0;
@@ -145,11 +206,8 @@ public class MarketDataCapabilityRegistry {
             return count > 0 ? totalExecutionTime.get() / count : 0;
         }
         
-        // Getters
-        public String getCapabilityName() { return capabilityName; }
+        // Custom getters for atomic fields (Lombok @Getter doesn't handle these correctly)
         public int getSuccessCount() { return successCount.get(); }
         public int getFailureCount() { return failureCount.get(); }
-        public LocalDateTime getLastExecution() { return lastExecution; }
-        public String getLastError() { return lastError; }
     }
 }

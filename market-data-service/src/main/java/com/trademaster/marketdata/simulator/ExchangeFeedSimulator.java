@@ -67,8 +67,8 @@ public class ExchangeFeedSimulator {
         // Initialize BSE symbols
         initializeBSESymbols();
         
-        // Create virtual thread executor for high-frequency simulation
-        simulatorExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        // Create scheduled virtual thread executor for high-frequency simulation
+        simulatorExecutor = Executors.newScheduledThreadPool(4, Thread.ofVirtual().factory());
         
         log.info("Exchange Feed Simulator initialized with {} NSE and {} BSE symbols",
             nseSymbols.size(), bseSymbols.size());
@@ -130,11 +130,21 @@ public class ExchangeFeedSimulator {
                     scope.throwIfFailed();
                     
                     // Throttle to realistic tick frequency (100-1000 ticks/second)
-                    Thread.sleep(random.nextInt(10) + 1); // 1-10ms between ticks
+                    try {
+                        Thread.sleep(random.nextInt(10) + 1); // 1-10ms between ticks
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                     
                 } catch (Exception e) {
                     log.error("Error in high-frequency simulation: {}", e.getMessage());
-                    Thread.sleep(100); // Backoff on error
+                    try {
+                        Thread.sleep(100); // Backoff on error
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         });

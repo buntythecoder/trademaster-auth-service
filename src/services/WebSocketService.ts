@@ -43,6 +43,7 @@ class WebSocketService extends EventEmitter {
   private isConnecting = false
   private connectionStatus: ConnectionStatus = 'disconnected'
   private config: WebSocketConfig
+  private mockMode = true // Use mock mode by default in development
 
   constructor(config: WebSocketConfig) {
     super()
@@ -51,7 +52,7 @@ class WebSocketService extends EventEmitter {
     this.maxReconnectAttempts = config.maxReconnectAttempts
     this.heartbeatInterval = config.heartbeatInterval
     
-    // Auto-connect
+    // Auto-connect (or simulate connection in mock mode)
     this.connect()
   }
 
@@ -85,6 +86,13 @@ class WebSocketService extends EventEmitter {
   }
 
   private async connect(): Promise<void> {
+    if (this.mockMode) {
+      console.log('WebSocket connected (mock mode)')
+      this.setConnectionStatus('connected')
+      this.simulateMockData()
+      return
+    }
+    
     if (this.isConnecting || this.ws?.readyState === WebSocket.OPEN) {
       return
     }
@@ -106,6 +114,101 @@ class WebSocketService extends EventEmitter {
     } finally {
       this.isConnecting = false
     }
+  }
+
+  private simulateMockData(): void {
+    // Simulate periodic mock data updates for development
+    setTimeout(() => {
+      this.subscribers.forEach((callbacks, channel) => {
+        callbacks.forEach(callback => {
+          // Generate mock data based on channel
+          let mockData;
+          if (channel.includes('portfolio')) {
+            mockData = {
+              type: 'FULL',
+              summary: {
+                userId: 'demo-user',
+                totalValue: 125000 + Math.random() * 10000,
+                totalInvested: 100000,
+                dayPnL: (Math.random() - 0.5) * 5000,
+                dayPnLPercent: (Math.random() - 0.5) * 5,
+                totalPnL: 25000 + Math.random() * 10000,
+                totalPnLPercent: 25 + Math.random() * 5,
+                realizedPnL: 5000,
+                unrealizedPnL: 20000,
+                availableCash: 50000,
+                marginUsed: 30000,
+                marginAvailable: 45000,
+                lastUpdated: new Date(),
+                positionCount: 5,
+                sectors: { 'Technology': 40, 'Healthcare': 30, 'Finance': 30 },
+                assetTypes: { 'EQUITY': 80, 'ETF': 20 }
+              },
+              positions: [
+                {
+                  id: '1',
+                  symbol: 'RELIANCE',
+                  companyName: 'Reliance Industries Ltd',
+                  quantity: 10,
+                  avgPrice: 2500,
+                  currentPrice: 2547 + Math.random() * 100,
+                  marketValue: 25470,
+                  dayChange: Math.random() * 100 - 50,
+                  dayChangePercent: (Math.random() - 0.5) * 5,
+                  totalReturn: 470,
+                  totalReturnPercent: 1.88,
+                  allocation: 20,
+                  sector: 'Energy',
+                  assetType: 'EQUITY',
+                  lastUpdated: new Date(),
+                  unrealizedPnL: 470,
+                  realizedPnL: 0,
+                  pnlPercent: 1.88
+                }
+              ]
+            }
+          } else if (channel.includes('trades')) {
+            mockData = {
+              type: 'NEW',
+              order: {
+                id: `order_${Date.now()}`,
+                symbol: 'RELIANCE',
+                side: Math.random() > 0.5 ? 'BUY' : 'SELL',
+                quantity: 10,
+                price: 2547,
+                type: 'MARKET',
+                status: 'EXECUTED',
+                timestamp: new Date(),
+                executedQuantity: 10,
+                executedPrice: 2547
+              }
+            }
+          }
+          
+          if (mockData) {
+            callback(mockData)
+          }
+        })
+      })
+    }, 1000) // Initial data
+    
+    // Set up periodic updates
+    setInterval(() => {
+      this.subscribers.forEach((callbacks, channel) => {
+        if (channel.includes('portfolio')) {
+          callbacks.forEach(callback => {
+            callback({
+              type: 'PRICE_UPDATE',
+              priceUpdates: {
+                'RELIANCE': 2547 + (Math.random() - 0.5) * 20,
+                'TCS': 3456 + (Math.random() - 0.5) * 30,
+                'HDFC': 1678 + (Math.random() - 0.5) * 15
+              }
+            })
+          })
+        }
+      })
+    }, 5000) // Update every 5 seconds
   }
 
   private setupEventHandlers(): void {
@@ -236,6 +339,11 @@ class WebSocketService extends EventEmitter {
   }
 
   private send(message: OutgoingMessage): void {
+    if (this.mockMode) {
+      console.log('WebSocket message sent (mock mode):', message)
+      return
+    }
+    
     if (this.ws?.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify(message))
@@ -335,6 +443,12 @@ class WebSocketService extends EventEmitter {
   }
 
   public disconnect(): void {
+    if (this.mockMode) {
+      console.log('WebSocket disconnected (mock mode)')
+      this.setConnectionStatus('disconnected')
+      return
+    }
+    
     this.stopHeartbeat()
     
     if (this.ws) {

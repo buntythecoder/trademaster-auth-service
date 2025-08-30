@@ -111,12 +111,15 @@ public class PriceAlert {
     private Priority priority;
     
     @Column
+    @Builder.Default
     private Boolean isTriggered = false;
     
     @Column
+    @Builder.Default
     private Boolean isActive = true;
     
     @Column
+    @Builder.Default
     private Boolean isRecurring = false;
     
     // Timing
@@ -154,22 +157,28 @@ public class PriceAlert {
     private String notificationSettings; // JSON with notification preferences
     
     @Column
+    @Builder.Default
     private Boolean emailSent = false;
     
     @Column
+    @Builder.Default
     private Boolean smsSent = false;
     
     @Column
+    @Builder.Default
     private Boolean pushSent = false;
     
     @Column
+    @Builder.Default
     private Integer notificationAttempts = 0;
     
     // Performance tracking
     @Column
+    @Builder.Default
     private Integer timesTriggered = 0;
     
     @Column
+    @Builder.Default
     private Integer falsePositives = 0;
     
     @Column(precision = 8, scale = 4)

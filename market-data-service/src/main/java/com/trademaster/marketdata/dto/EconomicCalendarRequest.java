@@ -17,7 +17,7 @@ import java.util.Set;
  * @author TradeMaster Development Team
  * @version 1.0.0
  */
-@Builder
+@Builder(toBuilder = true)
 public record EconomicCalendarRequest(
     
     // Date filtering

@@ -21,8 +21,20 @@ public record MarketDataRequest(
     String dataType,
     LocalDateTime from,
     LocalDateTime to,
-    String exchange
+    String exchange,
+    Priority priority
 ) {
+    
+    public enum Priority {
+        REAL_TIME, HIGH, NORMAL, LOW
+    }
+    
+    public MarketDataRequest(Long requestId, List<String> symbols, String timeframe, 
+                           boolean includeIndicators, Object scanCriteria, String dataType,
+                           LocalDateTime from, LocalDateTime to, String exchange) {
+        this(requestId, symbols, timeframe, includeIndicators, scanCriteria, dataType, 
+             from, to, exchange, Priority.NORMAL);
+    }
     public MarketDataRequest {
         // Validation for AgentOS compatibility
         if (symbols == null || symbols.isEmpty()) {
@@ -31,6 +43,14 @@ public record MarketDataRequest(
         if (requestId == null) {
             throw new IllegalArgumentException("Request ID cannot be null");
         }
+    }
+    
+    /**
+     * Convenience method to get the first symbol for backward compatibility
+     * @return the first symbol or null if no symbols
+     */
+    public String symbol() {
+        return symbols != null && !symbols.isEmpty() ? symbols.get(0) : null;
     }
     
     public static MarketDataRequestBuilder builder() {
@@ -47,6 +67,7 @@ public record MarketDataRequest(
         private LocalDateTime from;
         private LocalDateTime to;
         private String exchange;
+        private Priority priority = Priority.NORMAL;
         
         public MarketDataRequestBuilder requestId(Long requestId) {
             this.requestId = requestId;
@@ -93,9 +114,14 @@ public record MarketDataRequest(
             return this;
         }
         
+        public MarketDataRequestBuilder priority(Priority priority) {
+            this.priority = priority;
+            return this;
+        }
+        
         public MarketDataRequest build() {
             return new MarketDataRequest(requestId, symbols, timeframe, includeIndicators, 
-                                       scanCriteria, dataType, from, to, exchange);
+                                       scanCriteria, dataType, from, to, exchange, priority);
         }
     }
 }

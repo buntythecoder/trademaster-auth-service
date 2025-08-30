@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.dto;
 
+import com.trademaster.marketdata.constants.ResponseMessages;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -23,7 +24,7 @@ import java.util.Set;
 public record MarketScannerRequest(
     
     // Basic Filters
-    @NotEmpty(message = "At least one exchange must be specified")
+    @NotEmpty(message = ResponseMessages.EXCHANGE_REQUIRED)
     Set<String> exchanges,
     
     Set<String> sectors,
@@ -95,7 +96,7 @@ public record MarketScannerRequest(
     Boolean priceBreakout,
     
     // Sorting and Pagination
-    @NotNull(message = "Sort field is required")
+    @NotNull(message = ResponseMessages.SORT_FIELD_REQUIRED)
     String sortBy,
     
     @NotNull(message = "Sort direction is required") 

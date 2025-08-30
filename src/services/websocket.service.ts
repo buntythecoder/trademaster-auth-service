@@ -106,15 +106,31 @@ export class WebSocketService extends EventEmitter {
   private connectionTimeout: NodeJS.Timeout | null = null
   private isIntentionalClose = false
   private subscriptions = new Set<string>()
+  private mockMode = true // Use mock mode by default in development
   
   constructor(url: string = 'ws://localhost:8080/ws') {
     super()
     this.url = url
+    // For development, we'll use mock mode by default
+    // Real WebSocket connections should be explicitly enabled
   }
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // In mock mode, simulate connection without real WebSocket
+        if (this.mockMode) {
+          console.log('WebSocket connected (mock mode)')
+          this.emit('connection', { status: 'CONNECTED', timestamp: new Date() })
+          notificationService.addSystemNotification('Connected to mock trading data', 'low')
+          
+          // Start mock data generation
+          MockDataGenerator.startMockStream(this)
+          
+          resolve()
+          return
+        }
+        
         this.ws = new WebSocket(this.url)
         
         this.ws.onopen = () => {
@@ -178,6 +194,12 @@ export class WebSocketService extends EventEmitter {
     this.isIntentionalClose = true
     this.stopHeartbeat()
     this.clearConnectionTimeout()
+    
+    if (this.mockMode) {
+      console.log('WebSocket disconnected (mock mode)')
+      this.emit('connection', { status: 'DISCONNECTED', timestamp: new Date() })
+      return
+    }
     
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect')
@@ -251,6 +273,11 @@ export class WebSocketService extends EventEmitter {
   }
 
   private send(data: any): void {
+    if (this.mockMode) {
+      console.log('WebSocket send (mock mode):', data)
+      return
+    }
+    
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
     }
@@ -260,6 +287,20 @@ export class WebSocketService extends EventEmitter {
   subscribeToSymbol(symbol: string): void {
     this.subscriptions.add(symbol)
     this.send({ type: 'SUBSCRIBE', symbol })
+  }
+  
+  // Mock mode control
+  setMockMode(enabled: boolean): void {
+    this.mockMode = enabled
+    if (enabled) {
+      console.log('WebSocket service switched to mock mode')
+    } else {
+      console.log('WebSocket service switched to real mode')
+    }
+  }
+  
+  isMockMode(): boolean {
+    return this.mockMode
   }
 
   unsubscribeFromSymbol(symbol: string): void {
@@ -280,6 +321,10 @@ export class WebSocketService extends EventEmitter {
   }
 
   getConnectionStatus(): 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' {
+    if (this.mockMode) {
+      return 'CONNECTED' // Always connected in mock mode
+    }
+    
     if (!this.ws) return 'DISCONNECTED'
     
     switch (this.ws.readyState) {
@@ -293,6 +338,9 @@ export class WebSocketService extends EventEmitter {
   }
 
   isConnected(): boolean {
+    if (this.mockMode) {
+      return true // Always connected in mock mode
+    }
     return this.ws?.readyState === WebSocket.OPEN
   }
 
@@ -374,9 +422,13 @@ export class MockDataGenerator {
   }
 
   static startMockStream(wsService: WebSocketService): void {
+    // Add some default symbols if none are subscribed
+    const defaultSymbols = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK']
+    defaultSymbols.forEach(symbol => wsService.subscribeToSymbol(symbol))
+    
     // Simulate market data updates every 1-3 seconds
     setInterval(() => {
-      if (wsService.isConnected()) {
+      if (wsService.isMockMode()) {
         const symbols = wsService.getSubscriptions()
         if (symbols.length > 0) {
           const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)]
@@ -388,7 +440,7 @@ export class MockDataGenerator {
 
     // Simulate portfolio updates every 10-30 seconds
     setInterval(() => {
-      if (wsService.isConnected()) {
+      if (wsService.isMockMode()) {
         const portfolioUpdate = this.generatePortfolioUpdate()
         wsService.emit('portfolioUpdate', portfolioUpdate)
       }
@@ -396,7 +448,7 @@ export class MockDataGenerator {
 
     // Simulate occasional order updates
     setInterval(() => {
-      if (wsService.isConnected() && Math.random() > 0.8) {
+      if (wsService.isMockMode() && Math.random() > 0.8) {
         const orderStatuses = ['filled', 'cancelled', 'partially_filled', 'pending']
         const symbols = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ITC']
         const sides = ['BUY', 'SELL']
@@ -419,7 +471,7 @@ export class MockDataGenerator {
 
     // Simulate occasional price alerts
     setInterval(() => {
-      if (wsService.isConnected() && Math.random() > 0.7) {
+      if (wsService.isMockMode() && Math.random() > 0.7) {
         const symbols = wsService.getSubscriptions()
         if (symbols.length > 0) {
           const randomSymbol = symbols[Math.floor(Math.random() * symbols.length)]
@@ -442,9 +494,9 @@ export class MockDataGenerator {
           notificationService.addNotification({
             type: 'price_alert',
             title: 'Price Alert Triggered',
-            message: `${alert.symbol} price alert: ₹${alert.price.toFixed(2)} (${alert.change >= 0 ? '+' : ''}${alert.changePercent.toFixed(2)}%)`,
+            message: `${alert.symbol} price alert: ₹${alert.currentPrice.toFixed(2)} crossed ₹${alert.targetPrice.toFixed(2)}`,
             read: false,
-            priority: Math.abs(alert.changePercent) > 3 ? 'high' : 'medium',
+            priority: 'medium',
             category: 'Alerts',
             data: alert
           })

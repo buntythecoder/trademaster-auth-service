@@ -14,6 +14,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.function.Supplier;
 
+import static com.trademaster.marketdata.agentos.AgentConstants.*;
+
 /**
  * AgentOS Market Data Agent
  * 
@@ -49,33 +51,33 @@ public class MarketDataAgent implements AgentOSComponent {
     public CompletableFuture<MarketDataResponse> handleDataRequest(
             MarketDataRequest request) {
         
-        log.info("Processing market data request for symbols: {}", request.getSymbols());
+        log.info("Processing market data request for symbols: {}", request.symbols());
         
         return executeCoordinatedDataProcessing(
-            request.getRequestId(),
-            List.of(
-                () -> fetchRealTimeData(request.getSymbols()),
-                () -> fetchHistoricalData(request.getSymbols(), request.getTimeframe()),
-                () -> calculateTechnicalIndicators(request.getSymbols()),
-                () -> performMarketScanning(request.getScanCriteria())
+            request.requestId(),
+            List.<Supplier<String>>of(
+                () -> fetchRealTimeData(request.symbols()),
+                () -> fetchHistoricalData(request.symbols(), request.timeframe()),
+                () -> calculateTechnicalIndicators(request.symbols()),
+                () -> performMarketScanning(request.scanCriteria()).toString()
             ),
-            Duration.ofSeconds(10)
+            Duration.ofMillis(DEFAULT_OPERATION_TIMEOUT_MS)
         );
     }
     
     /**
      * Real-time data streaming capability with high proficiency
      */
-    @AgentCapability(name = "REAL_TIME_DATA", proficiency = "EXPERT")
+    @AgentCapability(name = CAPABILITY_REAL_TIME_DATA, proficiency = PROFICIENCY_EXPERT)
     public CompletableFuture<String> provideRealTimeData(List<String> symbols) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                var realTimeData = marketDataService.getRealTimeData(symbols);
-                capabilityRegistry.recordSuccessfulExecution("REAL_TIME_DATA");
+                marketDataService.getRealTimeData(symbols);
+                capabilityRegistry.recordSuccessfulExecution(CAPABILITY_REAL_TIME_DATA);
                 return "Real-time data streaming active for " + symbols.size() + " symbols";
             } catch (Exception e) {
                 log.error("Failed to provide real-time data", e);
-                capabilityRegistry.recordFailedExecution("REAL_TIME_DATA", e);
+                capabilityRegistry.recordFailedExecution(CAPABILITY_REAL_TIME_DATA, e);
                 throw new RuntimeException("Real-time data provision failed", e);
             }
         });
@@ -84,20 +86,20 @@ public class MarketDataAgent implements AgentOSComponent {
     /**
      * Historical data retrieval capability
      */
-    @AgentCapability(name = "HISTORICAL_DATA", proficiency = "EXPERT")
+    @AgentCapability(name = CAPABILITY_HISTORICAL_DATA, proficiency = PROFICIENCY_EXPERT)
     public CompletableFuture<String> provideHistoricalData(
             List<String> symbols, 
             String timeframe) {
         
         return CompletableFuture.supplyAsync(() -> {
             try {
-                var historicalData = marketDataService.getHistoricalData(symbols, timeframe);
-                capabilityRegistry.recordSuccessfulExecution("HISTORICAL_DATA");
+                marketDataService.getHistoricalData(symbols, timeframe);
+                capabilityRegistry.recordSuccessfulExecution(CAPABILITY_HISTORICAL_DATA);
                 return String.format("Historical data retrieved for %d symbols with %s timeframe", 
                                    symbols.size(), timeframe);
             } catch (Exception e) {
                 log.error("Failed to provide historical data", e);
-                capabilityRegistry.recordFailedExecution("HISTORICAL_DATA", e);
+                capabilityRegistry.recordFailedExecution(CAPABILITY_HISTORICAL_DATA, e);
                 throw new RuntimeException("Historical data provision failed", e);
             }
         });
@@ -106,20 +108,20 @@ public class MarketDataAgent implements AgentOSComponent {
     /**
      * Technical analysis capability with indicator calculations
      */
-    @AgentCapability(name = "TECHNICAL_ANALYSIS", proficiency = "ADVANCED")
+    @AgentCapability(name = CAPABILITY_TECHNICAL_ANALYSIS, proficiency = PROFICIENCY_ADVANCED)
     public CompletableFuture<String> provideTechnicalAnalysis(
             List<String> symbols,
             List<String> indicators) {
         
         return CompletableFuture.supplyAsync(() -> {
             try {
-                var analysis = technicalAnalysisService.calculateIndicators(symbols, indicators);
-                capabilityRegistry.recordSuccessfulExecution("TECHNICAL_ANALYSIS");
+                technicalAnalysisService.calculateIndicators(symbols, indicators);
+                capabilityRegistry.recordSuccessfulExecution(CAPABILITY_TECHNICAL_ANALYSIS);
                 return String.format("Technical analysis completed for %d symbols with %d indicators", 
                                    symbols.size(), indicators.size());
             } catch (Exception e) {
                 log.error("Failed to provide technical analysis", e);
-                capabilityRegistry.recordFailedExecution("TECHNICAL_ANALYSIS", e);
+                capabilityRegistry.recordFailedExecution(CAPABILITY_TECHNICAL_ANALYSIS, e);
                 throw new RuntimeException("Technical analysis failed", e);
             }
         });
@@ -180,8 +182,8 @@ public class MarketDataAgent implements AgentOSComponent {
                     .map(operation -> scope.fork(operation::get))
                     .toList();
                 
-                // Join with timeout and handle failures
-                scope.join(timeout);
+                // Join and handle failures (StructuredTaskScope.join() doesn't accept timeout in Java 24)
+                scope.join();
                 scope.throwIfFailed();
                 
                 // Collect results
@@ -257,22 +259,22 @@ public class MarketDataAgent implements AgentOSComponent {
     
     @Override
     public String getAgentId() {
-        return "market-data-agent";
+        return AGENT_ID;
     }
     
     @Override
     public String getAgentType() {
-        return "MARKET_DATA";
+        return AGENT_TYPE;
     }
     
     @Override
     public List<String> getCapabilities() {
         return List.of(
-            "REAL_TIME_DATA",
-            "HISTORICAL_DATA", 
-            "TECHNICAL_ANALYSIS",
-            "MARKET_SCANNING",
-            "PRICE_ALERTS"
+            CAPABILITY_REAL_TIME_DATA,
+            CAPABILITY_HISTORICAL_DATA, 
+            CAPABILITY_TECHNICAL_ANALYSIS,
+            CAPABILITY_MARKET_SCANNING,
+            CAPABILITY_PRICE_ALERTS
         );
     }
     
