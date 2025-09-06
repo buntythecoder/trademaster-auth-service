@@ -1,0 +1,156 @@
+# Prometheus Configuration for TradeMaster Platform
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'trademaster-local'
+    environment: 'development'
+
+# Rule files
+rule_files:
+  - "alert_rules.yml"
+  - "trading_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 5s
+    metrics_path: /metrics
+
+  # Agent Orchestration Service
+  - job_name: 'agent-orchestration-service'
+    static_configs:
+      - targets: ['agent-orchestration-service:8090']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Trading Service
+  - job_name: 'trading-service'
+    static_configs:
+      - targets: ['trading-service:8081']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 5s  # High frequency for trading metrics
+    scrape_timeout: 3s
+
+  # Portfolio Service
+  - job_name: 'portfolio-service'
+    static_configs:
+      - targets: ['portfolio-service:8083']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Market Data Service
+  - job_name: 'market-data-service'
+    static_configs:
+      - targets: ['market-data-service:8082']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 5s  # High frequency for market data
+    scrape_timeout: 3s
+
+  # User Profile Service
+  - job_name: 'user-profile-service'
+    static_configs:
+      - targets: ['user-profile-service:8085']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # Payment Service
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:8086']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s  # Important for payment monitoring
+    scrape_timeout: 5s
+
+  # Subscription Service
+  - job_name: 'subscription-service'
+    static_configs:
+      - targets: ['subscription-service:8087']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # Broker Auth Service
+  - job_name: 'broker-auth-service'
+    static_configs:
+      - targets: ['broker-auth-service:8088']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 10s  # Important for auth monitoring
+    scrape_timeout: 5s
+
+  # Notification Service
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:8084']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # Infrastructure Services
+  - job_name: 'kong-gateway'
+    static_configs:
+      - targets: ['kong:8001']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 15s
+
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 15s
+
+  # Eureka Service Discovery
+  - job_name: 'eureka-server'
+    static_configs:
+      - targets: ['eureka-server:8761']
+    metrics_path: /actuator/prometheus
+    scrape_interval: 30s
+
+  # Node Exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # JVM metrics from all services
+  - job_name: 'jvm-metrics'
+    static_configs:
+      - targets: 
+        - 'agent-orchestration-service:8090'
+        - 'trading-service:8081'
+        - 'portfolio-service:8083'
+        - 'market-data-service:8082'
+        - 'user-profile-service:8085'
+        - 'payment-service:8086'
+        - 'subscription-service:8087'
+        - 'broker-auth-service:8088'
+        - 'notification-service:8084'
+    metrics_path: /actuator/prometheus
+    scrape_interval: 30s
+    params:
+      format: [prometheus]
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Remote write configuration for long-term storage (optional)
+# remote_write:
+#   - url: "http://cortex:9009/api/prom/push"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       max_shards: 200
+#       capacity: 2500

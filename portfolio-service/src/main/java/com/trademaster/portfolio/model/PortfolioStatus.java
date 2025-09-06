@@ -17,7 +17,7 @@ public enum PortfolioStatus {
      * - Real-time updates enabled
      * - Full access to analytics and reporting
      */
-    ACTIVE("active"),
+    ACTIVE("ACTIVE"),
     
     /**
      * Portfolio is temporarily suspended
@@ -25,7 +25,7 @@ public enum PortfolioStatus {
      * - View-only access permitted
      * - Analytics and reporting available
      */
-    SUSPENDED("suspended"),
+    SUSPENDED("SUSPENDED"),
     
     /**
      * Portfolio is frozen due to risk violations
@@ -33,7 +33,7 @@ public enum PortfolioStatus {
      * - Emergency risk management activated
      * - Administrative oversight required
      */
-    FROZEN("frozen"),
+    FROZEN("FROZEN"),
     
     /**
      * Portfolio is closed and archived
@@ -41,7 +41,7 @@ public enum PortfolioStatus {
      * - Historical data preserved for reporting
      * - Read-only access for compliance
      */
-    CLOSED("closed"),
+    CLOSED("CLOSED"),
     
     /**
      * Portfolio is being liquidated
@@ -49,7 +49,7 @@ public enum PortfolioStatus {
      * - Automatic position closure in progress
      * - Risk management monitoring active
      */
-    LIQUIDATING("liquidating");
+    LIQUIDATING("LIQUIDATING");
     
     private final String value;
     

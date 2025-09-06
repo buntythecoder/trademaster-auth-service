@@ -1,0 +1,1 @@
+export { default as InstitutionalActivityInterface } from './InstitutionalActivityInterface/InstitutionalActivityInterface';

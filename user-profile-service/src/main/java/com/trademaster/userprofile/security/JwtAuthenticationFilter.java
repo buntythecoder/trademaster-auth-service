@@ -102,10 +102,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private boolean validateToken(String token) {
         try {
             SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
-            Jwts.parserBuilder()
-                .setSigningKey(key)
+            Jwts.parser()
+                .verifyWith(key)
                 .build()
-                .parseClaimsJws(token);
+                .parseSignedClaims(token);
             return true;
         } catch (JwtException e) {
             log.debug("JWT validation failed: {}", e.getMessage());
@@ -115,11 +115,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     
     private Claims getClaimsFromToken(String token) {
         SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
-        return Jwts.parserBuilder()
-            .setSigningKey(key)
+        return Jwts.parser()
+            .verifyWith(key)
             .build()
-            .parseClaimsJws(token)
-            .getBody();
+            .parseSignedClaims(token)
+            .getPayload();
     }
     
     @SuppressWarnings("unchecked")

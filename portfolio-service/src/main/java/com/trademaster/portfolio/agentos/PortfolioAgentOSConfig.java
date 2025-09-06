@@ -1,8 +1,10 @@
 package com.trademaster.portfolio.agentos;
 
+import com.trademaster.portfolio.config.AgentOSProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
@@ -33,11 +35,13 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 @Configuration
 @EnableScheduling
+@EnableConfigurationProperties(AgentOSProperties.class)
 @RequiredArgsConstructor
 public class PortfolioAgentOSConfig {
     
     private final PortfolioAgent portfolioAgent;
     private final PortfolioCapabilityRegistry capabilityRegistry;
+    private final AgentOSProperties agentOSProperties;
     
     /**
      * Initializes AgentOS integration on application startup
@@ -89,7 +93,7 @@ public class PortfolioAgentOSConfig {
     /**
      * Schedules periodic health checks and performance reporting
      */
-    @Scheduled(fixedRate = 30000) // Every 30 seconds
+    @Scheduled(fixedRateString = "#{${agentos.agent.health.check-interval-seconds:30} * 1000}")
     @Async
     public void performScheduledHealthCheck() {
         try {
@@ -101,7 +105,7 @@ public class PortfolioAgentOSConfig {
             log.debug("Portfolio Agent health check completed - Score: {}", healthScore);
             
             // Alert if health score is low
-            if (healthScore < 0.7) {
+            if (healthScore < agentOSProperties.getAgent().getHealth().getMinHealthScore()) {
                 log.warn("Portfolio Agent health score is low: {} - investigating capabilities", healthScore);
                 logCapabilityHealth();
             }
@@ -114,7 +118,7 @@ public class PortfolioAgentOSConfig {
     /**
      * Reports performance metrics to orchestration service
      */
-    @Scheduled(fixedRate = 60000) // Every 60 seconds
+    @Scheduled(fixedRateString = "#{${agentos.agent.health.performance-reporting-interval-seconds:60} * 1000}")
     @Async
     public void reportPerformanceMetrics() {
         try {
@@ -132,7 +136,7 @@ public class PortfolioAgentOSConfig {
     /**
      * Performs capability health monitoring and optimization
      */
-    @Scheduled(fixedRate = 120000) // Every 2 minutes
+    @Scheduled(fixedRateString = "#{${agentos.agent.health.capability-monitoring-interval-seconds:120} * 1000}")
     @Async
     public void monitorCapabilityHealth() {
         try {

@@ -394,22 +394,22 @@ public class ExecutionReport {
      * Get report summary for dashboard
      */
     public Map<String, Object> getReportSummary() {
-        return Map.of(
-            "reportId", reportId != null ? reportId : "N/A",
-            "reportType", reportType != null ? reportType : "UNKNOWN",
-            "overallGrade", getOverallGrade(),
-            "totalOrders", summary != null && summary.getTotalOrders() != null ? 
-                         summary.getTotalOrders() : 0,
-            "overallFillRate", summary != null && summary.getOverallFillRate() != null ? 
-                              summary.getOverallFillRate() : BigDecimal.ZERO,
-            "executionQuality", summary != null && summary.getExecutionQuality() != null ? 
-                               summary.getExecutionQuality() : "UNKNOWN",
-            "bestVenue", getBestVenue(),
-            "totalSavings", getTotalCostSavings(),
-            "isImproving", isPerformanceImproving(),
-            "highPriorityRecommendations", getHighPriorityRecommendations().size(),
-            "generatedAt", generatedAt != null ? generatedAt : Instant.EPOCH
-        );
+        Map<String, Object> summary = new java.util.HashMap<>();
+        summary.put("reportId", reportId != null ? reportId : "N/A");
+        summary.put("reportType", reportType != null ? reportType : "UNKNOWN");
+        summary.put("overallGrade", getOverallGrade());
+        summary.put("totalOrders", this.summary != null && this.summary.getTotalOrders() != null ? 
+                   this.summary.getTotalOrders() : 0);
+        summary.put("overallFillRate", this.summary != null && this.summary.getOverallFillRate() != null ? 
+                    this.summary.getOverallFillRate() : BigDecimal.ZERO);
+        summary.put("executionQuality", this.summary != null && this.summary.getExecutionQuality() != null ? 
+                   this.summary.getExecutionQuality() : "UNKNOWN");
+        summary.put("bestVenue", getBestVenue());
+        summary.put("totalSavings", getTotalCostSavings());
+        summary.put("isImproving", isPerformanceImproving());
+        summary.put("highPriorityRecommendations", getHighPriorityRecommendations().size());
+        summary.put("generatedAt", generatedAt != null ? generatedAt : Instant.EPOCH);
+        return java.util.Collections.unmodifiableMap(summary);
     }
     
     /**

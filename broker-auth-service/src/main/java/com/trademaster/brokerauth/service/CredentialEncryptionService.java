@@ -1,6 +1,6 @@
 package com.trademaster.brokerauth.service;
 
-import com.trademaster.brokerauth.exception.CredentialManagementException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -11,198 +11,198 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 /**
  * Credential Encryption Service
  * 
- * Provides secure encryption and decryption of sensitive broker credentials
- * using AES-256-GCM encryption for maximum security.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: AES-256-GCM encryption for all sensitive data - Rule #23
+ * MANDATORY: Virtual Threads for performance - Rule #12
+ * MANDATORY: Functional error handling - Rule #11
  */
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class CredentialEncryptionService {
     
-    private static final String ALGORITHM = "AES";
-    private static final String TRANSFORMATION = "AES/GCM/NoPadding";
+    private static final String ENCRYPTION_ALGORITHM = "AES";
+    private static final String CIPHER_TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int GCM_IV_LENGTH = 12; // 96 bits
     private static final int GCM_TAG_LENGTH = 16; // 128 bits
     
-    private final SecretKey masterKey;
-    private final SecureRandom secureRandom;
+    @Value("${broker.encryption.master-key:}")
+    private String masterKeyBase64;
     
-    public CredentialEncryptionService(@Value("${broker.auth.encryption.key}") String masterKeyString) {
-        this.secureRandom = new SecureRandom();
-        this.masterKey = createMasterKey(masterKeyString);
-        
-        log.info("Credential encryption service initialized with AES-256-GCM");
+    /**
+     * Encrypt sensitive credential data
+     * 
+     * MANDATORY: Result type for error handling - Rule #11
+     * MANDATORY: Virtual Threads - Rule #12
+     */
+    public CompletableFuture<Optional<String>> encryptCredential(String plainText) {
+        return CompletableFuture
+            .supplyAsync(() -> performEncryption(plainText), 
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleEncryptionResult);
     }
     
     /**
-     * Encrypt sensitive data
+     * Decrypt sensitive credential data
+     * 
+     * MANDATORY: Result type for error handling - Rule #11
+     * MANDATORY: Virtual Threads - Rule #12
      */
-    public String encrypt(String plaintext) {
-        if (plaintext == null || plaintext.isEmpty()) {
-            return null;
+    public CompletableFuture<Optional<String>> decryptCredential(String encryptedText) {
+        return CompletableFuture
+            .supplyAsync(() -> performDecryption(encryptedText),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleDecryptionResult);
+    }
+    
+    /**
+     * Generate new encryption key for testing/setup
+     * 
+     * MANDATORY: Secure key generation - Rule #23
+     */
+    public String generateNewEncryptionKey() {
+        try {
+            KeyGenerator keyGenerator = KeyGenerator.getInstance(ENCRYPTION_ALGORITHM);
+            keyGenerator.init(256); // AES-256
+            SecretKey key = keyGenerator.generateKey();
+            return Base64.getEncoder().encodeToString(key.getEncoded());
+        } catch (Exception e) {
+            log.error("Failed to generate encryption key", e);
+            throw new RuntimeException("Key generation failed", e);
         }
-        
+    }
+    
+    /**
+     * Perform actual encryption operation
+     * 
+     * MANDATORY: Pattern matching - Rule #14
+     * MANDATORY: No if-else - Rule #3
+     */
+    private String performEncryption(String plainText) {
+        return switch (validateEncryptionInputs(plainText)) {
+            case VALID -> executeEncryption(plainText);
+            case EMPTY_PLAIN_TEXT -> throw new IllegalArgumentException("Plain text cannot be empty");
+            case NO_MASTER_KEY -> throw new IllegalStateException("Master key not configured");
+            case EMPTY_ENCRYPTED_TEXT -> throw new IllegalArgumentException("Invalid validation state");
+        };
+    }
+    
+    private String performDecryption(String encryptedText) {
+        return switch (validateDecryptionInputs(encryptedText)) {
+            case VALID -> executeDecryption(encryptedText);
+            case EMPTY_ENCRYPTED_TEXT -> throw new IllegalArgumentException("Encrypted text cannot be empty");
+            case NO_MASTER_KEY -> throw new IllegalStateException("Master key not configured");
+            case EMPTY_PLAIN_TEXT -> throw new IllegalArgumentException("Invalid validation state");
+        };
+    }
+    
+    private String executeEncryption(String plainText) {
         try {
             // Generate random IV
             byte[] iv = new byte[GCM_IV_LENGTH];
-            secureRandom.nextBytes(iv);
+            new SecureRandom().nextBytes(iv);
             
             // Initialize cipher
-            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            cipher.init(Cipher.ENCRYPT_MODE, masterKey, parameterSpec);
+            Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
+            SecretKeySpec keySpec = new SecretKeySpec(
+                Base64.getDecoder().decode(masterKeyBase64), ENCRYPTION_ALGORITHM);
+            GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
             
-            // Encrypt data
-            byte[] encryptedData = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec);
+            
+            // Encrypt the data
+            byte[] encryptedData = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             
             // Combine IV + encrypted data
             byte[] encryptedWithIv = new byte[GCM_IV_LENGTH + encryptedData.length];
             System.arraycopy(iv, 0, encryptedWithIv, 0, GCM_IV_LENGTH);
             System.arraycopy(encryptedData, 0, encryptedWithIv, GCM_IV_LENGTH, encryptedData.length);
             
-            // Encode to Base64
             return Base64.getEncoder().encodeToString(encryptedWithIv);
             
         } catch (Exception e) {
-            log.error("Failed to encrypt credential", e);
-            throw new CredentialManagementException("Encryption failed: " + e.getMessage(), "ENCRYPTION_FAILURE");
+            log.error("Encryption failed", e);
+            throw new RuntimeException("Encryption operation failed", e);
         }
     }
     
-    /**
-     * Decrypt sensitive data
-     */
-    public String decrypt(String encryptedData) {
-        if (encryptedData == null || encryptedData.isEmpty()) {
-            return null;
-        }
-        
+    private String executeDecryption(String encryptedText) {
         try {
-            // Decode from Base64
-            byte[] encryptedWithIv = Base64.getDecoder().decode(encryptedData);
+            byte[] encryptedWithIv = Base64.getDecoder().decode(encryptedText);
             
             // Extract IV and encrypted data
             byte[] iv = new byte[GCM_IV_LENGTH];
-            byte[] encrypted = new byte[encryptedWithIv.length - GCM_IV_LENGTH];
+            byte[] encryptedData = new byte[encryptedWithIv.length - GCM_IV_LENGTH];
+            
             System.arraycopy(encryptedWithIv, 0, iv, 0, GCM_IV_LENGTH);
-            System.arraycopy(encryptedWithIv, GCM_IV_LENGTH, encrypted, 0, encrypted.length);
+            System.arraycopy(encryptedWithIv, GCM_IV_LENGTH, encryptedData, 0, encryptedData.length);
             
-            // Initialize cipher
-            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            cipher.init(Cipher.DECRYPT_MODE, masterKey, parameterSpec);
+            // Initialize cipher for decryption
+            Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
+            SecretKeySpec keySpec = new SecretKeySpec(
+                Base64.getDecoder().decode(masterKeyBase64), ENCRYPTION_ALGORITHM);
+            GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
             
-            // Decrypt data
-            byte[] decryptedData = cipher.doFinal(encrypted);
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec);
             
+            // Decrypt the data
+            byte[] decryptedData = cipher.doFinal(encryptedData);
             return new String(decryptedData, StandardCharsets.UTF_8);
             
         } catch (Exception e) {
-            log.error("Failed to decrypt credential", e);
-            throw new CredentialManagementException("Decryption failed: " + e.getMessage(), "DECRYPTION_FAILURE");
+            log.error("Decryption failed", e);
+            throw new RuntimeException("Decryption operation failed", e);
         }
     }
     
-    /**
-     * Check if data is encrypted (Base64 encoded)
-     */
-    public boolean isEncrypted(String data) {
-        if (data == null || data.isEmpty()) {
-            return false;
+    private ValidationResult validateEncryptionInputs(String plainText) {
+        if (plainText == null || plainText.trim().isEmpty()) {
+            return ValidationResult.EMPTY_PLAIN_TEXT;
         }
-        
-        try {
-            Base64.getDecoder().decode(data);
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
+        if (masterKeyBase64 == null || masterKeyBase64.trim().isEmpty()) {
+            return ValidationResult.NO_MASTER_KEY;
         }
+        return ValidationResult.VALID;
     }
     
-    /**
-     * Generate a secure random key for new installations
-     */
-    public static String generateMasterKey() {
-        try {
-            KeyGenerator keyGenerator = KeyGenerator.getInstance(ALGORITHM);
-            keyGenerator.init(256); // AES-256
-            SecretKey secretKey = keyGenerator.generateKey();
-            return Base64.getEncoder().encodeToString(secretKey.getEncoded());
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("Failed to generate master key", e);
+    private ValidationResult validateDecryptionInputs(String encryptedText) {
+        if (encryptedText == null || encryptedText.trim().isEmpty()) {
+            return ValidationResult.EMPTY_ENCRYPTED_TEXT;
         }
+        if (masterKeyBase64 == null || masterKeyBase64.trim().isEmpty()) {
+            return ValidationResult.NO_MASTER_KEY;
+        }
+        return ValidationResult.VALID;
     }
     
-    /**
-     * Create master key from string
-     */
-    private SecretKey createMasterKey(String masterKeyString) {
-        try {
-            byte[] keyBytes;
-            
-            if (masterKeyString == null || masterKeyString.trim().isEmpty()) {
-                throw new CredentialManagementException("Master encryption key is required", "KEY_MISSING");
-            } else {
-                // Decode from Base64 or create from string
-                try {
-                    keyBytes = Base64.getDecoder().decode(masterKeyString);
-                } catch (IllegalArgumentException e) {
-                    // If not Base64, use SHA-256 hash of the string
-                    keyBytes = java.security.MessageDigest.getInstance("SHA-256")
-                            .digest(masterKeyString.getBytes(StandardCharsets.UTF_8));
-                }
-            }
-            
-            // Ensure key is exactly 32 bytes (256 bits)
-            if (keyBytes.length != 32) {
-                byte[] normalizedKey = new byte[32];
-                if (keyBytes.length > 32) {
-                    System.arraycopy(keyBytes, 0, normalizedKey, 0, 32);
-                } else {
-                    System.arraycopy(keyBytes, 0, normalizedKey, 0, keyBytes.length);
-                    // Fill remaining bytes with zeros (not ideal but functional)
-                }
-                keyBytes = normalizedKey;
-            }
-            
-            return new SecretKeySpec(keyBytes, ALGORITHM);
-            
-        } catch (Exception e) {
-            throw new CredentialManagementException("Failed to create master key: " + e.getMessage(), "KEY_CREATION_FAILURE");
+    private Optional<String> handleEncryptionResult(String result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Encryption failed", throwable);
+            return Optional.empty();
         }
+        return Optional.of(result);
     }
     
-    /**
-     * Rotate encryption key (re-encrypt all data with new key)
-     * This method would be used in key rotation scenarios
-     */
-    public String reEncrypt(String encryptedData, SecretKey oldKey, SecretKey newKey) {
-        // This is a placeholder for key rotation functionality
-        // In a production system, this would:
-        // 1. Decrypt with old key
-        // 2. Encrypt with new key
-        // 3. Update database atomically
-        throw new UnsupportedOperationException("Key rotation not yet implemented");
+    private Optional<String> handleDecryptionResult(String result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Decryption failed", throwable);
+            return Optional.empty();
+        }
+        return Optional.of(result);
     }
     
-    /**
-     * Validate encryption integrity
-     */
-    public boolean validateIntegrity(String encryptedData) {
-        try {
-            String decrypted = decrypt(encryptedData);
-            return decrypted != null;
-        } catch (Exception e) {
-            return false;
-        }
+    private enum ValidationResult {
+        VALID,
+        EMPTY_PLAIN_TEXT,
+        EMPTY_ENCRYPTED_TEXT,
+        NO_MASTER_KEY
     }
 }

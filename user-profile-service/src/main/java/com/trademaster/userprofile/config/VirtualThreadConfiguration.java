@@ -1,5 +1,6 @@
 package com.trademaster.userprofile.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -8,6 +9,7 @@ import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
  * Virtual Thread Configuration for TradeMaster User Profile Service
@@ -24,10 +26,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * @author TradeMaster Development Team
  * @version 1.0.0
  */
+@Slf4j
 @Configuration
 @EnableAsync
 @EnableScheduling
 public class VirtualThreadConfiguration {
+    
+    // Constants for thread pool configuration - Rule #17
+    private static final int SCHEDULER_POOL_SIZE = 10;
+    private static final int PROFILE_OPERATIONS_CONCURRENCY_LIMIT = 300;
+    private static final int FILE_OPERATIONS_CONCURRENCY_LIMIT = 150;
+    private static final int EVENT_PROCESSING_CONCURRENCY_LIMIT = 200;
 
     /**
      * Primary AsyncTaskExecutor using virtual threads.
@@ -47,8 +56,7 @@ public class VirtualThreadConfiguration {
             try {
                 runnable.run();
             } catch (Exception e) {
-                // Log any uncaught exceptions in virtual threads
-                System.err.println("Uncaught exception in profile virtual thread: " + e.getMessage());
+                log.error("Uncaught exception in profile virtual thread", e);
                 throw e;
             }
         });
@@ -60,9 +68,11 @@ public class VirtualThreadConfiguration {
      */
     @Bean
     public TaskScheduler taskScheduler() {
-        SimpleAsyncTaskExecutor scheduler = new SimpleAsyncTaskExecutor();
-        scheduler.setVirtualThreads(true);
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(SCHEDULER_POOL_SIZE);
         scheduler.setThreadNamePrefix("vt-profile-scheduler-");
+        scheduler.setTaskDecorator(runnable -> Thread.ofVirtual().unstarted(runnable));
+        scheduler.initialize();
         return scheduler;
     }
 
@@ -75,7 +85,7 @@ public class VirtualThreadConfiguration {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
         executor.setVirtualThreads(true);
         executor.setThreadNamePrefix("vt-profile-proc-");
-        executor.setConcurrencyLimit(300); // Reasonable limit for profile operations
+        executor.setConcurrencyLimit(PROFILE_OPERATIONS_CONCURRENCY_LIMIT); // Reasonable limit for profile operations
         return executor;
     }
 
@@ -87,7 +97,7 @@ public class VirtualThreadConfiguration {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
         executor.setVirtualThreads(true);
         executor.setThreadNamePrefix("vt-file-");
-        executor.setConcurrencyLimit(150); // Limit for file I/O operations
+        executor.setConcurrencyLimit(FILE_OPERATIONS_CONCURRENCY_LIMIT); // Limit for file I/O operations
         return executor;
     }
 
@@ -99,7 +109,7 @@ public class VirtualThreadConfiguration {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor();
         executor.setVirtualThreads(true);
         executor.setThreadNamePrefix("vt-event-");
-        executor.setConcurrencyLimit(200); // Limit for event processing
+        executor.setConcurrencyLimit(EVENT_PROCESSING_CONCURRENCY_LIMIT); // Limit for event processing
         return executor;
     }
 }

@@ -6,7 +6,7 @@ import { SymbolLookup } from '../common/SymbolLookup'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { notificationService } from '../../services/notification.service'
 import type { Notification } from '../../types/notifications'
-import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Bot, Smartphone, Brain, Zap } from 'lucide-react'
+import { LogOut, User, TrendingUp, PieChart, BarChart3, Home, Settings, Shield, Bot, Smartphone, Brain, Zap, CreditCard } from 'lucide-react'
 
 interface NavigationProps {
   title?: string
@@ -97,8 +97,20 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
         label: 'Psychology',
         icon: Brain,
         color: 'pink'
+      },
+      {
+        path: '/payments',
+        label: 'Payments',
+        icon: CreditCard,
+        color: 'green'
       }
     ] : [
+      {
+        path: '/admin/management',
+        label: 'Management',
+        icon: Settings,
+        color: 'purple'
+      },
       {
         path: '/admin/users',
         label: 'Users',
@@ -108,7 +120,7 @@ export function Navigation({ title = "TradeMaster", showWelcome = false, onSymbo
       {
         path: '/admin/system',
         label: 'System',
-        icon: Settings,
+        icon: BarChart3,
         color: 'orange'
       }
     ]),

@@ -4,6 +4,7 @@ import com.trademaster.brokerauth.entity.BrokerSession;
 import com.trademaster.brokerauth.enums.BrokerType;
 import com.trademaster.brokerauth.enums.SessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -13,149 +14,105 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Broker Session Repository
+ * Broker Session Repository - Data access for broker authentication sessions
  * 
- * Data access layer for BrokerSession entities.
- * Provides queries for session lifecycle management and monitoring.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Session management for security - Rule #23
+ * MANDATORY: Performance optimization for high-frequency operations - Rule #22
  */
 @Repository
 public interface BrokerSessionRepository extends JpaRepository<BrokerSession, Long> {
     
     /**
-     * Find session by session ID
-     */
-    Optional<BrokerSession> findBySessionId(String sessionId);
-    
-    /**
-     * Find active sessions by user and broker type
+     * Find active session for user and broker
+     * MANDATORY: Primary session lookup - Rule #23
      */
     @Query("SELECT bs FROM BrokerSession bs WHERE bs.userId = :userId AND bs.brokerType = :brokerType " +
-           "AND bs.status = 'ACTIVE' ORDER BY bs.createdAt DESC")
-    List<BrokerSession> findActiveSessionsByUserIdAndBrokerType(@Param("userId") Long userId, 
-                                                               @Param("brokerType") BrokerType brokerType);
+           "AND bs.status = 'ACTIVE' AND bs.expiresAt > :currentTime")
+    Optional<BrokerSession> findActiveSession(@Param("userId") String userId, 
+                                            @Param("brokerType") BrokerType brokerType,
+                                            @Param("currentTime") LocalDateTime currentTime);
+    
+    /**
+     * Find session by access token
+     * MANDATORY: Token-based authentication - Rule #23
+     */
+    Optional<BrokerSession> findByAccessTokenAndStatus(String accessToken, SessionStatus status);
     
     /**
      * Find all active sessions for user
+     * MANDATORY: User session management - Rule #23
      */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.userId = :userId AND bs.status = 'ACTIVE' ORDER BY bs.createdAt DESC")
-    List<BrokerSession> findActiveSessionsByUserId(@Param("userId") Long userId);
+    @Query("SELECT bs FROM BrokerSession bs WHERE bs.userId = :userId AND bs.status = 'ACTIVE' " +
+           "AND bs.expiresAt > :currentTime ORDER BY bs.createdAt DESC")
+    List<BrokerSession> findAllActiveSessionsForUser(@Param("userId") String userId,
+                                                    @Param("currentTime") LocalDateTime currentTime);
     
     /**
-     * Find sessions by status
+     * Find expired sessions for cleanup
+     * MANDATORY: Security cleanup operations - Rule #23
      */
-    List<BrokerSession> findByStatusOrderByCreatedAtDesc(SessionStatus status);
+    @Query("SELECT bs FROM BrokerSession bs WHERE bs.expiresAt < :currentTime " +
+           "AND bs.status IN ('ACTIVE', 'REFRESHING')")
+    List<BrokerSession> findExpiredSessions(@Param("currentTime") LocalDateTime currentTime);
     
     /**
-     * Find expired sessions (active but past expiry time)
-     */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.status = 'ACTIVE' AND bs.expiresAt < :now")
-    List<BrokerSession> findExpiredSessions(@Param("now") LocalDateTime now);
-    
-    /**
-     * Find expired sessions (default to current time)
-     */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.status = 'ACTIVE' AND bs.expiresAt < CURRENT_TIMESTAMP")
-    List<BrokerSession> findExpiredSessions();
-    
-    /**
-     * Find sessions requiring refresh (expires within threshold)
+     * Find sessions requiring token refresh
+     * MANDATORY: Proactive token management - Rule #23
      */
     @Query("SELECT bs FROM BrokerSession bs WHERE bs.status = 'ACTIVE' " +
-           "AND bs.encryptedRefreshToken IS NOT NULL " +
-           "AND bs.expiresAt BETWEEN CURRENT_TIMESTAMP AND :refreshThreshold " +
-           "ORDER BY bs.expiresAt ASC")
-    List<BrokerSession> findSessionsRequiringRefresh(@Param("refreshThreshold") LocalDateTime refreshThreshold);
+           "AND bs.expiresAt BETWEEN :currentTime AND :refreshThreshold")
+    List<BrokerSession> findSessionsNeedingRefresh(@Param("currentTime") LocalDateTime currentTime,
+                                                  @Param("refreshThreshold") LocalDateTime refreshThreshold);
     
     /**
-     * Find sessions by broker account
+     * Update session status
+     * MANDATORY: Status management for session lifecycle - Rule #23
      */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.brokerAccount.id = :accountId ORDER BY bs.createdAt DESC")
-    List<BrokerSession> findByBrokerAccountId(@Param("accountId") Long accountId);
+    @Modifying
+    @Query("UPDATE BrokerSession bs SET bs.status = :status, bs.updatedAt = :updateTime " +
+           "WHERE bs.id = :sessionId")
+    int updateSessionStatus(@Param("sessionId") Long sessionId, 
+                           @Param("status") SessionStatus status,
+                           @Param("updateTime") LocalDateTime updateTime);
     
     /**
-     * Count active sessions per broker type
+     * Update access token and expiry
+     * MANDATORY: Token refresh operations - Rule #23
      */
-    @Query("SELECT bs.brokerType, COUNT(bs) FROM BrokerSession bs WHERE bs.status = 'ACTIVE' GROUP BY bs.brokerType")
-    List<Object[]> countActiveSessionsByBrokerType();
+    @Modifying
+    @Query("UPDATE BrokerSession bs SET bs.accessToken = :accessToken, bs.expiresAt = :expiresAt, " +
+           "bs.status = 'ACTIVE', bs.updatedAt = :updateTime WHERE bs.id = :sessionId")
+    int refreshSessionToken(@Param("sessionId") Long sessionId,
+                           @Param("accessToken") String accessToken,
+                           @Param("expiresAt") LocalDateTime expiresAt,
+                           @Param("updateTime") LocalDateTime updateTime);
     
     /**
-     * Count active sessions for user and broker type
+     * Count active sessions for user
+     * MANDATORY: Session limit enforcement - Rule #23
      */
-    @Query("SELECT COUNT(bs) FROM BrokerSession bs WHERE bs.userId = :userId AND bs.brokerType = :brokerType AND bs.status = 'ACTIVE'")
-    long countActiveSessionsByUserAndBroker(@Param("userId") Long userId, @Param("brokerType") BrokerType brokerType);
+    @Query("SELECT COUNT(bs) FROM BrokerSession bs WHERE bs.userId = :userId " +
+           "AND bs.status = 'ACTIVE' AND bs.expiresAt > :currentTime")
+    long countActiveSessionsForUser(@Param("userId") String userId, 
+                                   @Param("currentTime") LocalDateTime currentTime);
     
     /**
-     * Find sessions with high error rates
+     * Invalidate all sessions for user and broker
+     * MANDATORY: Security operations - Rule #23
      */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.status = 'ACTIVE' " +
-           "AND bs.apiCallsCount > 10 " +
-           "AND (bs.errorCount * 100.0 / bs.apiCallsCount) > 10.0 " +
-           "ORDER BY (bs.errorCount * 100.0 / bs.apiCallsCount) DESC")
-    List<BrokerSession> findUnhealthySessions();
+    @Modifying
+    @Query("UPDATE BrokerSession bs SET bs.status = 'EXPIRED', bs.updatedAt = :updateTime " +
+           "WHERE bs.userId = :userId AND bs.brokerType = :brokerType AND bs.status = 'ACTIVE'")
+    int invalidateUserBrokerSessions(@Param("userId") String userId,
+                                   @Param("brokerType") BrokerType brokerType,
+                                   @Param("updateTime") LocalDateTime updateTime);
     
     /**
-     * Find sessions by IP address (for security monitoring)
+     * Delete old expired sessions
+     * MANDATORY: Data cleanup for performance - Rule #22
      */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.clientIp = :clientIp AND bs.status = 'ACTIVE' ORDER BY bs.createdAt DESC")
-    List<BrokerSession> findActiveSessionsByClientIp(@Param("clientIp") String clientIp);
-    
-    /**
-     * Find stale sessions (not used for specified period)
-     */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.status = 'ACTIVE' " +
-           "AND (bs.lastUsedAt IS NULL OR bs.lastUsedAt < :staleThreshold) " +
-           "ORDER BY bs.lastUsedAt ASC NULLS FIRST")
-    List<BrokerSession> findStaleSessions(@Param("staleThreshold") LocalDateTime staleThreshold);
-    
-    /**
-     * Find sessions created in date range
-     */
-    @Query("SELECT bs FROM BrokerSession bs WHERE bs.createdAt BETWEEN :startDate AND :endDate ORDER BY bs.createdAt DESC")
-    List<BrokerSession> findSessionsInDateRange(@Param("startDate") LocalDateTime startDate, 
-                                               @Param("endDate") LocalDateTime endDate);
-    
-    /**
-     * Get session statistics by status
-     */
-    @Query("SELECT bs.status, COUNT(bs) FROM BrokerSession bs GROUP BY bs.status ORDER BY bs.status")
-    List<Object[]> getSessionStatisticsByStatus();
-    
-    /**
-     * Get session statistics by broker type
-     */
-    @Query("SELECT bs.brokerType, bs.status, COUNT(bs), AVG(bs.apiCallsCount), AVG(bs.errorCount) " +
-           "FROM BrokerSession bs GROUP BY bs.brokerType, bs.status ORDER BY bs.brokerType, bs.status")
-    List<Object[]> getDetailedSessionStatistics();
-    
-    /**
-     * Find sessions for cleanup (revoked or expired sessions older than retention period)
-     */
-    @Query("SELECT bs FROM BrokerSession bs WHERE " +
-           "(bs.status = 'REVOKED' OR bs.status = 'EXPIRED') " +
-           "AND bs.updatedAt < :retentionCutoff " +
-           "ORDER BY bs.updatedAt ASC")
-    List<BrokerSession> findSessionsForCleanup(@Param("retentionCutoff") LocalDateTime retentionCutoff);
-    
-    /**
-     * Update session usage statistics
-     */
-    @Query("UPDATE BrokerSession bs SET bs.apiCallsCount = bs.apiCallsCount + 1, " +
-           "bs.lastUsedAt = :usedAt WHERE bs.sessionId = :sessionId")
-    int updateUsageStats(@Param("sessionId") String sessionId, @Param("usedAt") LocalDateTime usedAt);
-    
-    /**
-     * Update session error statistics
-     */
-    @Query("UPDATE BrokerSession bs SET bs.errorCount = bs.errorCount + 1, " +
-           "bs.lastUsedAt = :usedAt WHERE bs.sessionId = :sessionId")
-    int updateErrorStats(@Param("sessionId") String sessionId, @Param("usedAt") LocalDateTime usedAt);
-    
-    /**
-     * Update session rate limit statistics
-     */
-    @Query("UPDATE BrokerSession bs SET bs.rateLimitHits = bs.rateLimitHits + 1 WHERE bs.sessionId = :sessionId")
-    int updateRateLimitStats(@Param("sessionId") String sessionId);
+    @Modifying
+    @Query("DELETE FROM BrokerSession bs WHERE bs.status = 'EXPIRED' " +
+           "AND bs.updatedAt < :cutoffTime")
+    int deleteOldExpiredSessions(@Param("cutoffTime") LocalDateTime cutoffTime);
 }

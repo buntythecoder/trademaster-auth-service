@@ -4,6 +4,8 @@ import com.trademaster.trading.dto.OrderRequest;
 import com.trademaster.trading.dto.OrderResponse;
 import com.trademaster.trading.entity.Order;
 import com.trademaster.trading.model.OrderStatus;
+import com.trademaster.trading.common.Result;
+import com.trademaster.trading.common.TradeError;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
@@ -28,36 +30,36 @@ public interface OrderService {
      * 
      * @param orderRequest The order request
      * @param userId The user placing the order
-     * @return OrderResponse containing the placed order details
+     * @return Result containing either OrderResponse on success or TradeError on failure
      */
-    OrderResponse placeOrder(OrderRequest orderRequest, Long userId);
+    Result<OrderResponse, TradeError> placeOrder(OrderRequest orderRequest, Long userId);
     
     /**
      * Get order details by order ID
      * 
      * @param orderId The order ID
      * @param userId The user ID for authorization
-     * @return OrderResponse containing order details
+     * @return Result containing either OrderResponse on success or TradeError on failure
      */
-    OrderResponse getOrder(String orderId, Long userId);
+    Result<OrderResponse, TradeError> getOrder(String orderId, Long userId);
     
     /**
      * Get orders for a user with pagination
      * 
      * @param userId The user ID
      * @param pageable Pagination parameters
-     * @return List<OrderResponse> containing order list
+     * @return Result containing either List<OrderResponse> on success or TradeError on failure
      */
-    List<OrderResponse> getOrdersByUser(Long userId, Pageable pageable);
+    Result<List<OrderResponse>, TradeError> getOrdersByUser(Long userId, Pageable pageable);
     
     /**
      * Get orders by user and status
      * 
      * @param userId The user ID
      * @param status The order status
-     * @return List<OrderResponse> containing filtered orders
+     * @return Result containing either List<OrderResponse> on success or TradeError on failure
      */
-    List<OrderResponse> getOrdersByUserAndStatus(Long userId, OrderStatus status);
+    Result<List<OrderResponse>, TradeError> getOrdersByUserAndStatus(Long userId, OrderStatus status);
     
     /**
      * Get orders by user and symbol
@@ -65,9 +67,9 @@ public interface OrderService {
      * @param userId The user ID
      * @param symbol The trading symbol
      * @param pageable Pagination parameters
-     * @return List<OrderResponse> containing filtered orders
+     * @return Result containing either List<OrderResponse> on success or TradeError on failure
      */
-    List<OrderResponse> getOrdersByUserAndSymbol(Long userId, String symbol, Pageable pageable);
+    Result<List<OrderResponse>, TradeError> getOrdersByUserAndSymbol(Long userId, String symbol, Pageable pageable);
     
     /**
      * Get orders by user, symbol, and status
@@ -75,17 +77,17 @@ public interface OrderService {
      * @param userId The user ID
      * @param symbol The trading symbol
      * @param status The order status
-     * @return List<OrderResponse> containing filtered orders
+     * @return Result containing either List<OrderResponse> on success or TradeError on failure
      */
-    List<OrderResponse> getOrdersByUserSymbolAndStatus(Long userId, String symbol, OrderStatus status);
+    Result<List<OrderResponse>, TradeError> getOrdersByUserSymbolAndStatus(Long userId, String symbol, OrderStatus status);
     
     /**
      * Get active orders for a user
      * 
      * @param userId The user ID
-     * @return List<OrderResponse> containing active orders
+     * @return Result containing either List<OrderResponse> on success or TradeError on failure
      */
-    List<OrderResponse> getActiveOrders(Long userId);
+    Result<List<OrderResponse>, TradeError> getActiveOrders(Long userId);
     
     /**
      * Modify an existing order
@@ -93,35 +95,35 @@ public interface OrderService {
      * @param orderId The order ID
      * @param modificationRequest The modification request
      * @param userId The user ID for authorization
-     * @return OrderResponse containing modified order details
+     * @return Result containing either OrderResponse on success or TradeError on failure
      */
-    OrderResponse modifyOrder(String orderId, OrderRequest modificationRequest, Long userId);
+    Result<OrderResponse, TradeError> modifyOrder(String orderId, OrderRequest modificationRequest, Long userId);
     
     /**
      * Cancel an order
      * 
      * @param orderId The order ID
      * @param userId The user ID for authorization
-     * @return OrderResponse containing cancelled order details
+     * @return Result containing either OrderResponse on success or TradeError on failure
      */
-    OrderResponse cancelOrder(String orderId, Long userId);
+    Result<OrderResponse, TradeError> cancelOrder(String orderId, Long userId);
     
     /**
      * Get order status (lightweight operation)
      * 
      * @param orderId The order ID
      * @param userId The user ID for authorization
-     * @return OrderStatus containing current status
+     * @return Result containing either OrderStatus on success or TradeError on failure
      */
-    OrderStatus getOrderStatus(String orderId, Long userId);
+    Result<OrderStatus, TradeError> getOrderStatus(String orderId, Long userId);
     
     /**
      * Get order counts by status for dashboard
      * 
      * @param userId The user ID
-     * @return Map<String, Long> containing order counts
+     * @return Result containing either Map<String, Long> on success or TradeError on failure
      */
-    Map<String, Long> getOrderCounts(Long userId);
+    Result<Map<String, Long>, TradeError> getOrderCounts(Long userId);
     
     /**
      * Process order fill notification from broker

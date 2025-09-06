@@ -4,6 +4,7 @@ import com.trademaster.subscription.config.CorrelationConfig;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -271,6 +272,7 @@ public class ErrorTrackingService {
         private LocalDateTime timestamp;
         private LocalDateTime lastOccurrence;
         private Map<String, Object> context;
+        @Builder.Default
         private int count = 1;
 
         public void incrementCount() {

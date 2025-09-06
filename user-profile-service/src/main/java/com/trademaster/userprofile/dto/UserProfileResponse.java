@@ -6,7 +6,9 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Data
@@ -15,17 +17,17 @@ public class UserProfileResponse {
     
     private UUID id;
     private UUID userId;
-    private PersonalInformation personalInfo;
-    private TradingPreferences tradingPreferences;
-    private KYCInformation kycInfo;
-    private NotificationSettings notificationSettings;
+    private Map<String, Object> personalInfo;
+    private Map<String, Object> tradingPreferences;
+    private Map<String, Object> kycInfo;
+    private Map<String, Object> notificationSettings;
     private Integer version;
     
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
-    private Instant createdAt;
+    private LocalDateTime createdAt;
     
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
     
     private List<UserDocumentResponse> documents;
     private ProfileCompletionStatus completionStatus;
@@ -39,7 +41,7 @@ public class UserProfileResponse {
             .userId(profile.getUserId())
             .personalInfo(profile.getPersonalInfo())
             .tradingPreferences(profile.getTradingPreferences())
-            .kycInfo(profile.getKycInfo())
+            .kycInfo(profile.getKycInformation())
             .notificationSettings(profile.getNotificationSettings())
             .version(profile.getVersion())
             .createdAt(profile.getCreatedAt())
@@ -57,23 +59,28 @@ public class UserProfileResponse {
      */
     public static UserProfileResponse summaryFromEntity(UserProfile profile) {
         // Create masked personal info for summary view
-        PersonalInformation maskedPersonalInfo = PersonalInformation.builder()
-            .firstName(profile.getPersonalInfo().firstName())
-            .lastName(profile.getPersonalInfo().lastName())
-            .emailAddress(maskEmail(profile.getPersonalInfo().emailAddress()))
-            .mobileNumber(maskMobile(profile.getPersonalInfo().mobileNumber()))
-            .panNumber(maskPan(profile.getPersonalInfo().panNumber()))
-            .profilePhotoUrl(profile.getPersonalInfo().profilePhotoUrl())
-            .occupation(profile.getPersonalInfo().occupation())
-            .tradingExperience(profile.getPersonalInfo().tradingExperience())
-            // Exclude sensitive fields like full address, Aadhaar, etc.
-            .build();
+        Map<String, Object> maskedPersonalInfo = new java.util.HashMap<>(profile.getPersonalInfo());
+        
+        // Mask sensitive fields
+        if (maskedPersonalInfo.containsKey("emailAddress")) {
+            maskedPersonalInfo.put("emailAddress", maskEmail((String) maskedPersonalInfo.get("emailAddress")));
+        }
+        if (maskedPersonalInfo.containsKey("mobileNumber")) {
+            maskedPersonalInfo.put("mobileNumber", maskMobile((String) maskedPersonalInfo.get("mobileNumber")));
+        }
+        if (maskedPersonalInfo.containsKey("panNumber")) {
+            maskedPersonalInfo.put("panNumber", maskPan((String) maskedPersonalInfo.get("panNumber")));
+        }
+        // Remove sensitive fields like full address, Aadhaar, etc.
+        maskedPersonalInfo.remove("address");
+        maskedPersonalInfo.remove("aadhaarNumber");
+        maskedPersonalInfo.remove("dateOfBirth");
             
         return UserProfileResponse.builder()
             .id(profile.getId())
             .userId(profile.getUserId())
             .personalInfo(maskedPersonalInfo)
-            .kycInfo(profile.getKycInfo()) // KYC status is okay to show
+            .kycInfo(profile.getKycInformation()) // KYC status is okay to show
             .completionStatus(calculateCompletionStatus(profile))
             .createdAt(profile.getCreatedAt())
             .updatedAt(profile.getUpdatedAt())
@@ -86,42 +93,71 @@ public class UserProfileResponse {
         
         if (isPersonalInfoComplete(profile.getPersonalInfo())) completedSteps++;
         if (isTradingPreferencesComplete(profile.getTradingPreferences())) completedSteps++;
-        if (profile.getKycInfo().isKYCComplete()) completedSteps++;
+        if (isKycComplete(profile.getKycInformation())) completedSteps++;
         if (isNotificationSettingsComplete(profile.getNotificationSettings())) completedSteps++;
         
-        int kycCompletionPercentage = profile.getKycInfo().getKYCCompletionPercentage();
+        int kycCompletionPercentage = getKycCompletionPercentage(profile.getKycInformation());
         
         return ProfileCompletionStatus.builder()
             .overallPercentage((completedSteps * 100) / totalSteps)
             .personalInfoComplete(isPersonalInfoComplete(profile.getPersonalInfo()))
             .tradingPreferencesComplete(isTradingPreferencesComplete(profile.getTradingPreferences()))
-            .kycComplete(profile.getKycInfo().isKYCComplete())
+            .kycComplete(isKycComplete(profile.getKycInformation()))
             .kycCompletionPercentage(kycCompletionPercentage)
             .notificationSettingsComplete(isNotificationSettingsComplete(profile.getNotificationSettings()))
-            .canTrade(profile.getKycInfo().canTrade())
+            .canTrade(canTrade(profile.getKycInformation()))
             .nextSteps(getNextSteps(profile))
             .build();
     }
     
-    private static boolean isPersonalInfoComplete(PersonalInformation info) {
+    private static boolean isPersonalInfoComplete(Map<String, Object> info) {
         return info != null && 
-               info.firstName() != null && !info.firstName().trim().isEmpty() &&
-               info.lastName() != null && !info.lastName().trim().isEmpty() &&
-               info.emailAddress() != null && !info.emailAddress().trim().isEmpty() &&
-               info.mobileNumber() != null && !info.mobileNumber().trim().isEmpty() &&
-               info.panNumber() != null && !info.panNumber().trim().isEmpty() &&
-               info.address() != null;
+               isValidString(info.get("firstName")) &&
+               isValidString(info.get("lastName")) &&
+               isValidString(info.get("emailAddress")) &&
+               isValidString(info.get("mobileNumber")) &&
+               isValidString(info.get("panNumber")) &&
+               info.containsKey("address") && info.get("address") != null;
     }
     
-    private static boolean isTradingPreferencesComplete(TradingPreferences prefs) {
+    private static boolean isValidString(Object obj) {
+        return obj instanceof String str && !str.trim().isEmpty();
+    }
+    
+    private static boolean isTradingPreferencesComplete(Map<String, Object> prefs) {
         return prefs != null &&
-               prefs.preferredSegments() != null && !prefs.preferredSegments().isEmpty() &&
-               prefs.riskProfile() != null &&
-               prefs.defaultOrderSettings() != null;
+               prefs.containsKey("preferredSegments") && prefs.get("preferredSegments") != null &&
+               prefs.containsKey("riskProfile") && prefs.get("riskProfile") != null &&
+               prefs.containsKey("defaultOrderSettings") && prefs.get("defaultOrderSettings") != null;
     }
     
-    private static boolean isNotificationSettingsComplete(NotificationSettings settings) {
+    private static boolean isNotificationSettingsComplete(Map<String, Object> settings) {
         return settings != null; // Basic settings are enough
+    }
+    
+    private static boolean isKycComplete(Map<String, Object> kycInfo) {
+        return kycInfo != null && 
+               "VERIFIED".equals(kycInfo.get("kycStatus"));
+    }
+    
+    private static int getKycCompletionPercentage(Map<String, Object> kycInfo) {
+        if (kycInfo == null) return 0;
+        
+        int totalSteps = 4; // PAN, Aadhaar, Documents, Bank Account
+        int completedSteps = 0;
+        
+        if (Boolean.TRUE.equals(kycInfo.get("panVerified"))) completedSteps++;
+        if (Boolean.TRUE.equals(kycInfo.get("aadhaarVerified"))) completedSteps++;
+        if (Boolean.TRUE.equals(kycInfo.get("documentsVerified"))) completedSteps++;
+        if (Boolean.TRUE.equals(kycInfo.get("bankAccountVerified"))) completedSteps++;
+        
+        return (completedSteps * 100) / totalSteps;
+    }
+    
+    private static boolean canTrade(Map<String, Object> kycInfo) {
+        return isKycComplete(kycInfo) && 
+               Boolean.TRUE.equals(kycInfo.get("panVerified")) && 
+               Boolean.TRUE.equals(kycInfo.get("bankAccountVerified"));
     }
     
     private static List<String> getNextSteps(UserProfile profile) {
@@ -135,17 +171,18 @@ public class UserProfileResponse {
             nextSteps.add("Set trading preferences and risk profile");
         }
         
-        if (!profile.getKycInfo().isKYCComplete()) {
-            if (!profile.getKycInfo().panVerified()) {
+        Map<String, Object> kycInfo = profile.getKycInformation();
+        if (!isKycComplete(kycInfo)) {
+            if (!Boolean.TRUE.equals(kycInfo.get("panVerified"))) {
                 nextSteps.add("Verify PAN card");
             }
-            if (!profile.getKycInfo().aadhaarVerified()) {
+            if (!Boolean.TRUE.equals(kycInfo.get("aadhaarVerified"))) {
                 nextSteps.add("Verify Aadhaar card");
             }
-            if (!profile.getKycInfo().documentsVerified()) {
+            if (!Boolean.TRUE.equals(kycInfo.get("documentsVerified"))) {
                 nextSteps.add("Upload and verify KYC documents");
             }
-            if (!profile.getKycInfo().bankAccountVerified()) {
+            if (!Boolean.TRUE.equals(kycInfo.get("bankAccountVerified"))) {
                 nextSteps.add("Verify bank account details");
             }
         }

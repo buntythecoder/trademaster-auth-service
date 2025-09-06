@@ -1,0 +1,445 @@
+package com.trademaster.agentos.adapter;
+
+import com.trademaster.agentos.functional.Result;
+import com.trademaster.agentos.functional.MCPError;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import java.util.List;
+
+/**
+ * ✅ ADAPTER PATTERN: Functional Protocol Adapter for MCP Variations
+ * 
+ * MANDATORY SOLID Compliance:
+ * - Single Responsibility: Protocol adaptation only
+ * - Open/Closed: Extensible via new protocol adapters
+ * - Interface Segregation: Focused protocol adaptation interface
+ * - Dependency Inversion: Uses protocol abstractions
+ * 
+ * MANDATORY FUNCTIONAL PROGRAMMING:
+ * - No if-else statements (uses Map-based protocol routing)
+ * - Function composition for protocol transformation
+ * - Result monad for error handling
+ * - Immutable protocol message definitions
+ * 
+ * Cognitive Complexity: ≤7 per method, ≤15 total per class
+ */
+@Component
+@Slf4j
+public class ProtocolAdapter {
+    
+    /**
+     * ✅ PROTOCOL MESSAGE: Immutable protocol message record
+     */
+    public record ProtocolMessage(
+        String messageId,
+        String protocolVersion,
+        ProtocolType protocolType,
+        MessageType messageType,
+        Map<String, Object> headers,
+        Map<String, Object> payload,
+        java.time.Instant timestamp
+    ) {
+        public static Builder builder() {
+            return new Builder();
+        }
+        
+        public static class Builder {
+            private String messageId;
+            private String protocolVersion;
+            private ProtocolType protocolType;
+            private MessageType messageType;
+            private Map<String, Object> headers = Map.of();
+            private Map<String, Object> payload = Map.of();
+            private java.time.Instant timestamp = java.time.Instant.now();
+            
+            public Builder messageId(String messageId) {
+                this.messageId = messageId;
+                return this;
+            }
+            
+            public Builder protocolVersion(String version) {
+                this.protocolVersion = version;
+                return this;
+            }
+            
+            public Builder protocolType(ProtocolType type) {
+                this.protocolType = type;
+                return this;
+            }
+            
+            public Builder messageType(MessageType type) {
+                this.messageType = type;
+                return this;
+            }
+            
+            public Builder headers(Map<String, Object> headers) {
+                this.headers = headers;
+                return this;
+            }
+            
+            public Builder payload(Map<String, Object> payload) {
+                this.payload = payload;
+                return this;
+            }
+            
+            public Builder timestamp(java.time.Instant timestamp) {
+                this.timestamp = timestamp;
+                return this;
+            }
+            
+            public ProtocolMessage build() {
+                return new ProtocolMessage(
+                    messageId,
+                    protocolVersion,
+                    protocolType,
+                    messageType,
+                    headers,
+                    payload,
+                    timestamp
+                );
+            }
+        }
+    }
+    
+    /**
+     * ✅ ENUM PATTERNS: Protocol and message type classifications
+     */
+    public enum ProtocolType {
+        MCP_V1_0,
+        MCP_V1_1,
+        MCP_V2_0,
+        REST_API,
+        WEBSOCKET,
+        GRPC,
+        CUSTOM
+    }
+    
+    public enum MessageType {
+        AGENT_REGISTRATION,
+        TASK_ASSIGNMENT,
+        STATUS_UPDATE,
+        HEARTBEAT,
+        CAPABILITY_QUERY,
+        PERFORMANCE_METRICS,
+        ERROR_NOTIFICATION,
+        SHUTDOWN_REQUEST
+    }
+    
+    /**
+     * ✅ ADAPTER PATTERN: Protocol adaptation mapping (no if-else)
+     * Maps source protocol + target protocol to adaptation functions
+     */
+    private final Map<AdaptationKey, Function<ProtocolMessage, CompletableFuture<Result<ProtocolMessage, MCPError>>>> adaptationStrategies = Map.of(
+        new AdaptationKey(ProtocolType.MCP_V1_0, ProtocolType.MCP_V1_1), this::adaptV10ToV11,
+        new AdaptationKey(ProtocolType.MCP_V1_1, ProtocolType.MCP_V2_0), this::adaptV11ToV20,
+        new AdaptationKey(ProtocolType.MCP_V1_0, ProtocolType.MCP_V2_0), this::adaptV10ToV20,
+        new AdaptationKey(ProtocolType.REST_API, ProtocolType.MCP_V2_0), this::adaptRestToMCP,
+        new AdaptationKey(ProtocolType.WEBSOCKET, ProtocolType.MCP_V2_0), this::adaptWebSocketToMCP,
+        new AdaptationKey(ProtocolType.GRPC, ProtocolType.MCP_V2_0), this::adaptGrpcToMCP,
+        new AdaptationKey(ProtocolType.MCP_V2_0, ProtocolType.REST_API), this::adaptMCPToRest,
+        new AdaptationKey(ProtocolType.MCP_V2_0, ProtocolType.WEBSOCKET), this::adaptMCPToWebSocket
+    );
+    
+    /**
+     * Adaptation key for functional routing
+     */
+    private record AdaptationKey(ProtocolType sourceProtocol, ProtocolType targetProtocol) {}
+    
+    /**
+     * ✅ ADAPTER PATTERN: Main protocol adaptation method
+     * Cognitive Complexity: 2 (map lookup + async composition)
+     */
+    public CompletableFuture<Result<ProtocolMessage, MCPError>> adaptProtocol(
+            ProtocolMessage sourceMessage,
+            ProtocolType targetProtocol) {
+        
+        log.debug("Protocol adaptation requested", Map.of(
+            "messageId", sourceMessage.messageId(),
+            "sourceProtocol", sourceMessage.protocolType(),
+            "targetProtocol", targetProtocol,
+            "messageType", sourceMessage.messageType()
+        ));
+        
+        AdaptationKey adaptationKey = new AdaptationKey(sourceMessage.protocolType(), targetProtocol);
+        
+        return adaptationStrategies
+            .getOrDefault(adaptationKey, this::noAdaptationNeeded)
+            .apply(sourceMessage)
+            .thenApply(result -> {
+                if (result.isSuccess()) {
+                    log.info("Protocol adaptation completed successfully", Map.of(
+                        "messageId", sourceMessage.messageId(),
+                        "adaptationKey", adaptationKey
+                    ));
+                } else {
+                    log.warn("Protocol adaptation failed", Map.of(
+                        "messageId", sourceMessage.messageId(),
+                        "adaptationKey", adaptationKey,
+                        "error", result.getError().map(Object::toString).orElse("Unknown error")
+                    ));
+                }
+                return result;
+            });
+    }
+    
+    /**
+     * ✅ FUNCTIONAL COMPOSITION: Batch protocol adaptation
+     * Cognitive Complexity: 2
+     */
+    public CompletableFuture<Result<List<ProtocolMessage>, MCPError>> adaptProtocolsBatch(
+            List<ProtocolMessage> sourceMessages,
+            ProtocolType targetProtocol) {
+        
+        List<CompletableFuture<Result<ProtocolMessage, MCPError>>> futures = sourceMessages.stream()
+            .map(message -> adaptProtocol(message, targetProtocol))
+            .toList();
+        
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> {
+                List<ProtocolMessage> adaptedMessages = futures.stream()
+                    .map(CompletableFuture::join)
+                    .filter(Result::isSuccess)
+                    .map(result -> result.getValue().orElse(null))
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+                
+                return Result.<List<ProtocolMessage>, MCPError>success(adaptedMessages);
+            });
+    }
+    
+    /**
+     * ✅ ADAPTER IMPLEMENTATIONS: Specific protocol adaptations
+     */
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptV10ToV11(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> adaptedPayload = new HashMap<>(source.payload());
+            adaptedPayloadMap.of("schemaVersion", "1.1");
+            adaptedPayloadMap.of("backwardCompatible", true);
+            
+            ProtocolMessage adapted = new ProtocolMessage(
+                source.messageId(),
+                "1.1",
+                ProtocolType.MCP_V1_1,
+                source.messageType(),
+                source.headers(),
+                adaptedPayload,
+                source.timestamp()
+            );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptV11ToV20(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> adaptedHeaders = Map.of(
+                
+                Map.of("mcp-version", "2.0")
+                Map.of("content-encoding", "application/json")
+                );
+            
+            Map<String, Object> adaptedPayload = Map.of(
+                
+                Map.of("protocolMetadata", Map.of(
+                    "sourceVersion", "1.1",
+                    "targetVersion", "2.0",
+                    "migrationTimestamp", java.time.Instant.now().toString()
+                ))
+                );
+            
+            ProtocolMessage adapted = source.toBuilder()
+                .protocolVersion("2.0")
+                .protocolType(ProtocolType.MCP_V2_0)
+                .headers(adaptedHeaders)
+                .payload(adaptedPayload)
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptV10ToV20(ProtocolMessage source) {
+        // Compose V1.0 -> V1.1 -> V2.0 transformation
+        return adaptV10ToV11(source)
+            .thenCompose(v11Result -> v11Result.fold(
+                v11Message -> adaptV11ToV20(v11Message),
+                error -> CompletableFuture.completedFuture(Result.<ProtocolMessage, MCPError>failure(error))
+            ));
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptRestToMCP(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> mcpHeaders = Map.of(
+                "mcp-version", "2.0",
+                "source-protocol", "REST",
+                "content-type", "application/json",
+                "correlation-id", source.messageId()
+            );
+            
+            Map<String, Object> mcpPayload = Map.of(
+                Map.of("data", source.payload())
+                Map.of("metadata", Map.of(
+                    "adaptedFrom", "REST",
+                    "originalHeaders", source.headers()
+                ))
+                );
+            
+            ProtocolMessage adapted = ProtocolMessage.builder()
+                .messageId(source.messageId())
+                .protocolVersion("2.0")
+                .protocolType(ProtocolType.MCP_V2_0)
+                .messageType(source.messageType())
+                .headers(mcpHeaders)
+                .payload(mcpPayload)
+                .timestamp(source.timestamp())
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptWebSocketToMCP(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> mcpHeaders = Map.of(
+                "mcp-version", "2.0",
+                "source-protocol", "WebSocket",
+                "transport", "websocket",
+                "real-time", true
+            );
+            
+            Map<String, Object> mcpPayload = Map.of(
+                Map.of("message", source.payload())
+                Map.of("websocketMetadata", Map.of(
+                    "connectionId", source.headers().getOrDefault("connection-id", "unknown"),
+                    "clientType", source.headers().getOrDefault("client-type", "unknown")
+                ))
+                );
+            
+            ProtocolMessage adapted = source.toBuilder()
+                .protocolType(ProtocolType.MCP_V2_0)
+                .protocolVersion("2.0")
+                .headers(mcpHeaders)
+                .payload(mcpPayload)
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptGrpcToMCP(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> mcpHeaders = Map.of(
+                "mcp-version", "2.0",
+                "source-protocol", "gRPC",
+                "serialization", "protobuf",
+                "stream-type", source.headers().getOrDefault("grpc-stream-type", "unary")
+            );
+            
+            Map<String, Object> mcpPayload = Map.of(
+                Map.of("grpcMessage", source.payload())
+                Map.of("serviceMetadata", Map.of(
+                    "serviceName", source.headers().getOrDefault("grpc-service", "unknown"),
+                    "methodName", source.headers().getOrDefault("grpc-method", "unknown")
+                ))
+                );
+            
+            ProtocolMessage adapted = source.toBuilder()
+                .protocolType(ProtocolType.MCP_V2_0)
+                .protocolVersion("2.0")
+                .headers(mcpHeaders)
+                .payload(mcpPayload)
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptMCPToRest(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> restHeaders = Map.of(
+                "Content-Type", "application/json",
+                "X-MCP-Version", source.protocolVersion(),
+                "X-Message-ID", source.messageId(),
+                "X-Timestamp", source.timestamp().toString()
+            );
+            
+            Map<String, Object> restPayload = Map.of(
+                
+                );
+            
+            ProtocolMessage adapted = source.toBuilder()
+                .protocolType(ProtocolType.REST_API)
+                .protocolVersion("HTTP/1.1")
+                .headers(restHeaders)
+                .payload(restPayload)
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> adaptMCPToWebSocket(ProtocolMessage source) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> wsHeaders = Map.of(
+                "ws-protocol", "mcp-websocket",
+                "mcp-version", source.protocolVersion(),
+                "message-type", source.messageType().toString().toLowerCase()
+            );
+            
+            Map<String, Object> wsPayload = Map.of(
+                Map.of("type", source.messageType().toString())
+                Map.of("data", source.payload())
+                Map.of("id", source.messageId())
+                Map.of("timestamp", source.timestamp().toEpochMilli())
+                );
+            
+            ProtocolMessage adapted = source.toBuilder()
+                .protocolType(ProtocolType.WEBSOCKET)
+                .protocolVersion("13")
+                .headers(wsHeaders)
+                .payload(wsPayload)
+                );
+            
+            return Result.<ProtocolMessage, MCPError>success(adapted);
+        });
+    }
+    
+    private CompletableFuture<Result<ProtocolMessage, MCPError>> noAdaptationNeeded(ProtocolMessage source) {
+        return CompletableFuture.completedFuture(Result.success(source));
+    }
+    
+    /**
+     * ✅ QUERY METHODS: Adapter information and capabilities
+     */
+    
+    public boolean isAdaptationSupported(ProtocolType sourceProtocol, ProtocolType targetProtocol) {
+        return adaptationStrategies.containsKey(new AdaptationKey(sourceProtocol, targetProtocol));
+    }
+    
+    public List<ProtocolType> getSupportedSourceProtocols() {
+        return adaptationStrategies.keySet().stream()
+            .map(AdaptationKey::sourceProtocol)
+            .distinct()
+            .toList();
+    }
+    
+    public List<ProtocolType> getSupportedTargetProtocols() {
+        return adaptationStrategies.keySet().stream()
+            .map(AdaptationKey::targetProtocol)
+            .distinct()
+            .toList();
+    }
+    
+    public Map<String, Object> getAdapterStatistics() {
+        return Map.of(
+            "supportedAdaptations", adaptationStrategies.size(),
+            "sourceProtocols", getSupportedSourceProtocols().size(),
+            "targetProtocols", getSupportedTargetProtocols().size()
+        );
+    }
+}

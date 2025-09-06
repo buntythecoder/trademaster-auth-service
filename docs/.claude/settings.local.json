@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(E:\\workspace\\claude\\trademaster/**)",
+      "Read(E:\\workspace\\claude\\trademaster/**)",
+      "Read(E:\\workspace\\claude\\trademaster/**)",
+      "Read(E:\\workspace\\claude\\trademaster/**)",
+      "Read(E:\\workspace\\claude\\trademaster\\src\\components\\behavioral\\BehavioralAIDashboard/**)",
+      "Read(E:\\workspace\\claude\\trademaster\\src\\components\\institutional\\InstitutionalActivityInterface/**)",
+      "Read(E:\\workspace\\claude\\trademaster\\src\\components\\agents\\AgentDashboard/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

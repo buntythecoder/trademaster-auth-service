@@ -34,7 +34,7 @@ public record RiskProfile(
 ) {
     
     public boolean allowsHighRiskInstruments() {
-        return riskLevel == RiskLevel.HIGH && riskToleranceScore >= 7;
+        return (riskLevel == RiskLevel.HIGH || riskLevel == RiskLevel.VERY_HIGH) && riskToleranceScore >= 7;
     }
     
     public boolean isConservativeInvestor() {
@@ -47,8 +47,9 @@ public record RiskProfile(
         
         return switch (riskLevel) {
             case LOW -> portfolioValue.multiply(BigDecimal.valueOf(0.02)); // 2%
-            case MEDIUM -> portfolioValue.multiply(BigDecimal.valueOf(0.05)); // 5%
+            case MODERATE, MEDIUM -> portfolioValue.multiply(BigDecimal.valueOf(0.05)); // 5%
             case HIGH -> portfolioValue.multiply(BigDecimal.valueOf(0.10)); // 10%
+            case VERY_HIGH -> portfolioValue.multiply(BigDecimal.valueOf(0.15)); // 15%
         };
     }
 }

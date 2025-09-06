@@ -387,4 +387,50 @@ public interface PortfolioTransactionRepository extends JpaRepository<PortfolioT
         @Param("fromDate") Instant fromDate,
         @Param("toDate") Instant toDate
     );
+    
+    /**
+     * Find transactions by portfolio and symbol ordered by execution time
+     */
+    @Query("""
+        SELECT t FROM PortfolioTransaction t 
+        WHERE t.portfolioId = :portfolioId 
+        AND t.symbol = :symbol
+        ORDER BY t.executedAt ASC
+        """)
+    List<PortfolioTransaction> findByPortfolioIdAndSymbolOrderByExecutionTime(
+        @Param("portfolioId") Long portfolioId,
+        @Param("symbol") String symbol
+    );
+    
+    /**
+     * Find transactions by portfolio and execution time between dates
+     */
+    @Query("""
+        SELECT t FROM PortfolioTransaction t 
+        WHERE t.portfolioId = :portfolioId 
+        AND t.executedAt BETWEEN :fromDate AND :toDate
+        ORDER BY t.executedAt DESC
+        """)
+    List<PortfolioTransaction> findByPortfolioIdAndExecutionTimeBetween(
+        @Param("portfolioId") Long portfolioId,
+        @Param("fromDate") Instant fromDate,
+        @Param("toDate") Instant toDate
+    );
+    
+    /**
+     * Find transactions by portfolio, date range and transaction types
+     */
+    @Query("""
+        SELECT t FROM PortfolioTransaction t 
+        WHERE t.portfolioId = :portfolioId 
+        AND t.executedAt BETWEEN :fromDate AND :toDate
+        AND t.transactionType IN :transactionTypes
+        ORDER BY t.executedAt DESC
+        """)
+    List<PortfolioTransaction> findByPortfolioIdAndExecutionTimeBetweenAndTransactionTypeIn(
+        @Param("portfolioId") Long portfolioId,
+        @Param("fromDate") Instant fromDate,
+        @Param("toDate") Instant toDate,
+        @Param("transactionTypes") List<TransactionType> transactionTypes
+    );
 }

@@ -41,6 +41,11 @@ public enum SubscriptionStatus {
     SUSPENDED("Suspended", "Subscription suspended due to payment issues"),
     
     /**
+     * Payment processing has failed
+     */
+    PAYMENT_FAILED("Payment Failed", "Payment processing failed for subscription"),
+    
+    /**
      * Subscription is cancelled but still active until period ends
      */
     CANCELLED("Cancelled", "Subscription cancelled, active until period end"),
@@ -107,7 +112,7 @@ public enum SubscriptionStatus {
      * Check if subscription can be reactivated
      */
     public boolean canReactivate() {
-        return this == SUSPENDED || this == PAUSED || this == EXPIRED;
+        return this == SUSPENDED || this == PAUSED || this == EXPIRED || this == PAYMENT_FAILED;
     }
     
     /**
@@ -121,7 +126,7 @@ public enum SubscriptionStatus {
      * Check if subscription requires payment
      */
     public boolean requiresPayment() {
-        return this == PENDING || this == SUSPENDED || this == EXPIRED;
+        return this == PENDING || this == SUSPENDED || this == EXPIRED || this == PAYMENT_FAILED;
     }
     
     /**
@@ -129,11 +134,12 @@ public enum SubscriptionStatus {
      */
     public SubscriptionStatus[] getValidTransitions() {
         return switch (this) {
-            case PENDING -> new SubscriptionStatus[]{ACTIVE, TRIAL, SUSPENDED, TERMINATED};
-            case ACTIVE -> new SubscriptionStatus[]{CANCELLED, SUSPENDED, PAUSED, UPGRADE_PENDING, DOWNGRADE_PENDING, EXPIRED};
-            case TRIAL -> new SubscriptionStatus[]{ACTIVE, CANCELLED, SUSPENDED, EXPIRED};
+            case PENDING -> new SubscriptionStatus[]{ACTIVE, TRIAL, SUSPENDED, PAYMENT_FAILED, TERMINATED};
+            case ACTIVE -> new SubscriptionStatus[]{CANCELLED, SUSPENDED, PAUSED, PAYMENT_FAILED, UPGRADE_PENDING, DOWNGRADE_PENDING, EXPIRED};
+            case TRIAL -> new SubscriptionStatus[]{ACTIVE, CANCELLED, SUSPENDED, PAYMENT_FAILED, EXPIRED};
             case EXPIRED -> new SubscriptionStatus[]{ACTIVE, SUSPENDED, TERMINATED};
             case SUSPENDED -> new SubscriptionStatus[]{ACTIVE, TERMINATED};
+            case PAYMENT_FAILED -> new SubscriptionStatus[]{ACTIVE, SUSPENDED, TERMINATED};
             case CANCELLED -> new SubscriptionStatus[]{TERMINATED, ACTIVE}; // Can reactivate before termination
             case PAUSED -> new SubscriptionStatus[]{ACTIVE, CANCELLED, TERMINATED};
             case UPGRADE_PENDING -> new SubscriptionStatus[]{ACTIVE, SUSPENDED};

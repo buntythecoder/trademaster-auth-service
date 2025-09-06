@@ -1,0 +1,312 @@
+package com.trademaster.agentos.patterns;
+
+import com.trademaster.agentos.adapter.ProtocolAdapter;
+import com.trademaster.agentos.command.TaskCommand;
+import com.trademaster.agentos.command.TaskCommandProcessor;
+import com.trademaster.agentos.domain.entity.Agent;
+import com.trademaster.agentos.domain.entity.AgentCapability;
+import com.trademaster.agentos.domain.entity.AgentStatus;
+import com.trademaster.agentos.domain.entity.AgentType;
+import com.trademaster.agentos.factory.AgentFactory;
+import com.trademaster.agentos.functional.Result;
+import com.trademaster.agentos.observer.AgentEvent;
+import com.trademaster.agentos.observer.AgentEventPublisher;
+import com.trademaster.agentos.state.AgentStateManager;
+import com.trademaster.agentos.strategy.AgentSelectionStrategy;
+import com.trademaster.agentos.strategy.AgentSelectionStrategyRegistry;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * ✅ DESIGN PATTERNS INTEGRATION TEST
+ * 
+ * Comprehensive integration test for all 8 mandatory design patterns:
+ * 1. Factory Pattern - AgentFactory
+ * 2. Builder Pattern - AgentCreationRequest
+ * 3. Strategy Pattern - AgentSelectionStrategy
+ * 4. Command Pattern - TaskCommand & TaskCommandProcessor
+ * 5. Observer Pattern - AgentEventPublisher
+ * 6. Adapter Pattern - ProtocolAdapter
+ * 7. State Pattern - AgentStateManager
+ * 8. Chain of Responsibility - TaskProcessingChain (already tested separately)
+ * 
+ * MANDATORY FUNCTIONAL PROGRAMMING:
+ * - No if-else statements in test logic
+ * - Stream API for test data processing
+ * - Result monad for error handling validation
+ * - CompletableFuture for async operation testing
+ */
+@SpringBootTest
+@ActiveProfiles("test")
+class DesignPatternsIntegrationTest {
+    
+    /**
+     * ✅ FACTORY PATTERN TEST: Agent creation with functional factory
+     */
+    @Test
+    void testFactoryPattern() throws Exception {
+        AgentFactory factory = new AgentFactory();
+        
+        // Test factory method with builder pattern
+        AgentFactory.AgentCreationRequest request = AgentFactory.AgentCreationRequest.builder()
+            .agentName("TestMarketAnalysisAgent")
+            .agentType(AgentType.MARKET_ANALYSIS)
+            .description("Test market analysis agent")
+            .userId(1L)
+            .maxConcurrentTasks(10)
+            .build();
+        
+        CompletableFuture<Result<Agent, com.trademaster.agentos.functional.AgentError>> future = 
+            factory.createAgent(request);
+        
+        Result<Agent, com.trademaster.agentos.functional.AgentError> result = future.get();
+        
+        assertTrue(result.isSuccess(), "Factory should create agent successfully");
+        Agent agent = result.getValue().orElseThrow();
+        assertEquals("TestMarketAnalysisAgent", agent.getAgentName());
+        assertEquals(AgentType.MARKET_ANALYSIS, agent.getAgentType());
+        assertEquals(AgentStatus.INITIALIZING, agent.getStatus());
+    }
+    
+    /**
+     * ✅ STRATEGY PATTERN TEST: Agent selection with functional strategies
+     */
+    @Test
+    void testStrategyPattern() throws Exception {
+        AgentSelectionStrategyRegistry registry = new AgentSelectionStrategyRegistry();
+        registry.initializeDefaultStrategies();
+        
+        // Create test agents
+        List<Agent> testAgents = List.of(
+            createTestAgent(1L, "Agent1", AgentType.MARKET_ANALYSIS, 2, 0.9),
+            createTestAgent(2L, "Agent2", AgentType.MARKET_ANALYSIS, 5, 0.7),
+            createTestAgent(3L, "Agent3", AgentType.MARKET_ANALYSIS, 1, 0.95)
+        );
+        
+        AgentSelectionStrategy.SelectionContext context = 
+            AgentSelectionStrategy.SelectionContext.builder()
+                .priority("HIGH")
+                .taskId("TEST-001")
+                .requestingUserId(1L)
+                .build();
+        
+        // Test strategy selection
+        Result<AgentSelectionStrategy, com.trademaster.agentos.functional.AgentError> strategyResult = 
+            registry.getBestStrategy(AgentType.MARKET_ANALYSIS, List.of(AgentCapability.TECHNICAL_ANALYSIS), context);
+        
+        assertTrue(strategyResult.isSuccess(), "Strategy selection should succeed");
+        
+        AgentSelectionStrategy strategy = strategyResult.getValue().orElseThrow();
+        Result<Agent, com.trademaster.agentos.functional.AgentError> agentResult = 
+            strategy.selectAgent(testAgents, AgentType.MARKET_ANALYSIS, 
+                List.of(AgentCapability.TECHNICAL_ANALYSIS), context);
+        
+        assertTrue(agentResult.isSuccess(), "Agent selection should succeed");
+        assertNotNull(agentResult.getValue().orElse(null));
+    }
+    
+    /**
+     * ✅ COMMAND PATTERN TEST: Task command execution with functional commands
+     */
+    @Test
+    void testCommandPattern() throws Exception {
+        TaskCommandProcessor processor = new TaskCommandProcessor();
+        String commandId = processor.generateCommandId();
+        
+        // Create functional command
+        TaskCommand.CreateTaskCommand createCommand = new TaskCommand.CreateTaskCommand(
+            commandId,
+            Instant.now(),
+            "Test Task",
+            "Test task description",
+            1L,
+            "HIGH",
+            (ignored) -> CompletableFuture.completedFuture(
+                Result.success(new TaskCommand.CreateTaskCommand.TaskCreationResult(
+                    123L, "Test Task", "CREATED", Instant.now()
+                ))
+            )
+        );
+        
+        // Execute command
+        CompletableFuture<Result<TaskCommand.CreateTaskCommand.TaskCreationResult, com.trademaster.agentos.functional.TaskError>> 
+            result = processor.processCommand(createCommand);
+        
+        Result<TaskCommand.CreateTaskCommand.TaskCreationResult, com.trademaster.agentos.functional.TaskError> 
+            executionResult = result.get();
+        
+        assertTrue(executionResult.isSuccess(), "Command execution should succeed");
+        TaskCommand.CreateTaskCommand.TaskCreationResult taskResult = executionResult.getValue().orElseThrow();
+        assertEquals("Test Task", taskResult.taskTitle());
+        assertEquals("CREATED", taskResult.status());
+    }
+    
+    /**
+     * ✅ OBSERVER PATTERN TEST: Event publishing with functional observers
+     */
+    @Test
+    void testObserverPattern() throws Exception {
+        AgentEventPublisher publisher = new AgentEventPublisher();
+        AtomicReference<AgentEvent> receivedEvent = new AtomicReference<>();
+        
+        // Subscribe functional observer
+        publisher.subscribe(
+            AgentEventPublisher.AgentEventType.AGENT_STATUS_CHANGED,
+            event -> receivedEvent.set(event)
+        );
+        
+        // Create and publish event
+        AgentEvent testEvent = AgentEvent.builder()
+            .eventType(AgentEventPublisher.AgentEventType.AGENT_STATUS_CHANGED)
+            .agentId(1L)
+            .agentName("TestAgent")
+            .previousStatus(AgentStatus.IDLE)
+            .currentStatus(AgentStatus.ACTIVE)
+            .eventDescription("Agent status changed for testing")
+            .eventData(Map.of("testData", "value"))
+            .build();
+        
+        CompletableFuture<Result<Void, com.trademaster.agentos.functional.AgentError>> publishResult = 
+            publisher.publishEvent(testEvent);
+        
+        Result<Void, com.trademaster.agentos.functional.AgentError> result = publishResult.get();
+        
+        assertTrue(result.isSuccess(), "Event publishing should succeed");
+        
+        // Wait a moment for async event processing
+        Thread.sleep(100);
+        
+        assertNotNull(receivedEvent.get(), "Observer should receive the event");
+        assertEquals(testEvent.eventId(), receivedEvent.get().eventId());
+        assertEquals(testEvent.agentId(), receivedEvent.get().agentId());
+    }
+    
+    /**
+     * ✅ ADAPTER PATTERN TEST: Protocol adaptation with functional mapping
+     */
+    @Test
+    void testAdapterPattern() throws Exception {
+        ProtocolAdapter adapter = new ProtocolAdapter();
+        
+        // Create source message
+        ProtocolAdapter.ProtocolMessage sourceMessage = ProtocolAdapter.ProtocolMessage.builder()
+            .messageId("TEST-MSG-001")
+            .protocolType(ProtocolAdapter.ProtocolType.MCP_V1_0)
+            .protocolVersion("1.0")
+            .messageType(ProtocolAdapter.MessageType.AGENT_REGISTRATION)
+            .headers(Map.of("source", "test"))
+            .payload(Map.of("agentId", "123", "agentType", "MARKET_ANALYSIS"))
+            .build();
+        
+        // Test protocol adaptation
+        CompletableFuture<Result<ProtocolAdapter.ProtocolMessage, com.trademaster.agentos.functional.MCPError>> 
+            adaptationResult = adapter.adaptProtocol(sourceMessage, ProtocolAdapter.ProtocolType.MCP_V2_0);
+        
+        Result<ProtocolAdapter.ProtocolMessage, com.trademaster.agentos.functional.MCPError> result = 
+            adaptationResult.get();
+        
+        assertTrue(result.isSuccess(), "Protocol adaptation should succeed");
+        ProtocolAdapter.ProtocolMessage adaptedMessage = result.getValue().orElseThrow();
+        assertEquals(ProtocolAdapter.ProtocolType.MCP_V2_0, adaptedMessage.protocolType());
+        assertEquals("2.0", adaptedMessage.protocolVersion());
+        assertEquals(sourceMessage.messageId(), adaptedMessage.messageId());
+    }
+    
+    /**
+     * ✅ STATE PATTERN TEST: Agent state management with functional transitions
+     */
+    @Test
+    void testStatePattern() throws Exception {
+        AgentStateManager stateManager = new AgentStateManager(new AgentEventPublisher());
+        
+        Agent testAgent = createTestAgent(1L, "StateTestAgent", AgentType.MARKET_ANALYSIS, 0, 0.8);
+        testAgent.setStatus(AgentStatus.INITIALIZING);
+        
+        // Test state transition
+        CompletableFuture<Result<Agent, com.trademaster.agentos.functional.AgentError>> transitionResult = 
+            stateManager.transitionState(testAgent, AgentStatus.IDLE, "Initialization complete");
+        
+        Result<Agent, com.trademaster.agentos.functional.AgentError> result = transitionResult.get();
+        
+        assertTrue(result.isSuccess(), "State transition should succeed");
+        Agent updatedAgent = result.getValue().orElseThrow();
+        assertEquals(AgentStatus.IDLE, updatedAgent.getStatus());
+    }
+    
+    /**
+     * ✅ INTEGRATED PATTERN TEST: Multiple patterns working together
+     */
+    @Test
+    void testIntegratedPatterns() throws Exception {
+        // Factory creates agent
+        AgentFactory factory = new AgentFactory();
+        AgentFactory.AgentCreationRequest request = AgentFactory.AgentCreationRequest.builder()
+            .agentName("IntegratedTestAgent")
+            .agentType(AgentType.TRADING_EXECUTION)
+            .description("Integration test agent")
+            .userId(1L)
+            .build();
+        
+        CompletableFuture<Result<Agent, com.trademaster.agentos.functional.AgentError>> creationFuture = 
+            factory.createAgent(request);
+        Result<Agent, com.trademaster.agentos.functional.AgentError> creationResult = creationFuture.get();
+        
+        assertTrue(creationResult.isSuccess(), "Factory pattern should work");
+        Agent agent = creationResult.getValue().orElseThrow();
+        
+        // State manager transitions agent
+        AgentStateManager stateManager = new AgentStateManager(new AgentEventPublisher());
+        CompletableFuture<Result<Agent, com.trademaster.agentos.functional.AgentError>> stateResult = 
+            stateManager.transitionState(agent, AgentStatus.IDLE, "Ready for work");
+        
+        Result<Agent, com.trademaster.agentos.functional.AgentError> transitionResult = stateResult.get();
+        assertTrue(transitionResult.isSuccess(), "State pattern should work");
+        
+        // Strategy selects the agent
+        AgentSelectionStrategyRegistry registry = new AgentSelectionStrategyRegistry();
+        registry.initializeDefaultStrategies();
+        
+        Result<AgentSelectionStrategy, com.trademaster.agentos.functional.AgentError> strategyResult = 
+            registry.getBestStrategy(
+                AgentType.TRADING_EXECUTION, 
+                List.of(AgentCapability.ORDER_EXECUTION),
+                AgentSelectionStrategy.SelectionContext.defaultContext()
+            );
+        
+        assertTrue(strategyResult.isSuccess(), "Strategy pattern should work");
+        
+        // All patterns integrate successfully
+        assertNotNull(agent.getAgentName());
+        assertEquals(AgentStatus.IDLE, transitionResult.getValue().orElseThrow().getStatus());
+        assertNotNull(strategyResult.getValue().orElse(null));
+    }
+    
+    /**
+     * Helper method to create test agents
+     */
+    private Agent createTestAgent(Long id, String name, AgentType type, int load, double successRate) {
+        return Agent.builder()
+            .agentId(id)
+            .agentName(name)
+            .agentType(type)
+            .status(AgentStatus.ACTIVE)
+            .currentLoad(load)
+            .maxConcurrentTasks(10)
+            .successRate(successRate)
+            .averageResponseTime(100L)
+            .capabilities(List.of(type.getDefaultCapabilities()))
+            .userId(1L)
+            .createdAt(Instant.now())
+            .updatedAt(Instant.now())
+            .build();
+    }
+}

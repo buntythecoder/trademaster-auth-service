@@ -153,6 +153,12 @@ public class SubscriptionHistory {
     private UUID paymentTransactionId;
 
     /**
+     * Action performed (CREATED, ACTIVATED, CANCELLED, UPGRADED, etc.)
+     */
+    @Column(name = "action", length = 50)
+    private String action;
+    
+    /**
      * Additional metadata as JSON
      */
     @Column(name = "metadata", columnDefinition = "TEXT")

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,77 +55,78 @@ public class UserProfileCapabilityRegistry {
      * Records successful execution of a capability
      */
     public void recordSuccessfulExecution(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordSuccess();
-            log.debug("Recorded successful execution for capability: {}", capability);
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordSuccess();
+                log.debug("Recorded successful execution for capability: {}", capability);
+            });
     }
     
     /**
      * Records failed execution of a capability
      */
     public void recordFailedExecution(String capability, Exception error) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordFailure(error);
-            log.warn("Recorded failed execution for capability: {} - Error: {}", 
-                    capability, error.getMessage());
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordFailure(error);
+                log.warn("Recorded failed execution for capability: {} - Error: {}", 
+                        capability, error.getMessage());
+            });
     }
     
     /**
      * Records execution time for performance tracking
      */
     public void recordExecutionTime(String capability, Duration executionTime) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordExecutionTime(executionTime);
-            log.debug("Recorded execution time for capability: {} - Duration: {}ms", 
-                    capability, executionTime.toMillis());
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordExecutionTime(executionTime);
+                log.debug("Recorded execution time for capability: {} - Duration: {}ms", 
+                        capability, executionTime.toMillis());
+            });
     }
     
     /**
      * Gets current health score for a specific capability
      */
     public Double getCapabilityHealthScore(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getHealthScore() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getHealthScore)
+            .orElse(0.0);
     }
     
     /**
      * Gets success rate for a specific capability
      */
     public Double getCapabilitySuccessRate(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getSuccessRate() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getSuccessRate)
+            .orElse(0.0);
     }
     
     /**
      * Gets average execution time for a specific capability
      */
     public Double getCapabilityAverageExecutionTime(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getAverageExecutionTime() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getAverageExecutionTime)
+            .orElse(0.0);
     }
     
     /**
      * Calculates overall agent health score across all capabilities
      */
     public Double calculateOverallHealthScore() {
-        if (capabilityMetrics.isEmpty()) {
-            return 0.0;
-        }
-        
-        double totalHealth = capabilityMetrics.values().stream()
-                .mapToDouble(CapabilityMetrics::getHealthScore)
-                .sum();
-        
-        double overallHealth = totalHealth / capabilityMetrics.size();
-        
-        log.debug("Calculated overall health score: {}", overallHealth);
-        return overallHealth;
+        return capabilityMetrics.isEmpty() ? 0.0 :
+            Optional.of(capabilityMetrics.values().stream()
+                    .mapToDouble(CapabilityMetrics::getHealthScore)
+                    .average()
+                    .orElse(0.0))
+                .map(overallHealth -> {
+                    log.debug("Calculated overall health score: {}", overallHealth);
+                    return overallHealth;
+                })
+                .orElse(0.0);
     }
     
     /**
@@ -162,6 +164,13 @@ public class UserProfileCapabilityRegistry {
     private void initializeCapability(String capability) {
         capabilityMetrics.put(capability, new CapabilityMetrics(capability));
         log.debug("Initialized capability: {}", capability);
+    }
+    
+    /**
+     * Get all registered capability names
+     */
+    public java.util.Set<String> getCapabilities() {
+        return capabilityMetrics.keySet();
     }
     
     /**

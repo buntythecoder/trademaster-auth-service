@@ -44,6 +44,11 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
      * Find all subscriptions by user ID
      */
     List<Subscription> findByUserIdOrderByCreatedAtDesc(UUID userId);
+    
+    /**
+     * Find subscriptions by user ID (simple version)
+     */
+    List<Subscription> findByUserId(UUID userId);
 
     /**
      * Find subscriptions by status
@@ -169,6 +174,12 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
      * Find subscriptions by promotion code
      */
     List<Subscription> findByPromotionCode(String promotionCode);
+    
+    /**
+     * Find subscriptions due for billing
+     */
+    @Query("SELECT s FROM Subscription s WHERE s.nextBillingDate <= :currentDate AND s.status IN ('ACTIVE', 'TRIAL')")
+    List<Subscription> findSubscriptionsDueForBilling(@Param("currentDate") LocalDateTime currentDate);
 
     /**
      * Find high-value subscriptions

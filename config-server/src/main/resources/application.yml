@@ -1,0 +1,164 @@
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:consul}
+  
+  # Config Server Configuration
+  cloud:
+    config:
+      server:
+        consul:
+          host: ${CONSUL_HOST:localhost}
+          port: ${CONSUL_PORT:8500}
+          watch:
+            enabled: true
+            delay: 1000
+        git:
+          uri: ${CONFIG_GIT_URI:https://github.com/trademaster/config-repo}
+          clone-on-start: true
+          default-label: main
+          search-paths: 
+            - 'services/{application}'
+            - 'shared'
+          force-pull: true
+        native:
+          search-locations: 
+            - classpath:/shared-config/
+            - file:./config/
+        encrypt:
+          enabled: true
+        fail-fast: true
+    
+    # Consul Service Discovery
+    consul:
+      host: ${CONSUL_HOST:localhost}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        enabled: true
+        register: true
+        deregister: true
+        prefer-ip-address: true
+        instance-id: ${spring.application.name}:${server.port}:${random.uuid}
+        service-name: ${spring.application.name}
+        hostname: ${HOSTNAME:localhost}
+        port: ${server.port}
+        health-check-path: /actuator/health
+        health-check-interval: 10s
+        health-check-timeout: 5s
+        health-check-critical-timeout: 30s
+        ip-address: ${HOST_IP:127.0.0.1}
+        tags:
+          - config-server
+          - infrastructure
+          - java24
+          - spring-cloud
+        metadata:
+          version: "2.0.0"
+          profile: "${spring.profiles.active:consul}"
+          service-type: config
+          java-version: "24"
+
+# Server Configuration
+server:
+  port: ${CONFIG_SERVER_PORT:8888}
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    mime-types: application/json,application/yaml,text/yaml,text/plain
+  error:
+    include-stacktrace: never
+    include-message: always
+
+# Security Configuration
+security:
+  user:
+    name: ${CONFIG_SERVER_USERNAME:admin}
+    password: ${CONFIG_SERVER_PASSWORD:admin123}
+    roles: ADMIN
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,configprops,env
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+    info:
+      enabled: true
+  info:
+    env:
+      enabled: true
+    git:
+      enabled: true
+    java:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  server:
+    port: ${MANAGEMENT_PORT:8889}
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster: INFO
+    org.springframework.cloud.config: DEBUG
+    org.springframework.security: INFO
+    org.springframework.cloud.consul: INFO
+    consul: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/config-server.log
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+  cloud:
+    config:
+      server:
+        git:
+          uri: file://${HOME}/trademaster-config
+        native:
+          search-locations: file:./config/dev/
+
+logging:
+  level:
+    ROOT: INFO
+    com.trademaster: DEBUG
+    org.springframework.cloud.config: DEBUG
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+  cloud:
+    config:
+      server:
+        git:
+          uri: ${CONFIG_GIT_URI:https://github.com/trademaster/config-repo}
+          username: ${GIT_USERNAME}
+          password: ${GIT_PASSWORD}
+
+security:
+  user:
+    name: ${CONFIG_SERVER_USERNAME}
+    password: ${CONFIG_SERVER_PASSWORD}
+
+logging:
+  level:
+    ROOT: WARN
+    com.trademaster: INFO

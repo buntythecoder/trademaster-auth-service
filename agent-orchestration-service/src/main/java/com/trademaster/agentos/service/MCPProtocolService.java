@@ -2,6 +2,8 @@ package com.trademaster.agentos.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trademaster.agentos.config.AgentOSMetrics;
+import com.trademaster.agentos.functional.Result;
+import com.trademaster.agentos.functional.MCPError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -38,7 +40,7 @@ public class MCPProtocolService {
     private final Map<String, MCPTool> toolRegistry = new ConcurrentHashMap<>();
     
     /**
-     * ✅ MCP CORE: List available resources
+     * ✅ FUNCTIONAL ERROR HANDLING: List available resources using Railway Programming
      */
     @Async
     public CompletableFuture<List<MCPResource>> listResources() {
@@ -46,31 +48,37 @@ public class MCPProtocolService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("mcp_list_resources");
             
-            try {
-                List<MCPResource> resources = List.copyOf(resourceRegistry.values());
-                timer.stop(metrics.getApiResponseTime());
-                
-                structuredLogger.logBusinessTransaction(
-                    "mcp_operation",
-                    "resources",
-                    "list",
-                    "system",
-                    Map.of("resourceCount", resources.size())
-                );
-                
-                return resources;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("mcp_list_resources", e.getClass().getSimpleName());
-                structuredLogger.logError("mcp_list_resources", e.getMessage(), e, Map.of());
-                throw new RuntimeException("Failed to list MCP resources", e);
-            }
+            return listResourcesFunctional()
+                .onSuccess(resources -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logBusinessTransaction(
+                        "mcp_operation",
+                        "resources",
+                        "list",
+                        "system",
+                        Map.of("resourceCount", resources.size())
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("mcp_list_resources", error.getErrorCode());
+                    structuredLogger.logError("mcp_list_resources", error.getMessage(), null, 
+                        Map.of("errorCode", error.getErrorCode()));
+                })
+                .getOrThrow(error -> new RuntimeException("Failed to list MCP resources: " + error.getMessage()));
         });
     }
     
     /**
-     * ✅ MCP CORE: Read specific resource
+     * ✅ RAILWAY PROGRAMMING: Functional resource listing pipeline
+     */
+    private Result<List<MCPResource>, MCPError> listResourcesFunctional() {
+        return Result.tryExecute(() -> List.copyOf(resourceRegistry.values()))
+            .mapError(e -> MCPError.protocolError("list_resources", "Failed to copy resource registry", Map.of("resourceCount", resourceRegistry.size())));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Read specific resource using Railway Programming
      */
     @Async
     public CompletableFuture<MCPResourceContent> readResource(String uri) {
@@ -78,30 +86,34 @@ public class MCPProtocolService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("mcp_read_resource");
             
-            try {
-                MCPResource resource = resourceRegistry.get(uri);
-                if (resource == null) {
-                    throw new IllegalArgumentException("Resource not found: " + uri);
-                }
-                
-                MCPResourceContent content = resource.getContentProvider().get();
-                
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logDataAccess("mcp_resource", uri, "read", "system");
-                
-                return content;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("mcp_read_resource", e.getClass().getSimpleName());
-                structuredLogger.logError("mcp_read_resource", e.getMessage(), e, Map.of("uri", uri));
-                throw new RuntimeException("Failed to read MCP resource: " + uri, e);
-            }
+            return readResourceFunctional(uri)
+                .onSuccess(content -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logDataAccess("mcp_resource", uri, "read", "system");
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("mcp_read_resource", error.getErrorCode());
+                    structuredLogger.logError("mcp_read_resource", error.getMessage(), null, 
+                        Map.of("uri", uri, "errorCode", error.getErrorCode()));
+                })
+                .getOrThrow(error -> new RuntimeException("Failed to read MCP resource: " + uri + ". " + error.getMessage()));
         });
     }
     
     /**
-     * ✅ MCP CORE: Execute tool
+     * ✅ RAILWAY PROGRAMMING: Functional resource reading pipeline
+     */
+    private Result<MCPResourceContent, MCPError> readResourceFunctional(String uri) {
+        return Result.fromNullable(resourceRegistry.get(uri), MCPError.resourceNotFound(uri, "read_resource"))
+            .flatMap(resource -> 
+                Result.tryExecute(() -> resource.getContentProvider().get())
+                    .mapError(e -> MCPError.executionError("resource_content_provider", "Failed to get resource content", Map.of("uri", uri), e))
+            );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Execute tool using Railway Programming
      */
     @Async
     public CompletableFuture<MCPToolResult> callTool(String toolName, Object parameters) {
@@ -109,37 +121,40 @@ public class MCPProtocolService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("mcp_call_tool");
             
-            try {
-                MCPTool tool = toolRegistry.get(toolName);
-                if (tool == null) {
-                    throw new IllegalArgumentException("Tool not found: " + toolName);
-                }
-                
-                MCPToolResult result = tool.execute(parameters);
-                
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logBusinessTransaction(
-                    "mcp_tool_execution",
-                    toolName,
-                    "execute",
-                    "system",
-                    Map.of("success", result.isSuccess(), "duration", result.getDurationMs())
-                );
-                
-                return result;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("mcp_call_tool", e.getClass().getSimpleName());
-                structuredLogger.logError("mcp_call_tool", e.getMessage(), e, 
-                    Map.of("toolName", toolName, "parameters", parameters));
-                throw new RuntimeException("Failed to execute MCP tool: " + toolName, e);
-            }
+            return callToolFunctional(toolName, parameters)
+                .onSuccess(result -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logBusinessTransaction(
+                        "mcp_tool_execution",
+                        toolName,
+                        "execute",
+                        "system",
+                        Map.of("success", result.isSuccess(), "duration", result.getDurationMs())
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("mcp_call_tool", error.getErrorCode());
+                    structuredLogger.logError("mcp_call_tool", error.getMessage(), null,
+                        Map.of("toolName", toolName, "parameters", parameters, "errorCode", error.getErrorCode()));
+                })
+                .getOrThrow(error -> new RuntimeException("Failed to execute MCP tool: " + toolName + ". " + error.getMessage()));
         });
     }
     
     /**
-     * ✅ TRADEMASTER EXTENSION: Execute trade order via MCP
+     * ✅ RAILWAY PROGRAMMING: Functional tool execution pipeline
+     */
+    private Result<MCPToolResult, MCPError> callToolFunctional(String toolName, Object parameters) {
+        return Result.fromNullable(toolRegistry.get(toolName), MCPError.toolNotFound(toolName, "call_tool"))
+            .flatMap(tool -> 
+                Result.tryExecute(() -> tool.execute(parameters))
+                    .mapError(e -> MCPError.executionError(toolName, "Tool execution failed", parameters, e))
+            );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Execute trade order via MCP using Railway Programming
      */
     @Async
     public CompletableFuture<MCPExecutionResult> executeTradeOrder(MCPTradeOrder order) {
@@ -147,43 +162,43 @@ public class MCPProtocolService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("mcp_execute_trade_order");
             
-            try {
-                // ✅ VALIDATION: Validate trade order
-                validateTradeOrder(order);
-                
-                // ✅ MCP EXECUTION: Execute via MCP protocol
-                MCPToolResult toolResult = callTool("trade_execution", order).join();
-                
-                MCPExecutionResult result = MCPExecutionResult.builder()
-                    .orderId(order.getOrderId())
-                    .status(toolResult.isSuccess() ? "EXECUTED" : "FAILED")
-                    .executionTime(toolResult.getDurationMs())
-                    .details(toolResult.getData())
-                    .build();
-                
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logBusinessTransaction(
-                    "mcp_trade_execution",
-                    order.getOrderId(),
-                    "execute",
-                    "system",
-                    Map.of("symbol", order.getSymbol(), "quantity", order.getQuantity(), "status", result.getStatus())
-                );
-                
-                return result;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("mcp_execute_trade_order", e.getClass().getSimpleName());
-                structuredLogger.logError("mcp_execute_trade_order", e.getMessage(), e,
-                    Map.of("orderId", order.getOrderId(), "symbol", order.getSymbol()));
-                throw new RuntimeException("Failed to execute trade order via MCP: " + order.getOrderId(), e);
-            }
+            return executeTradeOrderFunctional(order)
+                .onSuccess(result -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logBusinessTransaction(
+                        "mcp_trade_execution",
+                        order.getOrderId(),
+                        "execute",
+                        "system",
+                        Map.of("symbol", order.getSymbol(), "quantity", order.getQuantity(), "status", result.getStatus())
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("mcp_execute_trade_order", error.getErrorCode());
+                    structuredLogger.logError("mcp_execute_trade_order", error.getMessage(), null,
+                        Map.of("orderId", order.getOrderId(), "symbol", order.getSymbol(), "errorCode", error.getErrorCode()));
+                })
+                .getOrThrow(error -> new RuntimeException("Failed to execute trade order via MCP: " + order.getOrderId() + ". " + error.getMessage()));
         });
     }
     
     /**
-     * ✅ TRADEMASTER EXTENSION: Analyze market data via MCP
+     * ✅ RAILWAY PROGRAMMING: Functional trade order execution pipeline
+     */
+    private Result<MCPExecutionResult, MCPError> executeTradeOrderFunctional(MCPTradeOrder order) {
+        return validateTradeOrderFunctional(order)
+            .flatMap(ignored -> callToolFunctional("trade_execution", order))
+            .map(toolResult -> MCPExecutionResult.builder()
+                .orderId(order.getOrderId())
+                .status(toolResult.isSuccess() ? "EXECUTED" : "FAILED")
+                .executionTime(toolResult.getDurationMs())
+                .details(toolResult.getData())
+                .build());
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Analyze market data via MCP using Railway Programming
      */
     @Async
     public CompletableFuture<MCPMarketInsights> analyzeMarketData(MCPAnalysisRequest request) {
@@ -191,33 +206,36 @@ public class MCPProtocolService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("mcp_analyze_market_data");
             
-            try {
-                MCPToolResult toolResult = callTool("market_analysis", request).join();
-                
-                MCPMarketInsights insights = objectMapper.convertValue(
-                    toolResult.getData(), 
-                    MCPMarketInsights.class
-                );
-                
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logBusinessTransaction(
-                    "mcp_market_analysis",
-                    request.getSymbol(),
-                    "analyze",
-                    "system",
-                    Map.of("timeframe", request.getTimeframe(), "indicators", request.getIndicators().size())
-                );
-                
-                return insights;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("mcp_analyze_market_data", e.getClass().getSimpleName());
-                structuredLogger.logError("mcp_analyze_market_data", e.getMessage(), e,
-                    Map.of("symbol", request.getSymbol(), "timeframe", request.getTimeframe()));
-                throw new RuntimeException("Failed to analyze market data via MCP: " + request.getSymbol(), e);
-            }
+            return analyzeMarketDataFunctional(request)
+                .onSuccess(insights -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logBusinessTransaction(
+                        "mcp_market_analysis",
+                        request.getSymbol(),
+                        "analyze",
+                        "system",
+                        Map.of("timeframe", request.getTimeframe(), "indicators", request.getIndicators().size())
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("mcp_analyze_market_data", error.getErrorCode());
+                    structuredLogger.logError("mcp_analyze_market_data", error.getMessage(), null,
+                        Map.of("symbol", request.getSymbol(), "timeframe", request.getTimeframe(), "errorCode", error.getErrorCode()));
+                })
+                .getOrThrow(error -> new RuntimeException("Failed to analyze market data via MCP: " + request.getSymbol() + ". " + error.getMessage()));
         });
+    }
+    
+    /**
+     * ✅ RAILWAY PROGRAMMING: Functional market data analysis pipeline
+     */
+    private Result<MCPMarketInsights, MCPError> analyzeMarketDataFunctional(MCPAnalysisRequest request) {
+        return callToolFunctional("market_analysis", request)
+            .flatMap(toolResult -> 
+                Result.tryExecute(() -> objectMapper.convertValue(toolResult.getData(), MCPMarketInsights.class))
+                    .mapError(e -> MCPError.deserializationError("MCPMarketInsights", e))
+            );
     }
     
     /**
@@ -262,16 +280,48 @@ public class MCPProtocolService {
         );
     }
     
+    /**
+     * ✅ FUNCTIONAL VALIDATION: Validate trade order using Result monad
+     */
+    private Result<Boolean, MCPError> validateTradeOrderFunctional(MCPTradeOrder order) {
+        return validateOrderId(order.getOrderId())
+            .flatMap(ignored -> validateSymbol(order.getSymbol()))
+            .flatMap(ignored -> validateQuantity(order.getQuantity()));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL VALIDATION: Validate order ID
+     */
+    private Result<Boolean, MCPError> validateOrderId(String orderId) {
+        return orderId != null && !orderId.isBlank()
+            ? Result.success(true)
+            : Result.failure(MCPError.validationError("orderId", String.valueOf(orderId), "Order ID is required and cannot be blank"));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL VALIDATION: Validate symbol
+     */
+    private Result<Boolean, MCPError> validateSymbol(String symbol) {
+        return symbol != null && !symbol.isBlank()
+            ? Result.success(true)
+            : Result.failure(MCPError.validationError("symbol", String.valueOf(symbol), "Symbol is required and cannot be blank"));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL VALIDATION: Validate quantity
+     */
+    private Result<Boolean, MCPError> validateQuantity(double quantity) {
+        return quantity > 0
+            ? Result.success(true)
+            : Result.failure(MCPError.validationError("quantity", String.valueOf(quantity), "Quantity must be positive"));
+    }
+    
+    /**
+     * ✅ LEGACY COMPATIBILITY: Keep original method for backward compatibility
+     */
     private void validateTradeOrder(MCPTradeOrder order) {
-        if (order.getOrderId() == null || order.getOrderId().isBlank()) {
-            throw new IllegalArgumentException("Order ID is required");
-        }
-        if (order.getSymbol() == null || order.getSymbol().isBlank()) {
-            throw new IllegalArgumentException("Symbol is required");
-        }
-        if (order.getQuantity() <= 0) {
-            throw new IllegalArgumentException("Quantity must be positive");
-        }
+        validateTradeOrderFunctional(order)
+            .getOrThrow(error -> new IllegalArgumentException(error.getMessage()));
     }
     
     // ✅ MCP DATA MODELS

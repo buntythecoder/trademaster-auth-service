@@ -120,28 +120,28 @@ class PortfolioMetrics {
             .register(meterRegistry);
         
         // Initialize gauges
-        Gauge.builder("portfolio.active.count")
+        Gauge.builder("portfolio.active.count", this, PortfolioMetrics::getActivePortfoliosCount)
             .description("Number of active portfolios")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PortfolioMetrics::getActivePortfoliosCount);
+            .register(meterRegistry);
             
-        Gauge.builder("portfolio.aum.total")
+        Gauge.builder("portfolio.aum.total", this, PortfolioMetrics::getTotalAUM)
             .description("Total Assets Under Management")
             .tag("service", "portfolio")
             .tag("currency", "INR")
-            .register(meterRegistry, this, PortfolioMetrics::getTotalAUM);
+            .register(meterRegistry);
             
-        Gauge.builder("portfolio.pnl.realized.total")
+        Gauge.builder("portfolio.pnl.realized.total", this, PortfolioMetrics::getTotalRealizedPnL)
             .description("Total Realized P&L across all portfolios")
             .tag("service", "portfolio")
             .tag("currency", "INR")
-            .register(meterRegistry, this, PortfolioMetrics::getTotalRealizedPnL);
+            .register(meterRegistry);
             
-        Gauge.builder("portfolio.pnl.unrealized.total")
+        Gauge.builder("portfolio.pnl.unrealized.total", this, PortfolioMetrics::getTotalUnrealizedPnL)
             .description("Total Unrealized P&L across all portfolios")
             .tag("service", "portfolio")
             .tag("currency", "INR")
-            .register(meterRegistry, this, PortfolioMetrics::getTotalUnrealizedPnL);
+            .register(meterRegistry);
         
         // Initialize timers
         this.portfolioCreationTimer = Timer.builder("portfolio.creation.duration")
@@ -171,10 +171,7 @@ class PortfolioMetrics {
     }
     
     public void incrementStatusChanges(String fromStatus, String toStatus) {
-        portfolioStatusChanges.increment(
-            "from_status", fromStatus,
-            "to_status", toStatus
-        );
+        portfolioStatusChanges.increment();
         log.info("Portfolio status changed from {} to {}", fromStatus, toStatus);
     }
     
@@ -289,20 +286,20 @@ class PositionMetrics {
             .register(meterRegistry);
         
         // Initialize gauges
-        Gauge.builder("position.total.count")
+        Gauge.builder("position.total.count", this, PositionMetrics::getTotalPositionsCount)
             .description("Total number of open positions")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PositionMetrics::getTotalPositionsCount);
+            .register(meterRegistry);
             
-        Gauge.builder("position.profitable.count")
+        Gauge.builder("position.profitable.count", this, PositionMetrics::getProfitablePositionsCount)
             .description("Number of profitable positions")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PositionMetrics::getProfitablePositionsCount);
+            .register(meterRegistry);
             
-        Gauge.builder("position.losing.count")
+        Gauge.builder("position.losing.count", this, PositionMetrics::getLosingPositionsCount)
             .description("Number of losing positions")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PositionMetrics::getLosingPositionsCount);
+            .register(meterRegistry);
         
         // Initialize timers
         this.positionUpdateTimer = Timer.builder("position.update.duration")
@@ -318,19 +315,12 @@ class PositionMetrics {
     
     // Increment methods
     public void incrementPositionsOpened(String symbol, String exchange) {
-        positionsOpened.increment(
-            "symbol", symbol,
-            "exchange", exchange
-        );
+        positionsOpened.increment();
         log.debug("Position opened for symbol: {} on exchange: {}", symbol, exchange);
     }
     
     public void incrementPositionsClosed(String symbol, String exchange, String reason) {
-        positionsClosed.increment(
-            "symbol", symbol,
-            "exchange", exchange,
-            "reason", reason
-        );
+        positionsClosed.increment();
         log.info("Position closed for symbol: {} on exchange: {} - reason: {}", symbol, exchange, reason);
     }
     
@@ -339,7 +329,8 @@ class PositionMetrics {
     }
     
     public void incrementPriceUpdates(String symbol) {
-        priceUpdates.increment("symbol", symbol);
+        priceUpdates.increment();
+        log.debug("Price update for symbol: {}", symbol);
     }
     
     // Update methods for gauges
@@ -436,15 +427,15 @@ class PerformanceMetrics {
             .register(meterRegistry);
         
         // Initialize gauges
-        Gauge.builder("virtual.threads.active")
+        Gauge.builder("virtual.threads.active", this, PerformanceMetrics::getVirtualThreadsActive)
             .description("Number of active Virtual Threads")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PerformanceMetrics::getVirtualThreadsActive);
+            .register(meterRegistry);
             
-        Gauge.builder("database.connections.active")
+        Gauge.builder("database.connections.active", this, PerformanceMetrics::getDatabaseConnectionsActive)
             .description("Number of active database connections")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, PerformanceMetrics::getDatabaseConnectionsActive);
+            .register(meterRegistry);
         
         // Initialize timers
         this.apiResponseTimer = Timer.builder("api.response.duration")
@@ -465,24 +456,28 @@ class PerformanceMetrics {
     
     // Counter increment methods
     public void incrementApiRequests(String endpoint, String method) {
-        apiRequests.increment("endpoint", endpoint, "method", method);
+        apiRequests.increment();
+        log.debug("API request - endpoint: {}, method: {}", endpoint, method);
     }
     
     public void incrementApiErrors(String endpoint, String errorType) {
-        apiErrors.increment("endpoint", endpoint, "error_type", errorType);
+        apiErrors.increment();
         log.warn("API error on endpoint: {} - error type: {}", endpoint, errorType);
     }
     
     public void incrementDatabaseQueries(String queryType) {
-        databaseQueries.increment("query_type", queryType);
+        databaseQueries.increment();
+        log.debug("Database query executed - type: {}", queryType);
     }
     
     public void incrementCacheHits(String cacheType) {
-        cacheHits.increment("cache_type", cacheType);
+        cacheHits.increment();
+        log.debug("Cache hit - type: {}", cacheType);
     }
     
     public void incrementCacheMisses(String cacheType) {
-        cacheMisses.increment("cache_type", cacheType);
+        cacheMisses.increment();
+        log.debug("Cache miss - type: {}", cacheType);
     }
     
     // Update methods for gauges
@@ -565,42 +560,36 @@ class RiskMetrics {
             .register(meterRegistry);
         
         // Initialize gauges
-        Gauge.builder("portfolio.var")
+        Gauge.builder("portfolio.var", this, RiskMetrics::getPortfolioVaR)
             .description("Portfolio Value at Risk")
             .tag("service", "portfolio")
             .tag("confidence", "95")
-            .register(meterRegistry, this, RiskMetrics::getPortfolioVaR);
+            .register(meterRegistry);
             
-        Gauge.builder("portfolio.concentration.max")
+        Gauge.builder("portfolio.concentration.max", this, RiskMetrics::getMaxConcentration)
             .description("Maximum position concentration")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, RiskMetrics::getMaxConcentration);
+            .register(meterRegistry);
             
-        Gauge.builder("portfolio.exposure.total")
+        Gauge.builder("portfolio.exposure.total", this, RiskMetrics::getTotalExposure)
             .description("Total portfolio exposure")
             .tag("service", "portfolio")
-            .register(meterRegistry, this, RiskMetrics::getTotalExposure);
+            .register(meterRegistry);
     }
     
     // Increment methods
     public void incrementRiskViolations(String violationType, String severity) {
-        riskViolations.increment(
-            "violation_type", violationType,
-            "severity", severity
-        );
+        riskViolations.increment();
         log.warn("Risk violation detected - type: {}, severity: {}", violationType, severity);
     }
     
     public void incrementMarginCalls(String portfolioId) {
-        marginCalls.increment("portfolio_id", portfolioId);
+        marginCalls.increment();
         log.error("Margin call issued for portfolio: {}", portfolioId);
     }
     
     public void incrementConcentrationAlerts(String symbol, String portfolioId) {
-        concentrationAlerts.increment(
-            "symbol", symbol,
-            "portfolio_id", portfolioId
-        );
+        concentrationAlerts.increment();
         log.warn("Concentration alert for symbol: {} in portfolio: {}", symbol, portfolioId);
     }
     

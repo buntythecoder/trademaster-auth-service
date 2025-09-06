@@ -1,0 +1,323 @@
+# ============================================
+# TradeMaster Agent Orchestration Service
+# Git Ignore Configuration
+# ============================================
+
+# IDE and Editor Files
+# --------------------
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.factorypath
+.settings/
+nbproject/
+.nb-gradle/
+.netbeans/
+
+# Java Build Artifacts
+# --------------------
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+build/
+target/
+out/
+classes/
+
+# Gradle Build System
+# -------------------
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+**/build/
+!src/**/build/
+
+# Maven Build System
+# ------------------
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Spring Boot Artifacts
+# ---------------------
+*.original
+.factorypath
+
+# Application Logs
+# ----------------
+*.log
+logs/
+log/
+*.log.*
+*.gz
+*.lck
+
+# JVM Crash Logs
+# ---------------
+hs_err_pid*.log
+replay_pid*.log
+
+# Temporary Files
+# ---------------
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Runtime Data
+# ------------
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage Reports
+# ----------------
+coverage/
+*.lcov
+.nyc_output/
+.coverage
+htmlcov/
+
+# Security & Secrets
+# ------------------
+*.pem
+*.key
+*.p12
+*.crt
+*.csr
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+secrets/
+**/secrets/
+application-secrets.yml
+application-secrets.yaml
+
+# Database Files
+# --------------
+*.db
+*.sqlite
+*.sqlite3
+h2/
+data/
+
+# Cache & Dependencies
+# --------------------
+node_modules/
+.npm
+.pnpm-store/
+bower_components/
+jspm_packages/
+
+# Operating System Files
+# ----------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Docker & Container Files
+# ------------------------
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# Kubernetes & Deployment
+# -----------------------
+*.kubeconfig
+k8s-secrets/
+helm/charts/*.tgz
+
+# Documentation Temp Files
+# ------------------------
+*.md.bak
+*.md.tmp
+docs/temp/
+docs/generated/
+
+# Test Reports & Data
+# ------------------
+test-results/
+reports/
+*.xml
+*.json
+allure-results/
+target/site/
+.pytest_cache/
+junit.xml
+TEST-*.xml
+
+# Application Specific
+# --------------------
+config/local/
+config/development/local/
+application-local.yml
+application-local.yaml
+
+# Backup Files
+# ------------
+*.bak
+*.backup
+*~
+
+# Compiled Python (if any Python tools)
+# ------------------------------------
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Redis Dump Files
+# ----------------
+dump.rdb
+
+# Elasticsearch Data
+# ------------------
+data/elasticsearch/
+
+# Monitoring & Metrics
+# --------------------
+*.hprof
+*.jfr
+
+# Custom Application Data
+# -----------------------
+uploads/
+downloads/
+temp-data/
+cache/
+work/
+
+# Package Lock Files (keep yarn.lock if using yarn)
+# ------------------------------------------------
+package-lock.json
+
+# OS Generated Files
+# ------------------
+Icon?
+.AppleDouble
+.LSOverride
+.com.apple.timemachine.donotpresent
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows Generated Files
+# -----------------------
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# IntelliJ IDEA
+# -------------
+*.iml
+.idea/*
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/runConfigurations/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries
+.idea/shelf
+
+# Eclipse
+# -------
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.loadpath
+.recommenders
+
+# Visual Studio Code
+# ------------------
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains
+# ---------
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# Keep Important Files
+# -------------------
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!.gitkeep
+!README.md
+!LICENSE
+!CHANGELOG.md
+!docs/README.md
+
+# Agent Orchestration Service Specific
+# ------------------------------------
+agent-data/
+agent-logs/
+agent-cache/
+mcp-protocol-data/
+orchestration-temp/
+
+# Performance & Profiling
+# -----------------------
+*.hprof
+*.jfr
+*.prof
+profiling/
+
+# Development Artifacts  
+# ---------------------
+.attach_pid*
+*.orig
+*.rej
+*.diff
+*.patch
+
+# End of .gitignore

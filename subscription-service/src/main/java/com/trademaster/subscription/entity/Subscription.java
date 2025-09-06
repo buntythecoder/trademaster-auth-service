@@ -177,6 +177,30 @@ public class Subscription {
      */
     @Column(name = "promotion_code", length = 50)
     private String promotionCode;
+    
+    /**
+     * When subscription was activated (if applicable)
+     */
+    @Column(name = "activated_date")
+    private LocalDateTime activatedDate;
+    
+    /**
+     * When subscription was cancelled (if applicable)
+     */
+    @Column(name = "cancelled_date")
+    private LocalDateTime cancelledDate;
+    
+    /**
+     * When subscription was upgraded (if applicable)
+     */
+    @Column(name = "upgraded_date")
+    private LocalDateTime upgradedDate;
+    
+    /**
+     * Last billing date
+     */
+    @Column(name = "last_billed_date")
+    private LocalDateTime lastBilledDate;
 
     /**
      * Additional metadata as JSON

@@ -2,11 +2,8 @@ package com.trademaster.subscription.dto;
 
 import com.trademaster.subscription.enums.BillingCycle;
 import com.trademaster.subscription.enums.SubscriptionTier;
-import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.util.Map;
 import java.util.UUID;
@@ -14,60 +11,68 @@ import java.util.UUID;
 /**
  * Subscription Creation Request DTO
  * 
- * Request object for creating new subscriptions with validation.
+ * MANDATORY: Immutable Record - TradeMaster Rule #9
+ * MANDATORY: Functional Programming - TradeMaster Rule #3
  * 
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
-public class SubscriptionRequest {
-
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record SubscriptionRequest(
+    UUID userId,
+    SubscriptionTier tier,
+    BillingCycle billingCycle,
+    Boolean startTrial,
+    String promotionCode,
+    UUID paymentMethodId,
+    Map<String, Object> metadata,
+    Boolean autoRenewal
+) {
+    
     /**
-     * User ID for the subscription
+     * Default constructor with validation
      */
-    @NotNull(message = "User ID is required")
-    private UUID userId;
-
+    public SubscriptionRequest {
+        // Validation using pattern matching
+        switch (userId) {
+            case null -> throw new IllegalArgumentException("User ID is required");
+            default -> {}
+        }
+        
+        switch (tier) {
+            case null -> throw new IllegalArgumentException("Subscription tier is required");
+            default -> {}
+        }
+        
+        // Set defaults using pattern matching
+        billingCycle = switch (billingCycle) {
+            case null -> BillingCycle.MONTHLY;
+            default -> billingCycle;
+        };
+        
+        startTrial = switch (startTrial) {
+            case null -> false;
+            default -> startTrial;
+        };
+        
+        autoRenewal = switch (autoRenewal) {
+            case null -> true;
+            default -> autoRenewal;
+        };
+    }
+    
     /**
-     * Subscription tier
+     * Check if trial should be started
      */
-    @NotNull(message = "Subscription tier is required")
-    private SubscriptionTier tier;
-
+    public boolean isStartTrial() {
+        return startTrial != null && startTrial;
+    }
+    
     /**
-     * Billing cycle preference
+     * Check if auto-renewal is enabled
      */
-    @NotNull(message = "Billing cycle is required")
-    @Builder.Default
-    private BillingCycle billingCycle = BillingCycle.MONTHLY;
-
-    /**
-     * Start with trial period
-     */
-    @Builder.Default
-    private Boolean startTrial = false;
-
-    /**
-     * Promotion code (optional)
-     */
-    private String promotionCode;
-
-    /**
-     * Payment method ID from payment service
-     */
-    private UUID paymentMethodId;
-
-    /**
-     * Additional metadata
-     */
-    private Map<String, Object> metadata;
-
-    /**
-     * Auto-renewal preference
-     */
-    @Builder.Default
-    private Boolean autoRenewal = true;
+    public boolean isAutoRenewal() {
+        return autoRenewal != null && autoRenewal;
+    }
 }

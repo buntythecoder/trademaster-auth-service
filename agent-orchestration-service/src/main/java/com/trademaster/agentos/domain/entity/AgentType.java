@@ -36,11 +36,32 @@ public enum AgentType {
     RISK_MANAGEMENT("Risk Management Agent", "Monitors and manages trading risks"),
     
     /**
+     * Risk Assessment Agent
+     * Specializes in risk assessment and evaluation.
+     * Capabilities: Risk evaluation, assessment scoring, risk categorization
+     */
+    RISK_ASSESSMENT("Risk Assessment Agent", "Evaluates and assesses trading risks"),
+    
+    /**
+     * Compliance Check Agent
+     * Specializes in regulatory compliance checking and validation.
+     * Capabilities: Compliance validation, regulatory check, audit trail
+     */
+    COMPLIANCE_CHECK("Compliance Check Agent", "Validates regulatory compliance"),
+    
+    /**
      * Notification Agent
      * Specializes in user communications, alerts, and reporting.
      * Capabilities: Email/SMS alerts, push notifications, report generation
      */
     NOTIFICATION("Notification Agent", "Handles user notifications and alerts"),
+    
+    /**
+     * Data Processing Agent
+     * Specializes in data processing and analysis tasks.
+     * Capabilities: Data validation, transformation, aggregation
+     */
+    DATA_PROCESSING("Data Processing Agent", "Processes and analyzes data"),
     
     /**
      * Custom Agent
@@ -74,7 +95,10 @@ public enum AgentType {
             case PORTFOLIO_MANAGEMENT -> 5;    // Moderate load for complex calculations
             case TRADING_EXECUTION -> 8;       // High priority, moderate concurrency
             case RISK_MANAGEMENT -> 15;        // High throughput for monitoring
+            case RISK_ASSESSMENT -> 12;        // High throughput for risk evaluation
+            case COMPLIANCE_CHECK -> 10;       // Moderate throughput for compliance
             case NOTIFICATION -> 20;           // High throughput for notifications
+            case DATA_PROCESSING -> 15;        // High throughput for data processing
             case CUSTOM -> 5;                  // Conservative default for custom agents
         };
     }
@@ -108,11 +132,25 @@ public enum AgentType {
                 AgentCapability.VAR_CALCULATION,
                 AgentCapability.STRESS_TESTING
             };
+            case RISK_ASSESSMENT -> new AgentCapability[]{
+                AgentCapability.RISK_ASSESSMENT,
+                AgentCapability.VAR_CALCULATION,
+                AgentCapability.STRESS_TESTING
+            };
+            case COMPLIANCE_CHECK -> new AgentCapability[]{
+                AgentCapability.COMPLIANCE_CHECK,
+                AgentCapability.DATA_VALIDATION
+            };
             case NOTIFICATION -> new AgentCapability[]{
                 AgentCapability.EMAIL_ALERTS,
                 AgentCapability.SMS_ALERTS,
                 AgentCapability.PUSH_NOTIFICATIONS,
                 AgentCapability.REPORT_GENERATION
+            };
+            case DATA_PROCESSING -> new AgentCapability[]{
+                AgentCapability.DATA_VALIDATION,
+                AgentCapability.DATABASE_OPERATIONS,
+                AgentCapability.API_INTEGRATION
             };
             case CUSTOM -> new AgentCapability[]{
                 AgentCapability.CUSTOM_LOGIC

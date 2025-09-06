@@ -34,20 +34,11 @@ public final class ImmutableTaskQueue {
         
         @Override
         public int compareTo(QueueKey other) {
-            // ✅ PRIORITY ORDERING: Lower priority number = higher priority
-            int priorityComparison = Integer.compare(this.priority, other.priority);
-            if (priorityComparison != 0) {
-                return priorityComparison;
-            }
-            
-            // ✅ FIFO FOR SAME PRIORITY: Earlier created tasks first
-            int timeComparison = this.createdAt.compareTo(other.createdAt);
-            if (timeComparison != 0) {
-                return timeComparison;
-            }
-            
-            // ✅ STABLE SORTING: Task ID as tie-breaker
-            return Long.compare(this.taskId, other.taskId);
+            // ✅ FUNCTIONAL: Chain comparisons using functional composition
+            return java.util.Comparator.<QueueKey>comparingInt(QueueKey::priority)  // Lower priority number = higher priority
+                .thenComparing(QueueKey::createdAt)  // FIFO for same priority
+                .thenComparingLong(QueueKey::taskId)  // Stable sorting tie-breaker
+                .compare(this, other);
         }
         
         public static QueueKey of(TaskDto task) {
@@ -100,19 +91,30 @@ public final class ImmutableTaskQueue {
      * ✅ FACTORY METHOD: Create from collection
      */
     public static ImmutableTaskQueue of(Collection<TaskDto> tasks, int maxSize) {
-        Map<Long, TaskDto> taskMap = new HashMap<>();
-        NavigableMap<QueueKey, Long> queue = new TreeMap<>();
-        Map<TaskStatus, Set<Long>> byStatus = new HashMap<>();
-        
-        for (TaskDto task : tasks) {
-            taskMap.put(task.taskId(), task);
+        // ✅ FUNCTIONAL: Replace for loop with stream operations
+        Map<Long, TaskDto> taskMap = tasks.stream()
+            .collect(java.util.stream.Collectors.toMap(
+                TaskDto::taskId,
+                task -> task
+            ));
             
-            if (task.isPending()) {
-                queue.put(QueueKey.of(task), task.taskId());
-            }
+        NavigableMap<QueueKey, Long> queue = tasks.stream()
+            .filter(TaskDto::isPending)
+            .collect(java.util.stream.Collectors.toMap(
+                QueueKey::of,
+                TaskDto::taskId,
+                (existing, replacement) -> existing,  // Keep existing for duplicates
+                TreeMap::new
+            ));
             
-            byStatus.computeIfAbsent(task.status(), k -> new HashSet<>()).add(task.taskId());
-        }
+        Map<TaskStatus, Set<Long>> byStatus = tasks.stream()
+            .collect(java.util.stream.Collectors.groupingBy(
+                TaskDto::status,
+                java.util.stream.Collectors.mapping(
+                    TaskDto::taskId,
+                    java.util.stream.Collectors.toSet()
+                )
+            ));
         
         return new ImmutableTaskQueue(
             taskMap,
@@ -128,26 +130,34 @@ public final class ImmutableTaskQueue {
      * ✅ IMMUTABLE OPERATION: Enqueue task (returns new instance)
      */
     public QueueOperationResult<ImmutableTaskQueue> enqueue(TaskDto task) {
-        if (tasks.containsKey(task.taskId())) {
-            return QueueOperationResult.unchanged(this, "Task already exists");
-        }
-        
-        if (size() >= maxSize) {
-            return QueueOperationResult.failed(this, "Queue is full");
-        }
-        
+        // ✅ FUNCTIONAL: Replace if-else with Optional and validation chain
+        return Optional.of(task)
+            .filter(t -> !tasks.containsKey(t.taskId()))
+            .map(t -> Optional.of(size())
+                .filter(s -> s < maxSize)
+                .map(s -> createEnqueuedQueue(t))
+                .map(queue -> QueueOperationResult.success(queue, "Task enqueued successfully"))
+                .orElse(QueueOperationResult.failed(this, "Queue is full"))
+            )
+            .orElse(QueueOperationResult.unchanged(this, "Task already exists"));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Helper method to create new queue with enqueued task
+     */
+    private ImmutableTaskQueue createEnqueuedQueue(TaskDto task) {
         Map<Long, TaskDto> newTasks = new HashMap<>(tasks);
         newTasks.put(task.taskId(), task);
         
         NavigableMap<QueueKey, Long> newPriorityQueue = new TreeMap<>(priorityQueue);
-        if (task.isPending()) {
-            newPriorityQueue.put(QueueKey.of(task), task.taskId());
-        }
+        Optional.of(task)
+            .filter(TaskDto::isPending)
+            .ifPresent(t -> newPriorityQueue.put(QueueKey.of(t), t.taskId()));
         
         Map<TaskStatus, Set<Long>> newByStatus = new HashMap<>(tasksByStatus);
         newByStatus.computeIfAbsent(task.status(), k -> new HashSet<>()).add(task.taskId());
         
-        ImmutableTaskQueue newQueue = new ImmutableTaskQueue(
+        return new ImmutableTaskQueue(
             newTasks,
             newPriorityQueue,
             newByStatus,
@@ -155,41 +165,37 @@ public final class ImmutableTaskQueue {
             version + 1,
             maxSize
         );
-        
-        return QueueOperationResult.success(newQueue, "Task enqueued successfully");
     }
     
     /**
      * ✅ IMMUTABLE OPERATION: Dequeue highest priority task
      */
     public DequeueResult dequeue() {
-        if (priorityQueue.isEmpty()) {
-            return new DequeueResult(this, Optional.empty(), "Queue is empty");
-        }
-        
-        Map.Entry<QueueKey, Long> firstEntry = priorityQueue.firstEntry();
-        QueueKey queueKey = firstEntry.getKey();
-        Long taskId = firstEntry.getValue();
-        TaskDto task = tasks.get(taskId);
-        
-        if (task == null) {
-            // Inconsistent state - remove from queue and try again
-            NavigableMap<QueueKey, Long> cleanedQueue = new TreeMap<>(priorityQueue);
-            cleanedQueue.remove(queueKey);
-            
-            ImmutableTaskQueue cleanedTaskQueue = new ImmutableTaskQueue(
-                tasks,
-                cleanedQueue,
-                tasksByStatus,
-                Instant.now(),
-                version + 1,
-                maxSize
-            );
-            
-            return cleanedTaskQueue.dequeue();
-        }
-        
-        // Remove from queue and update status to IN_PROGRESS
+        // ✅ FUNCTIONAL: Replace if-else with Optional chain
+        return Optional.of(priorityQueue)
+            .filter(queue -> !queue.isEmpty())
+            .map(NavigableMap::firstEntry)
+            .map(entry -> processDequeue(entry.getKey(), entry.getValue()))
+            .orElse(new DequeueResult(this, Optional.empty(), "Queue is empty"));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Process dequeue operation using functional composition
+     */
+    private DequeueResult processDequeue(QueueKey queueKey, Long taskId) {
+        return Optional.ofNullable(tasks.get(taskId))
+            .map(task -> createDequeuedQueue(queueKey, taskId, task))
+            .orElseGet(() -> {
+                // Handle inconsistent state functionally
+                ImmutableTaskQueue cleanedQueue = createCleanedQueue(queueKey);
+                return cleanedQueue.dequeue();
+            });
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Create new queue with dequeued task
+     */
+    private DequeueResult createDequeuedQueue(QueueKey queueKey, Long taskId, TaskDto task) {
         NavigableMap<QueueKey, Long> newQueue = new TreeMap<>(priorityQueue);
         newQueue.remove(queueKey);
         
@@ -205,7 +211,8 @@ public final class ImmutableTaskQueue {
         Map<Long, TaskDto> newTasks = new HashMap<>(tasks);
         newTasks.put(taskId, inProgressTask);
         
-        Map<TaskStatus, Set<Long>> newByStatus = updateStatusMap(tasksByStatus, taskId, TaskStatus.PENDING, TaskStatus.IN_PROGRESS);
+        Map<TaskStatus, Set<Long>> newByStatus = updateStatusMap(
+            tasksByStatus, taskId, TaskStatus.PENDING, TaskStatus.IN_PROGRESS);
         
         ImmutableTaskQueue newTaskQueue = new ImmutableTaskQueue(
             newTasks,
@@ -220,18 +227,41 @@ public final class ImmutableTaskQueue {
     }
     
     /**
+     * ✅ FUNCTIONAL: Create cleaned queue removing inconsistent entry
+     */
+    private ImmutableTaskQueue createCleanedQueue(QueueKey queueKey) {
+        NavigableMap<QueueKey, Long> cleanedQueue = new TreeMap<>(priorityQueue);
+        cleanedQueue.remove(queueKey);
+        
+        return new ImmutableTaskQueue(
+            tasks,
+            cleanedQueue,
+            tasksByStatus,
+            Instant.now(),
+            version + 1,
+            maxSize
+        );
+    }
+    
+    /**
      * ✅ IMMUTABLE OPERATION: Update task status
      */
     public QueueOperationResult<ImmutableTaskQueue> updateTaskStatus(Long taskId, TaskStatus newStatus) {
-        TaskDto existingTask = tasks.get(taskId);
-        if (existingTask == null) {
-            return QueueOperationResult.unchanged(this, "Task not found");
-        }
-        
-        if (existingTask.status() == newStatus) {
-            return QueueOperationResult.unchanged(this, "Status unchanged");
-        }
-        
+        // ✅ FUNCTIONAL: Replace if-else with Optional validation chain
+        return Optional.ofNullable(tasks.get(taskId))
+            .filter(existingTask -> existingTask.status() != newStatus)
+            .map(existingTask -> createUpdatedTaskQueue(taskId, existingTask, newStatus))
+            .map(queue -> QueueOperationResult.success(queue, "Task status updated"))
+            .orElse(Optional.ofNullable(tasks.get(taskId))
+                .map(task -> QueueOperationResult.unchanged(this, "Status unchanged"))
+                .orElse(QueueOperationResult.unchanged(this, "Task not found"))
+            );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Create new queue with updated task status
+     */
+    private ImmutableTaskQueue createUpdatedTaskQueue(Long taskId, TaskDto existingTask, TaskStatus newStatus) {
         TaskDto updatedTask = TaskDto.minimal(
             existingTask.taskId(),
             existingTask.taskName(),
@@ -244,21 +274,11 @@ public final class ImmutableTaskQueue {
         Map<Long, TaskDto> newTasks = new HashMap<>(tasks);
         newTasks.put(taskId, updatedTask);
         
-        NavigableMap<QueueKey, Long> newQueue = new TreeMap<>(priorityQueue);
+        NavigableMap<QueueKey, Long> newQueue = updatePriorityQueue(existingTask, updatedTask, taskId);
+        Map<TaskStatus, Set<Long>> newByStatus = updateStatusMap(
+            tasksByStatus, taskId, existingTask.status(), newStatus);
         
-        // Remove from queue if it was pending and is now not pending
-        if (existingTask.isPending() && !updatedTask.isPending()) {
-            newQueue.remove(QueueKey.of(existingTask));
-        }
-        
-        // Add to queue if it was not pending and is now pending
-        if (!existingTask.isPending() && updatedTask.isPending()) {
-            newQueue.put(QueueKey.of(updatedTask), taskId);
-        }
-        
-        Map<TaskStatus, Set<Long>> newByStatus = updateStatusMap(tasksByStatus, taskId, existingTask.status(), newStatus);
-        
-        ImmutableTaskQueue newTaskQueue = new ImmutableTaskQueue(
+        return new ImmutableTaskQueue(
             newTasks,
             newQueue,
             newByStatus,
@@ -266,8 +286,27 @@ public final class ImmutableTaskQueue {
             version + 1,
             maxSize
         );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Update priority queue based on task status changes
+     */
+    private NavigableMap<QueueKey, Long> updatePriorityQueue(TaskDto existingTask, TaskDto updatedTask, Long taskId) {
+        NavigableMap<QueueKey, Long> newQueue = new TreeMap<>(priorityQueue);
         
-        return QueueOperationResult.success(newTaskQueue, "Task status updated");
+        // Handle removal from queue when task becomes non-pending
+        Optional.of(existingTask)
+            .filter(TaskDto::isPending)
+            .filter(task -> !updatedTask.isPending())
+            .ifPresent(task -> newQueue.remove(QueueKey.of(task)));
+        
+        // Handle addition to queue when task becomes pending
+        Optional.of(existingTask)
+            .filter(task -> !task.isPending())
+            .filter(task -> updatedTask.isPending())
+            .ifPresent(task -> newQueue.put(QueueKey.of(updatedTask), taskId));
+        
+        return newQueue;
     }
     
     /**
@@ -279,12 +318,12 @@ public final class ImmutableTaskQueue {
     }
     
     public Optional<TaskDto> peek() {
-        if (priorityQueue.isEmpty()) {
-            return Optional.empty();
-        }
-        
-        Long taskId = priorityQueue.firstEntry().getValue();
-        return Optional.ofNullable(tasks.get(taskId));
+        // ✅ FUNCTIONAL: Replace if-else with Optional chain
+        return Optional.of(priorityQueue)
+            .filter(queue -> !queue.isEmpty())
+            .map(NavigableMap::firstEntry)
+            .map(Map.Entry::getValue)
+            .flatMap(taskId -> Optional.ofNullable(tasks.get(taskId)));
     }
     
     public List<TaskDto> getPendingTasks() {
@@ -365,19 +404,21 @@ public final class ImmutableTaskQueue {
         TaskStatus oldStatus,
         TaskStatus newStatus
     ) {
+        // ✅ FUNCTIONAL: Replace if-else with functional operations
         Map<TaskStatus, Set<Long>> newMap = new HashMap<>(original);
         
-        // Remove from old status
-        Set<Long> oldSet = newMap.get(oldStatus);
-        if (oldSet != null) {
-            Set<Long> updatedOldSet = new HashSet<>(oldSet);
-            updatedOldSet.remove(taskId);
-            if (updatedOldSet.isEmpty()) {
-                newMap.remove(oldStatus);
-            } else {
-                newMap.put(oldStatus, updatedOldSet);
-            }
-        }
+        // Remove from old status using Optional chain
+        Optional.ofNullable(newMap.get(oldStatus))
+            .ifPresent(oldSet -> {
+                Set<Long> updatedOldSet = new HashSet<>(oldSet);
+                updatedOldSet.remove(taskId);
+                Optional.of(updatedOldSet)
+                    .filter(Set::isEmpty)
+                    .ifPresentOrElse(
+                        empty -> newMap.remove(oldStatus),
+                        () -> newMap.put(oldStatus, updatedOldSet)
+                    );
+            });
         
         // Add to new status
         newMap.computeIfAbsent(newStatus, k -> new HashSet<>()).add(taskId);
@@ -419,12 +460,19 @@ public final class ImmutableTaskQueue {
     
     @Override
     public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (!(obj instanceof ImmutableTaskQueue other)) return false;
-        
-        return Objects.equals(tasks, other.tasks) &&
-               Objects.equals(priorityQueue, other.priorityQueue) &&
-               version == other.version;
+        // ✅ FUNCTIONAL: Replace if-else with pattern matching and Optional
+        return Optional.of(obj)
+            .filter(o -> o == this)
+            .map(o -> true)
+            .orElseGet(() -> 
+                Optional.of(obj)
+                    .filter(ImmutableTaskQueue.class::isInstance)
+                    .map(ImmutableTaskQueue.class::cast)
+                    .filter(other -> Objects.equals(tasks, other.tasks) &&
+                                   Objects.equals(priorityQueue, other.priorityQueue) &&
+                                   version == other.version)
+                    .isPresent()
+            );
     }
     
     @Override

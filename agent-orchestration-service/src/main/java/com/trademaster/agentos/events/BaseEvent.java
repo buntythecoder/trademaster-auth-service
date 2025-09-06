@@ -49,4 +49,11 @@ public abstract class BaseEvent {
                timestamp != null && 
                sourceService != null;
     }
+    
+    /**
+     * Create a system event
+     */
+    public static BaseEvent systemEvent(String eventType, String message) {
+        return SystemEvent.create(eventType, message);
+    }
 }

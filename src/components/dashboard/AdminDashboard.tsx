@@ -54,18 +54,18 @@ export function AdminDashboard() {
         <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300 group">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/20">
-              <TrendingUp className="h-6 w-6 text-cyan-400" />
+              <Activity className="h-6 w-6 text-cyan-400" />
             </div>
             <div className="text-right">
-              <div className="text-2xl font-bold text-white">1,329</div>
+              <div className="text-2xl font-bold text-white">98.7%</div>
               <div className="text-sm text-green-400 flex items-center justify-end">
-                <Activity className="h-3 w-3 mr-1" />
-                +8%
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Healthy
               </div>
             </div>
           </div>
-          <h3 className="text-cyan-400 font-semibold mb-1">Active Trades</h3>
-          <p className="text-slate-400 text-sm">from last hour</p>
+          <h3 className="text-cyan-400 font-semibold mb-1">System Uptime</h3>
+          <p className="text-slate-400 text-sm">last 30 days</p>
         </div>
 
         <div className="glass-card p-6 rounded-2xl hover:scale-105 transition-all duration-300 group">

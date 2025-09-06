@@ -1,0 +1,1 @@
+export { default as MobilePWA } from './MobilePWA/MobilePWA';

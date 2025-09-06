@@ -1,66 +1,106 @@
 package com.trademaster.agentos.domain.entity;
 
+import lombok.Getter;
+
 /**
  * Agent Status Enumeration
  * 
  * Defines the operational states of AI agents in the TradeMaster Agent OS.
  * Used for lifecycle management, health monitoring, and task distribution.
  */
+@Getter
 public enum AgentStatus {
     /**
-     * Agent is inactive and not accepting tasks
-     * - Initial state when agent is created
-     * - State when agent is intentionally stopped
-     * - No tasks will be assigned to inactive agents
+     * Agent is initializing and bootstrapping
+     * - Initial state when agent is created and starting up
+     * - Agent is performing initialization and validation tasks
+     * - Not yet ready to accept tasks
      */
-    INACTIVE("Inactive", "Agent is not running and not accepting tasks"),
+    INITIALIZING("Initializing", "Agent is starting up and performing initialization"),
     
     /**
-     * Agent is starting up and initializing
-     * - Transitional state during agent startup
-     * - Agent is performing initialization tasks
-     * - Not yet ready to accept new tasks
-     */
-    STARTING("Starting", "Agent is initializing and starting up"),
-    
-    /**
-     * Agent is active and ready to accept tasks
-     * - Normal operational state
+     * Agent is idle and ready to accept tasks
+     * - Primary operational state when not processing tasks
      * - Agent can accept new tasks up to its capacity
      * - Health checks are passing
      */
-    ACTIVE("Active", "Agent is running and accepting tasks"),
+    IDLE("Idle", "Agent is ready and waiting for tasks"),
     
     /**
-     * Agent is busy and at maximum capacity
-     * - All task slots are occupied
+     * Agent is actively processing tasks
+     * - Agent is currently executing one or more tasks
+     * - Can accept additional tasks up to capacity limit
+     * - Normal operational state under load
+     */
+    ACTIVE("Active", "Agent is actively processing tasks"),
+    
+    /**
+     * Agent is overloaded and at maximum capacity
+     * - All task slots are occupied, cannot accept more tasks
      * - New tasks will be queued or routed to other agents
      * - Agent is healthy but fully utilized
      */
+    OVERLOADED("Overloaded", "Agent is at maximum capacity and overloaded"),
+    
+    /**
+     * Agent is in planned maintenance mode
+     * - Scheduled maintenance, updates, or configuration changes
+     * - Not accepting new tasks but may complete existing ones
+     * - Will return to operational state after maintenance
+     */
+    MAINTENANCE("Maintenance", "Agent is undergoing planned maintenance"),
+    
+    /**
+     * Agent has failed and needs recovery
+     * - Critical error state requiring intervention
+     * - Agent cannot process tasks until recovered
+     * - May require manual recovery or restart
+     */
+    FAILED("Failed", "Agent has failed and requires recovery"),
+    
+    /**
+     * Agent has been shutdown (terminal state)
+     * - Final state when agent is permanently stopped
+     * - Cannot be restarted without recreating the agent
+     * - All resources have been released
+     */
+    SHUTDOWN("Shutdown", "Agent has been permanently shut down"),
+    
+    // Legacy states for backward compatibility
+    /**
+     * @deprecated Use IDLE instead
+     */
+    @Deprecated
+    INACTIVE("Inactive", "Agent is not running and not accepting tasks"),
+    
+    /**
+     * @deprecated Use INITIALIZING instead
+     */
+    @Deprecated
+    STARTING("Starting", "Agent is initializing and starting up"),
+    
+    /**
+     * @deprecated Use OVERLOADED instead
+     */
+    @Deprecated
     BUSY("Busy", "Agent is at maximum capacity"),
     
     /**
-     * Agent has encountered an error but may recover
-     * - Temporary error state
-     * - Agent will attempt to recover automatically
-     * - No new tasks assigned during error state
+     * @deprecated Use FAILED instead
      */
+    @Deprecated
     ERROR("Error", "Agent has encountered an error"),
     
     /**
-     * Agent is being gracefully shut down
-     * - Transitional state during shutdown
-     * - Completing current tasks but not accepting new ones
-     * - Will transition to INACTIVE when all tasks complete
+     * @deprecated Use SHUTDOWN instead
      */
+    @Deprecated
     STOPPING("Stopping", "Agent is shutting down gracefully"),
     
     /**
-     * Agent is unresponsive and may have failed
-     * - No heartbeat received within timeout period
-     * - Tasks may need to be reassigned to other agents
-     * - Requires manual intervention or restart
+     * @deprecated Use FAILED instead
      */
+    @Deprecated
     UNRESPONSIVE("Unresponsive", "Agent is not responding to heartbeat checks");
 
     private final String displayName;
@@ -71,40 +111,40 @@ public enum AgentStatus {
         this.description = description;
     }
 
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
     /**
      * Check if the agent can accept new tasks in this status
      */
     public boolean canAcceptTasks() {
-        return this == ACTIVE;
+        return this == IDLE || this == ACTIVE || this == ACTIVE; // Legacy compatibility
     }
 
     /**
      * Check if the agent is in a healthy operational state
      */
     public boolean isHealthy() {
-        return this == ACTIVE || this == BUSY || this == STARTING;
+        return this == IDLE || this == ACTIVE || this == OVERLOADED || this == INITIALIZING ||
+           this == BUSY || this == STARTING; // Include legacy states
     }
 
     /**
      * Check if the agent is in an error state requiring attention
      */
     public boolean isErrorState() {
-        return this == ERROR || this == UNRESPONSIVE;
+        return this == FAILED || this == ERROR || this == UNRESPONSIVE;
     }
 
     /**
      * Check if the agent is in a transitional state
      */
     public boolean isTransitional() {
-        return this == STARTING || this == STOPPING;
+        return this == INITIALIZING || this == STARTING || this == STOPPING;
+    }
+
+    /**
+     * Check if the agent is in a terminal state
+     */
+    public boolean isTerminal() {
+        return this == SHUTDOWN;
     }
 
     /**
@@ -112,13 +152,20 @@ public enum AgentStatus {
      */
     public AgentStatus[] getAllowedTransitions() {
         return switch (this) {
-            case INACTIVE -> new AgentStatus[]{STARTING};
-            case STARTING -> new AgentStatus[]{ACTIVE, ERROR, STOPPING};
-            case ACTIVE -> new AgentStatus[]{BUSY, ERROR, STOPPING, UNRESPONSIVE};
-            case BUSY -> new AgentStatus[]{ACTIVE, ERROR, STOPPING, UNRESPONSIVE};
-            case ERROR -> new AgentStatus[]{ACTIVE, STOPPING, UNRESPONSIVE};
-            case STOPPING -> new AgentStatus[]{INACTIVE};
-            case UNRESPONSIVE -> new AgentStatus[]{ACTIVE, ERROR, INACTIVE};
+            case INITIALIZING -> new AgentStatus[]{IDLE, FAILED};
+            case IDLE -> new AgentStatus[]{ACTIVE, MAINTENANCE, SHUTDOWN, FAILED};
+            case ACTIVE -> new AgentStatus[]{IDLE, OVERLOADED, FAILED, SHUTDOWN};
+            case OVERLOADED -> new AgentStatus[]{ACTIVE, IDLE, FAILED, SHUTDOWN};
+            case MAINTENANCE -> new AgentStatus[]{IDLE, FAILED, SHUTDOWN};
+            case FAILED -> new AgentStatus[]{IDLE, SHUTDOWN};
+            case SHUTDOWN -> new AgentStatus[]{}; // Terminal state
+            // Legacy state transitions for backward compatibility
+            case INACTIVE -> new AgentStatus[]{STARTING, INITIALIZING};
+            case STARTING -> new AgentStatus[]{ACTIVE, IDLE, ERROR, FAILED, STOPPING};
+            case BUSY -> new AgentStatus[]{ACTIVE, OVERLOADED, ERROR, FAILED, STOPPING};
+            case ERROR -> new AgentStatus[]{ACTIVE, IDLE, FAILED, STOPPING};
+            case STOPPING -> new AgentStatus[]{INACTIVE, SHUTDOWN};
+            case UNRESPONSIVE -> new AgentStatus[]{ACTIVE, IDLE, FAILED, ERROR, INACTIVE};
         };
     }
 

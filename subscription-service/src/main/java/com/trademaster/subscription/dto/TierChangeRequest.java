@@ -2,58 +2,64 @@ package com.trademaster.subscription.dto;
 
 import com.trademaster.subscription.enums.BillingCycle;
 import com.trademaster.subscription.enums.SubscriptionTier;
-import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
 /**
  * Tier Change Request DTO
  * 
- * Request object for upgrading/downgrading subscription tiers.
+ * MANDATORY: Immutable Record - TradeMaster Rule #9
+ * MANDATORY: Functional Programming - TradeMaster Rule #3
  * 
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
-public class TierChangeRequest {
-
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record TierChangeRequest(
+    UUID subscriptionId,
+    SubscriptionTier newTier,
+    BillingCycle newBillingCycle,
+    String reason,
+    Boolean applyImmediately,
+    String promotionCode
+) {
+    
     /**
-     * Subscription ID to modify
+     * Constructor with validation and defaults
      */
-    @NotNull(message = "Subscription ID is required")
-    private UUID subscriptionId;
-
+    public TierChangeRequest {
+        // Validation using pattern matching
+        switch (subscriptionId) {
+            case null -> throw new IllegalArgumentException("Subscription ID is required");
+            default -> {}
+        }
+        
+        switch (newTier) {
+            case null -> throw new IllegalArgumentException("New tier is required");
+            default -> {}
+        }
+        
+        // Set defaults using pattern matching
+        applyImmediately = switch (applyImmediately) {
+            case null -> true;
+            default -> applyImmediately;
+        };
+    }
+    
     /**
-     * New subscription tier
+     * Check if change should be applied immediately
      */
-    @NotNull(message = "New tier is required")
-    private SubscriptionTier newTier;
-
+    public boolean isApplyImmediately() {
+        return applyImmediately != null && applyImmediately;
+    }
+    
     /**
-     * New billing cycle (optional, keeps current if not specified)
+     * Check if billing cycle is being changed
      */
-    private BillingCycle newBillingCycle;
-
-    /**
-     * Reason for the tier change
-     */
-    private String reason;
-
-    /**
-     * Whether to apply change immediately or at next billing cycle
-     */
-    @Builder.Default
-    private Boolean applyImmediately = true;
-
-    /**
-     * Promotion code to apply with the change (optional)
-     */
-    private String promotionCode;
+    public boolean isBillingCycleChange() {
+        return newBillingCycle != null;
+    }
 }

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
 import com.fasterxml.jackson.databind.type.MapType;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.util.Optional;
 
 /**
  * Redis Configuration
@@ -43,9 +44,10 @@ public class RedisConfig {
         config.setHostName(redisHost);
         config.setPort(redisPort);
         
-        if (redisPassword != null && !redisPassword.trim().isEmpty()) {
-            config.setPassword(redisPassword);
-        }
+        Optional.ofNullable(redisPassword)
+            .map(String::trim)
+            .filter(pwd -> !pwd.isEmpty())
+            .ifPresent(config::setPassword);
         
         JedisConnectionFactory factory = new JedisConnectionFactory(config);
         
@@ -67,7 +69,6 @@ public class RedisConfig {
         objectMapper.activateDefaultTyping(objectMapper.getPolymorphicTypeValidator(), 
                                           ObjectMapper.DefaultTyping.NON_FINAL);
         objectMapper.registerModule(new JavaTimeModule());
-        jsonSerializer.setObjectMapper(objectMapper);
 
         // Set serializers
         template.setKeySerializer(new StringRedisSerializer());

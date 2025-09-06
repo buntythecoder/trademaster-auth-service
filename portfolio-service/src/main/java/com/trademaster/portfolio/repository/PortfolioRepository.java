@@ -39,6 +39,18 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     Optional<Portfolio> findByUserId(@Param("userId") Long userId);
     
     /**
+     * Find portfolio by user ID and specific status
+     */
+    @Query("SELECT p FROM Portfolio p WHERE p.userId = :userId AND p.status = :status")
+    Optional<Portfolio> findByUserIdAndStatus(@Param("userId") Long userId, @Param("status") PortfolioStatus status);
+    
+    /**
+     * Check if portfolio exists for user with specific status
+     */
+    @Query("SELECT COUNT(p) > 0 FROM Portfolio p WHERE p.userId = :userId AND p.status = :status")
+    boolean existsByUserIdAndStatus(@Param("userId") Long userId, @Param("status") PortfolioStatus status);
+    
+    /**
      * Find all portfolios for a user (including closed)
      */
     @Query("SELECT p FROM Portfolio p WHERE p.userId = :userId ORDER BY p.createdAt DESC")

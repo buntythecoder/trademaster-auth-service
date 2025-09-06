@@ -6,6 +6,7 @@ import com.trademaster.agentos.domain.entity.TaskType;
 import com.trademaster.agentos.domain.entity.TaskPriority;
 import com.trademaster.agentos.service.TaskService;
 import com.trademaster.agentos.service.AgentOrchestrationService;
+import com.trademaster.agentos.functional.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -44,16 +45,13 @@ public class TaskController {
         log.info("REST: Submitting new task: {} (type: {}, priority: {})", 
                 task.getTaskName(), task.getTaskType(), task.getPriority());
         
-        try {
-            Task submittedTask = orchestrationService.submitTask(task);
-            return ResponseEntity.status(HttpStatus.CREATED).body(submittedTask);
-        } catch (IllegalArgumentException e) {
-            log.warn("Task submission failed: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        } catch (Exception e) {
-            log.error("Error submitting task", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryExecute(() -> orchestrationService.submitTask(task))
+            .fold(
+                submittedTask -> ResponseEntity.status(HttpStatus.CREATED).body(submittedTask),
+                error -> error instanceof IllegalArgumentException
+                    ? ResponseEntity.badRequest().<Task>build()
+                    : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Task>build()
+            );
     }
 
     /**
@@ -134,13 +132,11 @@ public class TaskController {
             @RequestParam TaskStatus status) {
         log.info("REST: Updating task {} status to {}", taskId, status);
         
-        try {
-            taskService.updateTaskStatus(taskId, status);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error updating task status", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> taskService.updateTaskStatus(taskId, status))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     /**
@@ -152,13 +148,11 @@ public class TaskController {
             @RequestParam Integer progress) {
         log.debug("REST: Updating task {} progress to {}%", taskId, progress);
         
-        try {
-            taskService.updateTaskProgress(taskId, progress);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error updating task progress", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> taskService.updateTaskProgress(taskId, progress))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     /**
@@ -170,13 +164,11 @@ public class TaskController {
             @RequestBody(required = false) String result) {
         log.info("REST: Completing task: {}", taskId);
         
-        try {
-            taskService.completeTask(taskId, result);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error completing task", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> taskService.completeTask(taskId, result))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     /**
@@ -188,13 +180,11 @@ public class TaskController {
             @RequestBody String errorMessage) {
         log.warn("REST: Failing task: {} with error: {}", taskId, errorMessage);
         
-        try {
-            taskService.failTask(taskId, errorMessage);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error failing task", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> taskService.failTask(taskId, errorMessage))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     /**
@@ -204,13 +194,11 @@ public class TaskController {
     public ResponseEntity<Void> cancelTask(@PathVariable Long taskId) {
         log.info("REST: Cancelling task: {}", taskId);
         
-        try {
-            taskService.cancelTask(taskId);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error cancelling task", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> taskService.cancelTask(taskId))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     // Task Assignment
@@ -224,13 +212,11 @@ public class TaskController {
             @PathVariable Long agentId) {
         log.info("REST: Assigning task {} to agent {}", taskId, agentId);
         
-        try {
-            orchestrationService.assignTaskToAgent(taskId, agentId);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error assigning task to agent", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> orchestrationService.assignTaskToAgent(taskId, agentId))
+            .fold(
+                success -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     /**
@@ -244,13 +230,11 @@ public class TaskController {
             @RequestParam(defaultValue = "0") Long responseTimeMs) {
         log.info("REST: Task completion notification for task: {} (success: {})", taskId, success);
         
-        try {
-            orchestrationService.notifyTaskCompletion(taskId, success, result, responseTimeMs);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            log.error("Error processing task completion notification", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return Result.tryRun(() -> orchestrationService.notifyTaskCompletion(taskId, success, result, responseTimeMs))
+            .fold(
+                successResult -> ResponseEntity.ok().<Void>build(),
+                error -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).<Void>build()
+            );
     }
 
     // Task Queue Management

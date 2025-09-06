@@ -71,7 +71,7 @@ public record AgentDto(
      * ✅ DERIVED PROPERTY: Check if agent is available
      */
     public boolean isAvailable() {
-        return status == AgentStatus.ACTIVE || status == AgentStatus.BUSY;
+        return status == AgentStatus.ACTIVE || status == AgentStatus.OVERLOADED;
     }
     
     /**

@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import lombok.Getter;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Comprehensive metrics for Agent Orchestration Service monitoring
  */
 @Component
+@Getter
 public class AgentOSMetrics {
     
     private final MeterRegistry meterRegistry;
@@ -28,8 +30,10 @@ public class AgentOSMetrics {
     private final Counter workflowsCompleted;
     private final Timer taskExecutionTime;
     private final Timer workflowExecutionTime;
-    
+
+    // Getter methods for accessing metrics components
     // Performance Metrics - MANDATORY
+
     private final Timer apiResponseTime;
     private final Counter apiRequests;
     private final Timer databaseQueryTime;
@@ -313,25 +317,6 @@ public class AgentOSMetrics {
     public void updateRedisConnections(long active) {
         redisConnectionsActive.set(active);
     }
-    
-    // Getter methods for accessing metrics components
-    public Timer getApiResponseTime() {
-        return apiResponseTime;
-    }
-    
-    public Timer getTaskExecutionTime() {
-        return taskExecutionTime;
-    }
-    
-    public Timer getDatabaseQueryTime() {
-        return databaseQueryTime;
-    }
-    
-    public Counter getApiRequests() {
-        return apiRequests;
-    }
-    
-    public Timer getAuthenticationTime() {
-        return authenticationTime;
-    }
+
+
 }

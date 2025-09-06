@@ -1,0 +1,530 @@
+name: Event Bus Service - CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'event-bus-service/**'
+      - '.github/workflows/event-bus-service-ci-cd.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'event-bus-service/**'
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  JAVA_VERSION: '24'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true'
+  SERVICE_NAME: 'event-bus-service'
+  DOCKER_REGISTRY: 'ghcr.io'
+  IMAGE_NAME: 'trademaster/event-bus-service'
+
+jobs:
+  # ✅ QUALITY GATE 1: Code Quality and Security Analysis
+  code-quality:
+    name: Code Quality & Security Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for SonarQube analysis
+
+      - name: Setup Java 24
+        uses: oracle-actions/setup-java@v1
+        with:
+          website: oracle.com
+          release: '24'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-home-cache-cleanup: true
+
+      - name: Cache Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('event-bus-service/gradle/wrapper/gradle-wrapper.properties', 'event-bus-service/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ✅ MANDATORY: Security dependency scanning
+      - name: Run OWASP Dependency Check
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew dependencyCheckAnalyze --info
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+      # ✅ MANDATORY: Static code analysis
+      - name: Run SpotBugs Analysis
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew spotbugsMain spotbugsTest --continue
+
+      # ✅ MANDATORY: Code compilation with Java 24 preview features
+      - name: Compile and Validate Code
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew compileJava compileTestJava --enable-preview --info
+
+      # ✅ QUALITY GATE: Upload security scan results
+      - name: Upload Security Scan Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            event-bus-service/build/reports/dependency-check/
+            event-bus-service/build/reports/spotbugs/
+          retention-days: 30
+
+      # ✅ FAIL FAST: Fail pipeline on high/critical vulnerabilities
+      - name: Evaluate Security Scan Results
+        working-directory: ./event-bus-service
+        run: |
+          if [ -f "build/reports/dependency-check/dependency-check-report.xml" ]; then
+            # Check for HIGH or CRITICAL vulnerabilities
+            HIGH_CRITICAL=$(grep -c 'severity="HIGH"\|severity="CRITICAL"' build/reports/dependency-check/dependency-check-report.xml || echo "0")
+            if [ "$HIGH_CRITICAL" -gt "0" ]; then
+              echo "❌ SECURITY FAILURE: Found $HIGH_CRITICAL HIGH/CRITICAL vulnerabilities"
+              exit 1
+            else
+              echo "✅ SECURITY PASSED: No HIGH/CRITICAL vulnerabilities found"
+            fi
+          fi
+
+  # ✅ QUALITY GATE 2: Comprehensive Testing Suite
+  test-suite:
+    name: Comprehensive Test Suite
+    runs-on: ubuntu-latest
+    needs: code-quality
+    timeout-minutes: 20
+    
+    strategy:
+      matrix:
+        test-type: [unit, integration, performance]
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 24
+        uses: oracle-actions/setup-java@v1
+        with:
+          website: oracle.com
+          release: '24'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+
+      - name: Cache Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('event-bus-service/gradle/wrapper/gradle-wrapper.properties', 'event-bus-service/build.gradle') }}
+
+      # ✅ MANDATORY: >80% test coverage requirement
+      - name: Run Unit Tests
+        if: matrix.test-type == 'unit'
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew test jacocoTestReport --enable-preview
+          
+      - name: Verify Test Coverage
+        if: matrix.test-type == 'unit'
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew jacocoTestCoverageVerification
+          
+      # ✅ MANDATORY: Integration tests with TestContainers
+      - name: Run Integration Tests
+        if: matrix.test-type == 'integration'
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew integrationTest --enable-preview
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: true
+
+      # ✅ MANDATORY: Performance validation
+      - name: Run Performance Tests
+        if: matrix.test-type == 'performance'
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew test --tests "*LoadTestingAndPerformanceValidationTest" --enable-preview
+        env:
+          SPRING_PROFILES_ACTIVE: performance
+          
+      # ✅ QUALITY GATE: Upload test results
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-type }}
+          path: |
+            event-bus-service/build/reports/tests/
+            event-bus-service/build/reports/jacoco/
+          retention-days: 30
+
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Test Results - ${{ matrix.test-type }}
+          path: 'event-bus-service/build/test-results/**/*.xml'
+          reporter: java-junit
+
+  # ✅ QUALITY GATE 3: Build and Package
+  build-package:
+    name: Build & Package
+    runs-on: ubuntu-latest
+    needs: [code-quality, test-suite]
+    timeout-minutes: 10
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 24
+        uses: oracle-actions/setup-java@v1
+        with:
+          website: oracle.com
+          release: '24'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+
+      - name: Cache Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('event-bus-service/gradle/wrapper/gradle-wrapper.properties', 'event-bus-service/build.gradle') }}
+
+      # ✅ MANDATORY: Production-ready JAR build
+      - name: Build Production JAR
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew bootJar --enable-preview --no-daemon
+          
+      # ✅ MANDATORY: Generate build info
+      - name: Generate Build Metadata
+        working-directory: ./event-bus-service
+        run: |
+          ./gradlew bootBuildInfo
+          echo "BUILD_VERSION=$(grep '^version=' build/resources/main/META-INF/build-info.properties | cut -d'=' -f2)" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+          echo "GIT_COMMIT=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
+
+      # ✅ DOCKER: Setup Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ✅ DOCKER: Login to container registry
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ✅ DOCKER: Extract metadata
+      - name: Extract Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # ✅ DOCKER: Build and push image
+      - name: Build and Push Docker Image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./event-bus-service
+          file: ./event-bus-service/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_VERSION=${{ env.BUILD_VERSION }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
+            GIT_COMMIT=${{ env.GIT_COMMIT }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ✅ SECURITY: Sign image with Cosign
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign Container Image
+        run: |
+          cosign sign --yes ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      # ✅ ARTIFACT: Upload JAR for deployment
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: application-jar
+          path: event-bus-service/build/libs/*.jar
+          retention-days: 30
+
+  # ✅ DEPLOYMENT: Staging Environment
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-package
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    environment: 
+      name: staging
+      url: https://staging-eventbus.trademaster.com
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ✅ KUBERNETES: Setup kubectl
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      # ✅ KUBERNETES: Configure cluster access
+      - name: Configure Kubernetes Cluster
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          kubectl cluster-info
+
+      # ✅ KUBERNETES: Deploy to staging
+      - name: Deploy to Staging
+        run: |
+          # Update deployment image
+          kubectl set image deployment/event-bus-service \
+            event-bus-service=${{ needs.build-package.outputs.image-tag }} \
+            --namespace=staging
+          
+          # Wait for rollout completion
+          kubectl rollout status deployment/event-bus-service \
+            --namespace=staging \
+            --timeout=300s
+
+      # ✅ VALIDATION: Health check post-deployment
+      - name: Validate Deployment
+        run: |
+          # Wait for service to be ready
+          kubectl wait --for=condition=available deployment/event-bus-service \
+            --namespace=staging \
+            --timeout=300s
+          
+          # Get service endpoint
+          STAGING_URL=$(kubectl get service event-bus-service \
+            --namespace=staging \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          # Health check
+          for i in {1..10}; do
+            if curl -f "http://${STAGING_URL}/actuator/health"; then
+              echo "✅ Staging deployment successful"
+              exit 0
+            fi
+            echo "⏳ Waiting for service to be ready... ($i/10)"
+            sleep 30
+          done
+          echo "❌ Staging deployment validation failed"
+          exit 1
+
+  # ✅ DEPLOYMENT: Production Environment
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-package, deploy-staging]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production')
+    environment: 
+      name: production
+      url: https://eventbus.trademaster.com
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ✅ PRODUCTION GATE: Manual approval required
+      - name: Production Deployment Approval
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: trademaster-admins
+          minimum-approvals: 2
+          issue-title: "Production Deployment: Event Bus Service"
+          issue-body: |
+            **Production Deployment Request**
+            
+            - **Service**: Event Bus Service
+            - **Image**: ${{ needs.build-package.outputs.image-tag }}
+            - **Branch**: ${{ github.ref_name }}
+            - **Commit**: ${{ github.sha }}
+            - **Triggered by**: ${{ github.actor }}
+            
+            **Pre-deployment Checklist:**
+            - [ ] Staging tests passed
+            - [ ] Security scans passed
+            - [ ] Performance validation passed
+            - [ ] Database migrations reviewed
+            - [ ] Rollback plan confirmed
+            
+            Please review and approve this production deployment.
+          exclude-workflow-initiator-as-approver: false
+
+      # ✅ KUBERNETES: Setup kubectl for production
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure Production Kubernetes Cluster
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          kubectl cluster-info
+
+      # ✅ PRODUCTION: Blue-Green deployment strategy
+      - name: Blue-Green Production Deployment
+        run: |
+          # Create green deployment
+          kubectl create deployment event-bus-service-green \
+            --image=${{ needs.build-package.outputs.image-tag }} \
+            --namespace=production \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Scale green deployment
+          kubectl scale deployment event-bus-service-green \
+            --replicas=3 \
+            --namespace=production
+          
+          # Wait for green deployment to be ready
+          kubectl rollout status deployment/event-bus-service-green \
+            --namespace=production \
+            --timeout=600s
+
+      # ✅ PRODUCTION: Health validation
+      - name: Validate Green Deployment
+        run: |
+          # Wait for pods to be ready
+          kubectl wait --for=condition=available deployment/event-bus-service-green \
+            --namespace=production \
+            --timeout=300s
+          
+          # Create temporary service for testing
+          kubectl expose deployment event-bus-service-green \
+            --name=event-bus-service-green-test \
+            --port=8080 \
+            --namespace=production
+          
+          # Port forward for testing
+          kubectl port-forward service/event-bus-service-green-test 18080:8080 \
+            --namespace=production &
+          
+          sleep 10
+          
+          # Health check green deployment
+          if curl -f "http://localhost:18080/actuator/health"; then
+            echo "✅ Green deployment healthy"
+          else
+            echo "❌ Green deployment failed health check"
+            kubectl delete service event-bus-service-green-test --namespace=production
+            exit 1
+          fi
+          
+          # Cleanup test service
+          kubectl delete service event-bus-service-green-test --namespace=production
+
+      # ✅ PRODUCTION: Traffic switch (Blue to Green)
+      - name: Switch Production Traffic
+        run: |
+          # Update production service to point to green deployment
+          kubectl patch service event-bus-service \
+            --namespace=production \
+            --patch '{"spec":{"selector":{"app":"event-bus-service-green"}}}'
+          
+          echo "✅ Traffic switched to green deployment"
+
+      # ✅ PRODUCTION: Cleanup old deployment
+      - name: Cleanup Old Deployment
+        run: |
+          # Wait to ensure new deployment is stable
+          sleep 60
+          
+          # Final health check
+          PROD_URL=$(kubectl get service event-bus-service \
+            --namespace=production \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          if curl -f "http://${PROD_URL}/actuator/health"; then
+            echo "✅ Production deployment successful"
+            
+            # Delete old blue deployment
+            kubectl delete deployment event-bus-service-blue \
+              --namespace=production \
+              --ignore-not-found=true
+            
+            # Rename green to blue for next deployment
+            kubectl patch deployment event-bus-service-green \
+              --namespace=production \
+              --patch '{"metadata":{"name":"event-bus-service-blue"}}'
+          else
+            echo "❌ Production deployment failed final validation"
+            
+            # Rollback to blue deployment
+            kubectl patch service event-bus-service \
+              --namespace=production \
+              --patch '{"spec":{"selector":{"app":"event-bus-service-blue"}}}'
+            
+            exit 1
+          fi
+
+  # ✅ NOTIFICATION: Deployment notifications
+  notify:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+      - name: Notify Deployment Status
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

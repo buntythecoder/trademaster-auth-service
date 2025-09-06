@@ -1,0 +1,1 @@
+export { default as BusinessIntelligenceDashboard } from './BusinessIntelligenceDashboard/BusinessIntelligenceDashboard';

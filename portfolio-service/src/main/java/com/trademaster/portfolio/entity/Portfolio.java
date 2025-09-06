@@ -2,6 +2,7 @@ package com.trademaster.portfolio.entity;
 
 import com.trademaster.portfolio.model.CostBasisMethod;
 import com.trademaster.portfolio.model.PortfolioStatus;
+import com.trademaster.portfolio.model.RiskLevel;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -87,6 +88,11 @@ public class Portfolio {
     @Column(name = "cost_basis_method", nullable = false, length = 20)
     @Builder.Default
     private CostBasisMethod costBasisMethod = CostBasisMethod.FIFO;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(name = "risk_level", nullable = false, length = 20)
+    @Builder.Default
+    private RiskLevel riskLevel = RiskLevel.MODERATE;
     
     @Column(name = "margin_balance", precision = 19, scale = 4)
     @Builder.Default

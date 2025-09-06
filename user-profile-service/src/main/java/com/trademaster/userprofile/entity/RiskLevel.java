@@ -2,8 +2,10 @@ package com.trademaster.userprofile.entity;
 
 public enum RiskLevel {
     LOW("Conservative", "Prefers capital preservation over growth", 1, 3),
-    MEDIUM("Moderate", "Balanced approach to risk and return", 4, 6),
-    HIGH("Aggressive", "Willing to take high risks for potentially high returns", 7, 10);
+    MODERATE("Moderate", "Balanced approach to risk and return", 4, 6),
+    MEDIUM("Moderate", "Balanced approach to risk and return", 4, 6), // Alias for MODERATE
+    HIGH("Aggressive", "Willing to take high risks for potentially high returns", 7, 8),
+    VERY_HIGH("Very High", "Maximum risk tolerance for aggressive trading", 9, 10);
     
     private final String displayName;
     private final String description;

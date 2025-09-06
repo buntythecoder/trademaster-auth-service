@@ -1,7 +1,6 @@
 package com.trademaster.trading.service;
 
 import com.trademaster.trading.dto.ExecutionReport;
-import com.trademaster.trading.dto.ExecutionStrategy;
 import com.trademaster.trading.dto.MarketDataSnapshot;
 import com.trademaster.trading.dto.OrderExecution;
 import com.trademaster.trading.entity.Order;
@@ -72,15 +71,6 @@ public interface TradeExecutionService {
      */
     CompletableFuture<List<OrderExecution>> executeBatchOrders(Long userId, List<Order> orders);
     
-    /**
-     * Execute order with custom execution strategy
-     * 
-     * @param userId The user ID
-     * @param order The order to execute
-     * @param strategy Execution strategy parameters
-     * @return CompletableFuture<OrderExecution> execution result
-     */
-    CompletableFuture<OrderExecution> executeWithStrategy(Long userId, Order order, ExecutionStrategy strategy);
     
     // ========== Smart Order Routing ==========
     

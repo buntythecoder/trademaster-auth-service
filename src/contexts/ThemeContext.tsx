@@ -25,9 +25,9 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(() => {
-    // Get theme from localStorage or default to 'auto'
+    // Get theme from localStorage or default to 'dark'
     const savedTheme = localStorage.getItem('trademaster-theme') as Theme;
-    return savedTheme || 'auto';
+    return savedTheme || 'dark';
   });
 
   const [actualTheme, setActualTheme] = useState<'light' | 'dark'>('dark');

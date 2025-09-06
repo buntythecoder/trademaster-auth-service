@@ -12,12 +12,21 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # TradeMaster Auth Service
-  - job_name: 'trademaster-auth'
+  # TradeMaster Trading Service
+  - job_name: 'trademaster-trading'
     static_configs:
-      - targets: ['auth-service:8080']
+      - targets: ['trading-service:8083']
     metrics_path: '/actuator/prometheus'
     scrape_interval: 10s
+
+  # Consul Service Discovery
+  - job_name: 'consul'
+    static_configs:
+      - targets: ['consul:8500']
+    metrics_path: '/v1/agent/metrics'
+    params:
+      format: ['prometheus']
+    scrape_interval: 15s
 
   # Kong API Gateway
   - job_name: 'kong'

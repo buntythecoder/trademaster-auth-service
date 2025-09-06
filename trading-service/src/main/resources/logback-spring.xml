@@ -64,7 +64,7 @@
     <!-- File appender for all environments -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/trading-service.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/trading-service.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>100MB</maxFileSize>
             <maxHistory>30</maxHistory>
@@ -111,7 +111,7 @@
     <!-- Trading audit log appender -->
     <appender name="TRADING_AUDIT" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/trading-audit.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/trading-audit.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>100MB</maxFileSize>
             <maxHistory>365</maxHistory>
@@ -151,7 +151,7 @@
             </providers>
         </encoder>
         <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
+            <evaluator class="ch.qos.logback.classic.boolex.JaninoEventEvaluator">
                 <expression>
                     return event.getMDCPropertyMap().get("category") == "audit" ||
                            event.getMessage().contains("order") ||
@@ -168,7 +168,7 @@
     <!-- Risk management log appender -->
     <appender name="RISK_MANAGEMENT" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/trading-risk.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/trading-risk.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>90</maxHistory>
@@ -208,7 +208,7 @@
             </providers>
         </encoder>
         <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
+            <evaluator class="ch.qos.logback.classic.boolex.JaninoEventEvaluator">
                 <expression>
                     return event.getMessage().contains("risk") ||
                            event.getMessage().contains("violation") ||
@@ -224,7 +224,7 @@
     <!-- Performance metrics log appender -->
     <appender name="PERFORMANCE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>logs/trading-performance.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>logs/trading-performance.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>7</maxHistory>
@@ -258,7 +258,7 @@
             </providers>
         </encoder>
         <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-            <evaluator class="ch.qos.logback.classic.boolex.GEventEvaluator">
+            <evaluator class="ch.qos.logback.classic.boolex.JaninoEventEvaluator">
                 <expression>
                     return event.getMDCPropertyMap().get("category") == "performance" ||
                            event.getMDCPropertyMap().get("durationMs") != null ||

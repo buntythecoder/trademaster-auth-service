@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  config-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trademaster-config-server
+    ports:
+      - "8888:8888"
+    environment:
+      - SPRING_PROFILES_ACTIVE=development
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_URI=file:///opt/trademaster/config-repo
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - SPRING_SECURITY_USER_NAME=config-admin
+      - SPRING_SECURITY_USER_PASSWORD=config-secret-2024
+    volumes:
+      - ../../config-repo:/opt/trademaster/config-repo:ro
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+
+  # Include Eureka Server for service discovery
+  eureka-server:
+    build:
+      context: ../eureka-server
+      dockerfile: Dockerfile
+    container_name: trademaster-eureka-server
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=development
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
+      - EUREKA_CLIENT_FETCH_REGISTRY=false
+    networks:
+      - trademaster-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  trademaster-network:
+    driver: bridge
+    name: trademaster-network

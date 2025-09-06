@@ -43,6 +43,7 @@ public class RiskLimit {
     private String profileType; // CONSERVATIVE, MODERATE, AGGRESSIVE, CUSTOM
     
     @Column(name = "active", nullable = false)
+    @Builder.Default
     private Boolean active = true;
     
     // Position Limits
@@ -66,6 +67,7 @@ public class RiskLimit {
     private BigDecimal maxMarginUtilization;
     
     @Column(name = "allow_margin_trading", nullable = false)
+    @Builder.Default
     private Boolean allowMarginTrading = false;
     
     // Trading Velocity Limits
@@ -90,22 +92,28 @@ public class RiskLimit {
     
     // Dynamic Adjustments
     @Column(name = "enable_volatility_adjustment", nullable = false)
+    @Builder.Default
     private Boolean enableVolatilityAdjustment = false;
     
     @Column(name = "volatility_multiplier", precision = 5, scale = 3)
+    @Builder.Default
     private BigDecimal volatilityMultiplier = BigDecimal.ONE;
     
     @Column(name = "enable_market_regime_adjustment", nullable = false)
+    @Builder.Default
     private Boolean enableMarketRegimeAdjustment = false;
     
     // Alert Configuration
     @Column(name = "warning_threshold_percent", precision = 5, scale = 2)
+    @Builder.Default
     private BigDecimal warningThresholdPercent = new BigDecimal("80.0");
     
     @Column(name = "critical_threshold_percent", precision = 5, scale = 2)
+    @Builder.Default
     private BigDecimal criticalThresholdPercent = new BigDecimal("95.0");
     
     @Column(name = "enable_real_time_alerts", nullable = false)
+    @Builder.Default
     private Boolean enableRealTimeAlerts = true;
     
     // Audit Fields

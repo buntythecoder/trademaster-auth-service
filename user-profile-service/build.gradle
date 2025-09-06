@@ -82,6 +82,10 @@ dependencies {
     // MinIO for file storage
     implementation 'io.minio:minio:8.5.7'
     
+    // Circuit Breaker - Resilience4j
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-all:2.2.0'
+    
     // Caching
     implementation 'com.github.ben-manes.caffeine:caffeine'
     

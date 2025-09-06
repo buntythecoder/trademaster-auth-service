@@ -1,0 +1,144 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.flywaydb.flyway' version '10.8.1'
+    id 'jacoco'
+}
+
+group = 'com.trademaster'
+version = '2.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    springCloudVersion = '2024.0.0'
+    testcontainersVersion = '1.19.8'
+    resilience4jVersion = '2.2.0'
+}
+
+dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    
+    // Virtual Threads Support - Spring MVC with Virtual Threads Enabled
+    // Note: WebFlux is forbidden per Rule #1 - using Spring MVC with Virtual Threads 
+    
+    // Database
+    implementation 'org.postgresql:postgresql'
+    implementation 'org.flywaydb:flyway-core'
+    runtimeOnly 'com.h2database:h2'
+    
+    // Connection Pool
+    implementation 'com.zaxxer:HikariCP'
+    
+    // HTTP Clients
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.3.1'
+    
+    // JSON Processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // Circuit Breaker & Resilience
+    implementation "io.github.resilience4j:resilience4j-spring-boot3:${resilience4jVersion}"
+    implementation "io.github.resilience4j:resilience4j-circuitbreaker:${resilience4jVersion}"
+    implementation "io.github.resilience4j:resilience4j-ratelimiter:${resilience4jVersion}"
+    implementation "io.github.resilience4j:resilience4j-retry:${resilience4jVersion}"
+    
+    // Monitoring
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    
+    // JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    
+    // Encryption
+    implementation 'com.github.ulisesbocchio:jasypt-spring-boot-starter:3.0.4'
+    
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    
+    // OpenAPI Documentation
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+    
+    // Testing
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation "org.testcontainers:junit-jupiter:${testcontainersVersion}"
+    testImplementation "org.testcontainers:postgresql:${testcontainersVersion}"
+    testImplementation "org.testcontainers:testcontainers:${testcontainersVersion}"
+    testImplementation 'com.github.tomakehurst:wiremock-jre8:3.0.1'
+    testImplementation 'org.awaitility:awaitility:4.2.2'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = false
+        csv.required = false
+        html.outputLocation = layout.buildDirectory.dir('jacocoHtml')
+    }
+}
+
+compileJava {
+    options.compilerArgs += ['--enable-preview']
+}
+
+compileTestJava {
+    options.compilerArgs += ['--enable-preview']
+}
+
+test {
+    jvmArgs(['--enable-preview'])
+}
+
+bootRun {
+    jvmArgs(['--enable-preview'])
+}
+
+flyway {
+    url = 'jdbc:postgresql://localhost:5432/trademaster_multibroker'
+    user = 'trademaster'
+    password = 'trademaster123'
+    schemas = ['public']
+    locations = ['classpath:db/migration']
+    baselineOnMigrate = true
+    validateOnMigrate = true
+}

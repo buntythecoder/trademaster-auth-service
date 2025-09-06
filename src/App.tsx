@@ -8,11 +8,15 @@ import { ProfileDashboard } from './components/profile/ProfileDashboard'
 import { HeroSection } from './components/landing/HeroSection'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { MarketDataDashboard } from './pages/MarketDataDashboard'
-import { UnifiedTradingPage } from './pages/UnifiedTradingPage'
+// Temporarily commented out due to Material-UI dependency
+// import { UnifiedTradingPage } from './pages/UnifiedTradingPage'
 import { MobileTradingInterface } from './pages/MobileTradingInterface'
 import { BehavioralAIDashboardPage } from './pages/BehavioralAIDashboardPage'
 import { PortfolioAnalyticsDashboard } from './pages/PortfolioAnalyticsDashboard'
+import { AdvancedAdminManagementPage } from './pages/AdvancedAdminManagementPage'
+import { PaymentGatewayPage } from './pages/PaymentGatewayPage'
 import { MultiBrokerInterface } from './components/trading/MultiBrokerInterface'
+import { BrokerAuthenticationInterface } from './components/trading/BrokerAuthenticationInterface'
 import { RiskManagementDashboard } from './components/risk/RiskManagementDashboard'
 import AdminAgentDashboard from './components/agentos/AgentDashboard'
 import TraderTaskInterface from './components/trader/TraderTaskInterface'
@@ -165,15 +169,15 @@ function App() {
             }
           />
 
-          {/* Unified Trading Interface Route */}
-          <Route
+          {/* Temporarily commented out due to Material-UI dependency */}
+          {/* <Route
             path="/trading"
             element={
               <ProtectedRoute>
                 <UnifiedTradingPage />
               </ProtectedRoute>
             }
-          />
+          /> */}
 
           {/* FRONT-006: Mobile Trading Interface Route */}
           <Route
@@ -241,6 +245,16 @@ function App() {
             }
           />
 
+          {/* Broker Authentication & Integration Route */}
+          <Route
+            path="/broker-auth"
+            element={
+              <ProtectedRoute>
+                <BrokerAuthenticationInterface />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Risk Management Route */}
           <Route
             path="/risk"
@@ -269,22 +283,28 @@ function App() {
             }
           />
 
-          {/* Admin Routes */}
+          {/* Payment Gateway Route */}
           <Route
-            path="/admin/users"
+            path="/payments"
             element={
               <ProtectedRoute>
-                <PageLayout>
-                  <div className="space-y-6">
-                    <h1 className="text-3xl font-bold text-white">User Management</h1>
-                    <p className="text-slate-400">Manage user accounts and permissions</p>
-                    <div className="glass-card p-6 rounded-2xl">
-                      <p className="text-white">User management interface coming soon...</p>
-                    </div>
-                  </div>
-                </PageLayout>
+                <PaymentGatewayPage />
               </ProtectedRoute>
             }
+          />
+
+          {/* Admin Routes */}
+          <Route
+            path="/admin/management"
+            element={
+              <ProtectedRoute>
+                <AdvancedAdminManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={<Navigate to="/admin/management?tab=users" replace />}
           />
 
           <Route

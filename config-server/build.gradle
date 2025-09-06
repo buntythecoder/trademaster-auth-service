@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.3'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.trademaster'
+version = '2.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    set('springCloudVersion', "2023.0.3")
+}
+
+dependencies {
+    // Spring Boot Starter
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    
+    // Spring Cloud Config Server
+    implementation 'org.springframework.cloud:spring-cloud-config-server'
+    implementation 'org.springframework.cloud:spring-cloud-starter-consul-discovery'
+    implementation 'org.springframework.cloud:spring-cloud-starter-consul-config'
+    
+    // Security for Config Server
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    
+    // Git backend support (for config repository)
+    implementation 'org.eclipse.jgit:org.eclipse.jgit'
+    
+    // Development tools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    
+    // Note: Lombok removed due to Java 24 compatibility issues
+    
+    // Testing
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Java 21 compilation settings
+tasks.withType(JavaCompile) {
+    options.release = 21
+}

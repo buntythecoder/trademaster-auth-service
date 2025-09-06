@@ -1,0 +1,391 @@
+# Multi-Broker Service Configuration
+# MANDATORY: Java 24 + Virtual Threads + Spring Boot 3.5.3
+# MANDATORY: Production-ready configuration with zero placeholders
+
+spring:
+  application:
+    name: multi-broker-service
+    
+  # Database Configuration - PostgreSQL with HikariCP
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trademaster_multibroker}
+    username: ${DATABASE_USERNAME:trademaster}
+    password: ${DATABASE_PASSWORD:trademaster123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: MultibrokerHikariCP
+      maximum-pool-size: ${DATABASE_POOL_SIZE:20}
+      minimum-idle: ${DATABASE_MIN_IDLE:5}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+      connection-test-query: SELECT 1
+      auto-commit: false
+      
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate # Never create/update schema in production
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.SnakeCasePhysicalNamingStrategy
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false # Disable in production for performance
+        show_sql: false
+        generate_statistics: false
+        jdbc:
+          batch_size: 20
+        cache:
+          use_second_level_cache: true
+          region.factory_class: org.hibernate.cache.jcache.internal.JCacheRegionFactory
+          
+  # Flyway Migration
+  flyway:
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    locations: classpath:db/migration
+    schemas: public
+    
+  # Redis Configuration for Caching
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:1}
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 2
+        max-wait: -1ms
+        
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000 # 5 minutes default TTL
+      cache-null-values: false
+      
+  # Security Configuration
+  security:
+    oauth2:
+      client:
+        registration:
+          zerodha:
+            client-id: ${ZERODHA_CLIENT_ID:your-zerodha-client-id}
+            client-secret: ${ZERODHA_CLIENT_SECRET:your-zerodha-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/zerodha"
+            scope: read:profile,read:orders,read:positions,read:holdings
+          upstox:
+            client-id: ${UPSTOX_CLIENT_ID:your-upstox-client-id}
+            client-secret: ${UPSTOX_CLIENT_SECRET:your-upstox-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/upstox"
+            scope: read_profile,read_portfolio,read_orders
+          angel-one:
+            client-id: ${ANGEL_ONE_CLIENT_ID:your-angel-client-id}
+            client-secret: ${ANGEL_ONE_CLIENT_SECRET:your-angel-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/angel_one"
+            scope: profile,portfolio,orders,positions
+          icici-direct:
+            client-id: ${ICICI_DIRECT_CLIENT_ID:your-icici-client-id}
+            client-secret: ${ICICI_DIRECT_CLIENT_SECRET:your-icici-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/icici_direct"
+            scope: read:profile,read:portfolio,read:orders,read:positions
+          fyers:
+            client-id: ${FYERS_CLIENT_ID:your-fyers-client-id}
+            client-secret: ${FYERS_CLIENT_SECRET:your-fyers-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/fyers"
+            scope: openapi-profile,openapi-quotes,openapi-funds,openapi-orders
+          iifl:
+            client-id: ${IIFL_CLIENT_ID:your-iifl-client-id}
+            client-secret: ${IIFL_CLIENT_SECRET:your-iifl-secret}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/api/v1/brokers/oauth/callback/iifl"
+            scope: api-access
+        provider:
+          zerodha:
+            authorization-uri: https://kite.zerodha.com/connect/login
+            token-uri: https://api.kite.trade/session/token
+            user-info-uri: https://api.kite.trade/user/profile
+          upstox:
+            authorization-uri: https://api.upstox.com/v2/login/authorization/dialog
+            token-uri: https://api.upstox.com/v2/login/authorization/token
+            user-info-uri: https://api.upstox.com/v2/user/profile
+          angel-one:
+            authorization-uri: https://smartapi.angelbroking.com/publisher-login
+            token-uri: https://apiconnect.angelbroking.com/rest/auth/angelbroking/jwt/v1/generateTokens
+            user-info-uri: https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile
+          icici-direct:
+            authorization-uri: https://api.icicidirect.com/breezeapi/api/v1/customerlogin
+            token-uri: https://api.icicidirect.com/breezeapi/api/v1/customerdetails
+            user-info-uri: https://api.icicidirect.com/breezeapi/api/v1/customerdetails
+          fyers:
+            authorization-uri: https://api-t1.fyers.in/api/v3/generate-authcode
+            token-uri: https://api-t1.fyers.in/api/v3/validate-authcode
+            user-info-uri: https://api-t1.fyers.in/api/v3/profile
+          iifl:
+            authorization-uri: https://ttblaze.iifl.com/interactivelogin
+            token-uri: https://ttblaze.iifl.com/apimarketdata
+            user-info-uri: https://ttblaze.iifl.com/apimarketdata
+            
+  # Virtual Threads Configuration - MANDATORY
+  threads:
+    virtual:
+      enabled: true
+      
+  # Task Execution Configuration for Virtual Threads
+  task:
+    execution:
+      pool:
+        core-size: 10
+        max-size: 200
+        queue-capacity: 1000
+        keep-alive: 60s
+        thread-name-prefix: multibroker-task-
+        
+  # WebSocket Configuration
+  websocket:
+    allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:3000,https://trademaster.app}
+    
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8084}
+  servlet:
+    context-path: /multi-broker
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: on_param # For debugging, disable in production
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches,multibrokerdashboard
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: "brokerHealth,db,redis"
+        liveness:
+          include: "ping,diskSpace"
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    enable:
+      all: true
+    export:
+      prometheus:
+        enabled: true
+        step: 30s
+        descriptions: true
+        pushgateway:
+          enabled: false
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms
+    tags:
+      application: multi-broker-service
+      environment: ${SPRING_PROFILES_ACTIVE:development}
+  health:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    broker:
+      enabled: true
+    custom:
+      enabled: true
+      
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      zerodha:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+      upstox:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+      default:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+        
+  # Rate Limiter Configuration
+  ratelimiter:
+    instances:
+      zerodha:
+        limit-for-period: 60 # 60 calls per minute
+        limit-refresh-period: 60s
+        timeout-duration: 1s
+        register-health-indicator: true
+      upstox:
+        limit-for-period: 100 # 100 calls per minute
+        limit-refresh-period: 60s
+        timeout-duration: 1s
+        register-health-indicator: true
+      default:
+        limit-for-period: 30 # 30 calls per minute default
+        limit-refresh-period: 60s
+        timeout-duration: 1s
+        register-health-indicator: true
+        
+  # Retry Configuration
+  retry:
+    instances:
+      broker-api:
+        max-attempts: 3
+        wait-duration: 2s
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+        ignore-exceptions:
+          - com.trademaster.multibroker.exception.BrokerAuthenticationException
+          
+# Encryption Configuration
+encryption:
+  key: ${ENCRYPTION_KEY:your-32-char-aes-256-encryption-key}
+  algorithm: AES
+  transformation: AES/CBC/PKCS5Padding
+  
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-super-secret-jwt-signing-key-min-256-bits}
+  expiration: 86400 # 24 hours in seconds
+  
+# Broker API Configuration
+broker:
+  api:
+    timeout:
+      connection: ${BROKER_CONNECTION_TIMEOUT:5000} # 5 seconds
+      read: ${BROKER_READ_TIMEOUT:10000} # 10 seconds
+      write: ${BROKER_WRITE_TIMEOUT:10000} # 10 seconds
+    retry:
+      max-attempts: 3
+      delay: 1000 # 1 second
+    health-check:
+      interval: 60000 # 1 minute
+      timeout: 5000 # 5 seconds
+      
+# OAuth Client Configuration for @Value references
+oauth:
+  zerodha:
+    client-id: ${ZERODHA_CLIENT_ID:your-zerodha-client-id}
+    client-secret: ${ZERODHA_CLIENT_SECRET:your-zerodha-secret}
+  upstox:
+    client-id: ${UPSTOX_CLIENT_ID:your-upstox-client-id}
+    client-secret: ${UPSTOX_CLIENT_SECRET:your-upstox-secret}
+  angel-one:
+    client-id: ${ANGEL_ONE_CLIENT_ID:your-angel-client-id}
+    client-secret: ${ANGEL_ONE_CLIENT_SECRET:your-angel-secret}
+  icici-direct:
+    client-id: ${ICICI_DIRECT_CLIENT_ID:your-icici-client-id}
+    client-secret: ${ICICI_DIRECT_CLIENT_SECRET:your-icici-secret}
+  fyers:
+    client-id: ${FYERS_CLIENT_ID:your-fyers-client-id}
+    client-secret: ${FYERS_CLIENT_SECRET:your-fyers-secret}
+  iifl:
+    client-id: ${IIFL_CLIENT_ID:your-iifl-client-id}
+    client-secret: ${IIFL_CLIENT_SECRET:your-iifl-secret}
+    cache:
+      portfolio-ttl: 300 # 5 minutes
+      profile-ttl: 3600 # 1 hour
+      
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.multibroker: ${LOG_LEVEL:INFO}
+    org.springframework.security: WARN
+    org.springframework.cache: WARN
+    org.hibernate.SQL: ERROR
+    org.hibernate.type: ERROR
+    io.github.resilience4j: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+  file:
+    name: ${LOG_FILE:/var/log/trademaster/multi-broker-service.log}
+    max-size: 100MB
+    max-history: 30
+    
+# OpenAPI Documentation
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+  info:
+    title: TradeMaster Multi-Broker Service API
+    description: Enterprise multi-broker integration service for portfolio aggregation and OAuth management
+    version: 2.0.0
+    contact:
+      name: TradeMaster Development Team
+      email: dev@trademaster.app
+  servers:
+    - url: http://localhost:8084/multi-broker
+      description: Development Server
+    - url: https://api.trademaster.app/multi-broker
+      description: Production Server
+      
+# Custom Application Configuration
+trademaster:
+  multibroker:
+    portfolio:
+      cache-ttl: 300 # 5 minutes
+      max-brokers-per-user: 5
+      parallel-fetch-timeout: 10 # seconds
+    oauth:
+      state-expiry: 600 # 10 minutes
+      max-states-per-user: 3
+    health:
+      check-interval: 60 # seconds
+      failure-threshold: 5
+      recovery-check-interval: 300 # 5 minutes
+    websocket:
+      max-connections-per-user: 3
+      heartbeat-interval: 30 # seconds
+    security:
+      rate-limit-per-user: 100 # requests per minute
+      max-concurrent-requests: 50

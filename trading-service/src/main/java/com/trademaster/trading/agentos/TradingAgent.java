@@ -1,5 +1,10 @@
 package com.trademaster.trading.agentos;
 
+import com.trademaster.trading.dto.ComplianceResult;
+import com.trademaster.trading.dto.OrderRequest;
+import com.trademaster.trading.dto.OrderResponse;
+import com.trademaster.trading.dto.RiskAssessment;
+import com.trademaster.trading.entity.Position;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,9 +34,9 @@ import java.util.function.Supplier;
  * @version 1.0.0
  * @since 2024
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class TradingAgent implements AgentOSComponent {
     
     private final TradingCapabilityRegistry capabilityRegistry;
@@ -45,15 +50,15 @@ public class TradingAgent implements AgentOSComponent {
             OrderRequest request) {
         
         log.info("Processing order execution request for symbol: {} quantity: {}", 
-                request.getSymbol(), request.getQuantity());
+                request.symbol(), request.quantity());
         
         return executeCoordinatedTrading(
-            request.getRequestId(),
-            List.of(
+            java.util.UUID.randomUUID().toString(),
+            List.<Supplier<String>>of(
                 () -> validateOrder(request),
                 () -> performRiskChecks(request),
                 () -> selectOptimalBroker(request),
-                () -> executeOrder(request),
+                () -> executeOrder(request).join(),
                 () -> trackExecution(request)
             ),
             Duration.ofSeconds(30)
@@ -68,14 +73,15 @@ public class TradingAgent implements AgentOSComponent {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 log.info("Executing order: {} {} {} @ {}", 
-                        order.getSide(), order.getQuantity(), order.getSymbol(), order.getPrice());
+                        order.side(), order.quantity(), order.symbol(), order.getEffectivePrice());
                 
                 // Coordinate with broker integration service
                 var execution = processOrderExecution(order);
                 capabilityRegistry.recordSuccessfulExecution("ORDER_EXECUTION");
                 
-                return String.format("Order executed: %s %s %s at $%.2f", 
-                                   order.getSide(), order.getQuantity(), order.getSymbol(), order.getPrice());
+                return String.format("Order executed: %s %s %s at %s", 
+                                   order.side(), order.quantity(), order.symbol(), 
+                                   order.getEffectivePrice() != null ? "$" + order.getEffectivePrice() : "MARKET");
                                    
             } catch (Exception e) {
                 log.error("Failed to execute order", e);
@@ -92,7 +98,7 @@ public class TradingAgent implements AgentOSComponent {
     public CompletableFuture<String> performRiskAssessment(OrderRequest order) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                log.info("Performing risk assessment for order: {} {}", order.getSymbol(), order.getQuantity());
+                log.info("Performing risk assessment for order: {} {}", order.symbol(), order.quantity());
                 
                 var riskCheck = validateRiskLimits(order);
                 capabilityRegistry.recordSuccessfulExecution("RISK_MANAGEMENT");
@@ -168,12 +174,12 @@ public class TradingAgent implements AgentOSComponent {
         
         return CompletableFuture.supplyAsync(() -> {
             try {
-                log.info("Performing compliance check for user: {} order: {}", userId, order.getSymbol());
+                log.info("Performing compliance check for user: {} order: {}", userId, order.symbol());
                 
                 var compliance = validateCompliance(order, userId);
                 capabilityRegistry.recordSuccessfulExecution("COMPLIANCE_CHECK");
                 
-                return String.format("Compliance check passed: %s", compliance.getStatus());
+                return String.format("Compliance check passed: %s", compliance.status());
                 
             } catch (Exception e) {
                 log.error("Failed to perform compliance check", e);
@@ -187,7 +193,7 @@ public class TradingAgent implements AgentOSComponent {
      * Executes coordinated trading operations using Java 24 structured concurrency
      */
     private CompletableFuture<OrderResponse> executeCoordinatedTrading(
-            Long requestId,
+            String requestId,
             List<Supplier<String>> operations,
             Duration timeout) {
         
@@ -199,8 +205,8 @@ public class TradingAgent implements AgentOSComponent {
                     .map(operation -> scope.fork(operation::get))
                     .toList();
                 
-                // Join with timeout and handle failures
-                scope.join(timeout);
+                // Join and handle failures  
+                scope.join();
                 scope.throwIfFailed();
                 
                 // Collect results
@@ -210,22 +216,67 @@ public class TradingAgent implements AgentOSComponent {
                 
                 log.info("Coordinated trading processing completed for request: {}", requestId);
                 
-                return OrderResponse.builder()
-                    .requestId(requestId)
-                    .status("SUCCESS")
-                    .processingResults(results)
-                    .processingTimeMs(System.currentTimeMillis())
-                    .build();
+                // Create a minimal OrderResponse for AgentOS integration
+                return new OrderResponse(
+                    null, // id
+                    requestId, // orderId  
+                    null, // userId
+                    null, // symbol
+                    null, // exchange
+                    null, // orderType
+                    null, // side
+                    null, // quantity
+                    null, // limitPrice
+                    null, // stopPrice
+                    null, // timeInForce
+                    null, // expiryDate
+                    com.trademaster.trading.model.OrderStatus.FILLED, // status
+                    null, // rejectionReason
+                    null, // brokerOrderId
+                    null, // executedQuantity
+                    null, // remainingQuantity
+                    null, // averageExecutionPrice
+                    null, // fees
+                    null, // commission
+                    null, // pnl
+                    null, // notes
+                    java.time.Instant.now(), // createdAt
+                    java.time.Instant.now(), // updatedAt
+                    null, // executedAt
+                    null // cancelledAt
+                );
                     
             } catch (Exception e) {
                 log.error("Coordinated trading processing failed for request: {}", requestId, e);
                 
-                return OrderResponse.builder()
-                    .requestId(requestId)
-                    .status("FAILED")
-                    .errorMessage(e.getMessage())
-                    .processingTimeMs(System.currentTimeMillis())
-                    .build();
+                return new OrderResponse(
+                    null, // id
+                    requestId, // orderId  
+                    null, // userId
+                    null, // symbol
+                    null, // exchange
+                    null, // orderType
+                    null, // side
+                    null, // quantity
+                    null, // limitPrice
+                    null, // stopPrice
+                    null, // timeInForce
+                    null, // expiryDate
+                    com.trademaster.trading.model.OrderStatus.REJECTED, // status
+                    e.getMessage(), // rejectionReason
+                    null, // brokerOrderId
+                    null, // executedQuantity
+                    null, // remainingQuantity
+                    null, // averageExecutionPrice
+                    null, // fees
+                    null, // commission
+                    null, // pnl
+                    null, // notes
+                    java.time.Instant.now(), // createdAt
+                    java.time.Instant.now(), // updatedAt
+                    null, // executedAt
+                    java.time.Instant.now() // cancelledAt
+                );
             }
         });
     }
@@ -236,11 +287,11 @@ public class TradingAgent implements AgentOSComponent {
     private String validateOrder(OrderRequest order) {
         try {
             // Basic order validation
-            if (order.getQuantity().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            if (order.quantity() <= 0) {
                 throw new IllegalArgumentException("Quantity must be positive");
             }
             
-            if (order.getSymbol() == null || order.getSymbol().trim().isEmpty()) {
+            if (order.symbol() == null || order.symbol().trim().isEmpty()) {
                 throw new IllegalArgumentException("Symbol is required");
             }
             
@@ -314,8 +365,8 @@ public class TradingAgent implements AgentOSComponent {
         return Map.of(
             "orderId", "ORD_" + System.currentTimeMillis(),
             "status", "FILLED",
-            "executedPrice", order.getPrice(),
-            "executedQuantity", order.getQuantity()
+            "executedPrice", order.getEffectivePrice(),
+            "executedQuantity", order.quantity()
         );
     }
     
@@ -323,9 +374,8 @@ public class TradingAgent implements AgentOSComponent {
         // Mock implementation - would integrate with risk management service
         return RiskAssessment.builder()
             .riskLevel("LOW")
-            .positionLimit(java.math.BigDecimal.valueOf(10000))
-            .currentExposure(java.math.BigDecimal.valueOf(5000))
-            .marginRequired(java.math.BigDecimal.valueOf(1000))
+            .riskScore(java.math.BigDecimal.valueOf(0.2))
+            .approved(true)
             .build();
     }
     
@@ -341,11 +391,11 @@ public class TradingAgent implements AgentOSComponent {
     
     private ComplianceResult validateCompliance(OrderRequest order, String userId) {
         // Mock implementation - would check PDT rules, regulatory limits, etc.
-        return ComplianceResult.builder()
-            .status("COMPLIANT")
-            .patternDayTradingCheck(true)
-            .regulatoryLimit(true)
-            .build();
+        return new ComplianceResult(
+            "COMPLIANT",
+            true,
+            true
+        );
     }
     
     @Override
@@ -373,55 +423,4 @@ public class TradingAgent implements AgentOSComponent {
     public Double getHealthScore() {
         return capabilityRegistry.calculateOverallHealthScore();
     }
-}
-
-// Helper classes for type safety
-@lombok.Builder
-@lombok.Data
-class OrderRequest {
-    private Long requestId;
-    private String symbol;
-    private String side; // BUY, SELL
-    private java.math.BigDecimal quantity;
-    private java.math.BigDecimal price;
-    private String orderType; // MARKET, LIMIT, STOP, etc.
-    private String timeInForce; // DAY, GTC, IOC, etc.
-    private String userId;
-}
-
-@lombok.Builder
-@lombok.Data
-class OrderResponse {
-    private Long requestId;
-    private String status;
-    private List<String> processingResults;
-    private String errorMessage;
-    private Long processingTimeMs;
-}
-
-@lombok.Builder
-@lombok.Data
-class RiskAssessment {
-    private String riskLevel;
-    private java.math.BigDecimal positionLimit;
-    private java.math.BigDecimal currentExposure;
-    private java.math.BigDecimal marginRequired;
-}
-
-@lombok.Builder
-@lombok.Data
-class ComplianceResult {
-    private String status;
-    private boolean patternDayTradingCheck;
-    private boolean regulatoryLimit;
-}
-
-@lombok.Builder
-@lombok.Data
-class Position {
-    private String symbol;
-    private java.math.BigDecimal quantity;
-    private java.math.BigDecimal averageCost;
-    private java.math.BigDecimal marketValue;
-    private java.math.BigDecimal unrealizedPnL;
 }

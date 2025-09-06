@@ -22,7 +22,9 @@ spring:
     open-in-view: false
     
   liquibase:
-    change-log: classpath:db/changelog/db.changelog-master.xml
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: true
+    drop-first: false
     
   kafka:
     bootstrap-servers: localhost:9092
@@ -90,20 +92,163 @@ notification:
     sms:
       requests-per-minute: 10
       requests-per-hour: 100
+  inapp:
+    enabled: ${IN_APP_NOTIFICATIONS_ENABLED:true}
+    websocket-path: /ws/notifications
 
-# Actuator Configuration
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        max-wait-duration-in-half-open-state: 10s
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 30s
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.Exception
+    instances:
+      emailService:
+        base-config: default
+        failure-rate-threshold: 60
+        sliding-window-size: 15
+        minimum-number-of-calls: 8
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 5
+      smsService:
+        base-config: default
+        failure-rate-threshold: 40
+        sliding-window-size: 8
+        minimum-number-of-calls: 4
+        wait-duration-in-open-state: 120s
+        permitted-number-of-calls-in-half-open-state: 2
+      pushService:
+        base-config: default
+        failure-rate-threshold: 50
+        sliding-window-size: 12
+        minimum-number-of-calls: 6
+        wait-duration-in-open-state: 45s
+        permitted-number-of-calls-in-half-open-state: 3
+  retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.lang.Exception
+    instances:
+      emailService:
+        base-config: default
+        max-attempts: 4
+        wait-duration: 1s
+        exponential-backoff-multiplier: 1.5
+      smsService:
+        base-config: default
+        max-attempts: 2
+        wait-duration: 800ms
+        exponential-backoff-multiplier: 2
+      pushService:
+        base-config: default
+        max-attempts: 3
+        wait-duration: 600ms
+        exponential-backoff-multiplier: 1.8
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 10s
+        cancel-running-future: true
+    instances:
+      emailService:
+        timeout-duration: 15s
+      smsService:
+        timeout-duration: 8s
+      pushService:
+        timeout-duration: 5s
+
+# MANDATORY: Enhanced Monitoring Configuration per TradeMaster Standards
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,notification,env,threaddump,heapdump,eureka
+      base-path: /actuator
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true
+    info:
+      enabled: true
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+    notification:
+      enabled: true
   metrics:
     export:
       prometheus:
         enabled: true
+        step: 1m
+        descriptions: true
+    tags:
+      application: trademaster
+      service: notification-service
+      version: 2.0.0
+      environment: ${spring.profiles.active:local}
+    web:
+      client:
+        request:
+          autotime:
+            enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[notification.send.duration]": true
+        "[email.send.duration]": true
+        "[sms.send.duration]": true
+      percentiles:
+        http.server.requests: 0.5, 0.75, 0.95, 0.99
+        notification.send.duration: 0.5, 0.75, 0.95, 0.99
+        email.send.duration: 0.5, 0.75, 0.95, 0.99
+        sms.send.duration: 0.5, 0.75, 0.95, 0.99
+        external.service.call.duration: 0.5, 0.75, 0.95, 0.99
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms
+        notification.send.duration: 100ms,500ms,1s,3s
+        email.send.duration: 500ms,2s,5s,10s
+        sms.send.duration: 200ms,1s,3s,10s
+        external.service.call.duration: 100ms,500ms,1s,3s
+  info:
+    env:
+      enabled: true
+    git:
+      mode: full
+    build:
+      enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    diskspace:
+      enabled: true
+    redis:
+      enabled: true
+    db:
+      enabled: true
+    kafka:
+      enabled: true
+    mail:
+      enabled: true
 
 logging:
   level:

@@ -6,6 +6,8 @@ import com.trademaster.agentos.config.AgentOSMetrics;
 import com.trademaster.agentos.domain.entity.Task;
 import com.trademaster.agentos.domain.entity.TaskPriority;
 import com.trademaster.agentos.domain.entity.TaskStatus;
+import com.trademaster.agentos.functional.Result;
+import com.trademaster.agentos.functional.TaskError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -58,7 +61,7 @@ public class TaskQueueService {
     private static final String LOW_PRIORITY_QUEUE = TASK_QUEUE_PREFIX + "low";
     
     /**
-     * ✅ ENQUEUE: Add task to priority queue
+     * ✅ FUNCTIONAL ERROR HANDLING: Add task to priority queue using Railway Programming
      */
     @Async
     public CompletableFuture<Boolean> enqueueTask(Task task) {
@@ -66,49 +69,90 @@ public class TaskQueueService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("task_enqueue");
             
-            try {
-                // ✅ VALIDATION: Check queue capacity
-                if (getTotalQueueSize() >= maxQueueSize) {
-                    throw new IllegalStateException("Task queue is full");
-                }
-                
-                // ✅ SERIALIZATION: Store task data
-                String taskJson = objectMapper.writeValueAsString(task);
-                String taskKey = TASK_DATA_PREFIX + task.getTaskId();
-                redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofHours(24));
-                
-                // ✅ PRIORITY ROUTING: Add to appropriate queue
-                String queueKey = getQueueKeyByPriority(task.getPriority());
-                Long queuePosition = redisTemplate.opsForList().rightPush(queueKey, task.getTaskId().toString());
-                
-                // ✅ METRICS & LOGGING
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logBusinessTransaction(
-                    "task_enqueue",
-                    task.getTaskId().toString(),
-                    "enqueue",
-                    "system",
-                    Map.of(
-                        "priority", task.getPriority(),
-                        "taskType", task.getTaskType(),
-                        "queuePosition", queuePosition
-                    )
-                );
-                
-                return true;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("task_enqueue", e.getClass().getSimpleName());
-                structuredLogger.logError("task_enqueue", e.getMessage(), e,
-                    Map.of("taskId", task.getTaskId(), "priority", task.getPriority()));
-                return false;
-            }
+            return enqueueTaskFunctional(task)
+                .onSuccess(result -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logBusinessTransaction(
+                        "task_enqueue",
+                        task.getTaskId().toString(),
+                        "enqueue",
+                        "system",
+                        Map.of(
+                            "priority", task.getPriority(),
+                            "taskType", task.getTaskType(),
+                            "queuePosition", result
+                        )
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("task_enqueue", error.getErrorCode());
+                    structuredLogger.logError("task_enqueue", error.getMessage(), null,
+                        Map.of("taskId", task.getTaskId(), "priority", task.getPriority(), "errorCode", error.getErrorCode()));
+                })
+                .map(queuePosition -> true)
+                .getOrElse(false);
         });
     }
     
     /**
-     * ✅ DEQUEUE: Get next highest priority task
+     * ✅ RAILWAY PROGRAMMING: Functional task enqueue pipeline
+     */
+    private Result<Long, TaskError> enqueueTaskFunctional(Task task) {
+        return validateQueueCapacity()
+            .flatMap(ignored -> serializeTask(task))
+            .flatMap(taskJson -> storeTaskData(task, taskJson))
+            .flatMap(ignored -> addToQueue(task));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL VALIDATION: Check queue capacity without throwing
+     */
+    private Result<Result.Unit, TaskError> validateQueueCapacity() {
+        return Result.tryExecute(() -> getTotalQueueSize(), 
+            e -> TaskError.redisError("queue_size_check", "queue_stats", e))
+            .flatMap(currentSize -> 
+                currentSize >= maxQueueSize 
+                    ? Result.<Result.Unit, TaskError>failure(TaskError.queueFull(Math.toIntExact(currentSize), maxQueueSize))
+                    : Result.<Result.Unit, TaskError>success(Result.Unit.INSTANCE)
+            );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL SERIALIZATION: Serialize task without throwing
+     */
+    private Result<String, TaskError> serializeTask(Task task) {
+        try {
+            String serializedTask = objectMapper.writeValueAsString(task);
+            return Result.success(serializedTask);
+        } catch (Exception e) {
+            return Result.failure(TaskError.serializationError(task.getTaskId().toString(), e));
+        }
+    }
+    
+    /**
+     * ✅ FUNCTIONAL STORAGE: Store task data in Redis
+     */
+    private Result<Void, TaskError> storeTaskData(Task task, String taskJson) {
+        return Result.tryExecute(() -> {
+            String taskKey = TASK_DATA_PREFIX + task.getTaskId();
+            redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofHours(24));
+            return null;
+        }, e -> TaskError.redisError("store_task_data", TASK_DATA_PREFIX + task.getTaskId(), e));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL QUEUE: Add task to priority queue
+     */
+    private Result<Long, TaskError> addToQueue(Task task) {
+        return Result.tryExecute(() -> {
+            String queueKey = getQueueKeyByPriority(task.getPriority());
+            return redisTemplate.opsForList().rightPush(queueKey, task.getTaskId().toString());
+        }, e -> TaskError.redisError("add_to_queue", getQueueKeyByPriority(task.getPriority()), e));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Get next highest priority task using Railway Programming
      */
     @Async
     public CompletableFuture<Optional<Task>> dequeueTask(String agentId) {
@@ -116,46 +160,49 @@ public class TaskQueueService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("task_dequeue");
             
-            try {
-                // ✅ PRIORITY PROCESSING: Check high priority first
-                Optional<Task> task = dequeueFromQueue(HIGH_PRIORITY_QUEUE, agentId);
-                if (task.isEmpty()) {
-                    task = dequeueFromQueue(NORMAL_PRIORITY_QUEUE, agentId);
-                }
-                if (task.isEmpty()) {
-                    task = dequeueFromQueue(LOW_PRIORITY_QUEUE, agentId);
-                }
-                
-                if (task.isPresent()) {
-                    // ✅ PROCESSING STATE: Mark task as being processed
-                    markTaskAsProcessing(task.get(), agentId);
-                    
+            return dequeueTaskFunctional(agentId)
+                .onSuccess(taskOpt -> {
                     timer.stop(metrics.getApiResponseTime());
-                    structuredLogger.logBusinessTransaction(
-                        "task_dequeue",
-                        task.get().getTaskId().toString(),
-                        "dequeue",
-                        agentId,
-                        Map.of("priority", task.get().getPriority(), "taskType", task.get().getTaskType())
+                    taskOpt.ifPresentOrElse(
+                        task -> structuredLogger.logBusinessTransaction(
+                            "task_dequeue",
+                            task.getTaskId().toString(),
+                            "dequeue",
+                            agentId,
+                            Map.of("priority", task.getPriority(), "taskType", task.getTaskType())
+                        ),
+                        () -> { /* No task available - normal case */ }
                     );
-                } else {
+                })
+                .onFailure(error -> {
                     timer.stop(metrics.getApiResponseTime());
-                }
-                
-                return task;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("task_dequeue", e.getClass().getSimpleName());
-                structuredLogger.logError("task_dequeue", e.getMessage(), e,
-                    Map.of("agentId", agentId));
-                return Optional.empty();
-            }
+                    metrics.recordError("task_dequeue", error.getErrorCode());
+                    structuredLogger.logError("task_dequeue", error.getMessage(), null,
+                        Map.of("agentId", agentId, "errorCode", error.getErrorCode()));
+                })
+                .getOrElse(Optional.empty());
         });
     }
     
     /**
-     * ✅ COMPLETION: Mark task as completed
+     * ✅ RAILWAY PROGRAMMING: Functional task dequeue pipeline
+     */
+    private Result<Optional<Task>, TaskError> dequeueTaskFunctional(String agentId) {
+        return dequeueFromQueueFunctional(HIGH_PRIORITY_QUEUE, agentId)
+            .flatMap(taskOpt -> taskOpt.isPresent() 
+                ? Result.<Optional<Task>, TaskError>success(taskOpt)
+                : dequeueFromQueueFunctional(NORMAL_PRIORITY_QUEUE, agentId))
+            .flatMap(taskOpt -> taskOpt.isPresent()
+                ? Result.<Optional<Task>, TaskError>success(taskOpt)
+                : dequeueFromQueueFunctional(LOW_PRIORITY_QUEUE, agentId))
+            .flatMap(taskOpt -> taskOpt.map(task -> 
+                markTaskAsProcessingFunctional(task, agentId)
+                    .map(ignored -> Optional.of(task))
+            ).orElse(Result.<Optional<Task>, TaskError>success(Optional.empty())));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Mark task as completed using Railway Programming
      */
     @Async
     public CompletableFuture<Boolean> completeTask(Long taskId, String agentId, String result) {
@@ -163,48 +210,77 @@ public class TaskQueueService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("task_complete");
             
-            try {
-                // ✅ CLEANUP: Remove from processing queue
-                String processingKey = TASK_PROCESSING_PREFIX + agentId;
-                redisTemplate.opsForSet().remove(processingKey, taskId.toString());
-                
-                // ✅ STATE UPDATE: Update task status
-                Optional<Task> taskOpt = getTaskById(taskId);
-                if (taskOpt.isPresent()) {
-                    Task task = taskOpt.get();
-                    task.setStatus(TaskStatus.COMPLETED);
-                    task.setCompletedAt(Instant.now());
-                    task.setProgressPercentage(100);
-                    
-                    // ✅ PERSISTENCE: Save updated task
-                    String taskJson = objectMapper.writeValueAsString(task);
-                    String taskKey = TASK_DATA_PREFIX + taskId;
-                    redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofDays(7)); // Keep completed tasks for 7 days
-                }
-                
-                timer.stop(metrics.getApiResponseTime());
-                structuredLogger.logTaskExecution(
-                    taskId.toString(),
-                    taskOpt.map(t -> t.getTaskType().toString()).orElse("unknown"),
-                    agentId,
-                    taskOpt.map(t -> t.getPriority().toString()).orElse("unknown"),
-                    System.currentTimeMillis() - taskOpt.map(t -> t.getCreatedAt().toEpochMilli()).orElse(System.currentTimeMillis())
-                );
-                
-                return true;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("task_complete", e.getClass().getSimpleName());
-                structuredLogger.logError("task_complete", e.getMessage(), e,
-                    Map.of("taskId", taskId, "agentId", agentId));
-                return false;
-            }
+            return completeTaskFunctional(taskId, agentId, result)
+                .onSuccess(task -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    structuredLogger.logTaskExecution(
+                        taskId.toString(),
+                        task.getTaskType().toString(),
+                        agentId,
+                        task.getPriority().toString(),
+                        System.currentTimeMillis() - task.getCreatedAt().toEpochMilli()
+                    );
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("task_complete", error.getErrorCode());
+                    structuredLogger.logError("task_complete", error.getMessage(), null,
+                        Map.of("taskId", taskId, "agentId", agentId, "errorCode", error.getErrorCode()));
+                })
+                .map(task -> true)
+                .getOrElse(false);
         });
     }
     
     /**
-     * ✅ FAILURE: Mark task as failed with retry logic
+     * ✅ RAILWAY PROGRAMMING: Functional task completion pipeline
+     */
+    private Result<Task, TaskError> completeTaskFunctional(Long taskId, String agentId, String result) {
+        return removeFromProcessingQueue(taskId, agentId)
+            .flatMap(ignored -> getTaskByIdFunctional(taskId))
+            .map(this::markTaskCompleted)
+            .flatMap(task -> persistCompletedTask(task, taskId));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL CLEANUP: Remove task from processing queue
+     */
+    private Result<Void, TaskError> removeFromProcessingQueue(Long taskId, String agentId) {
+        return Result.tryExecute(() -> {
+            String processingKey = TASK_PROCESSING_PREFIX + agentId;
+            redisTemplate.opsForSet().remove(processingKey, taskId.toString());
+            return null;
+        }, e -> TaskError.redisError("remove_from_processing", TASK_PROCESSING_PREFIX + agentId, e));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL UPDATE: Mark task as completed
+     */
+    private Task markTaskCompleted(Task task) {
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(Instant.now());
+        task.setProgressPercentage(100);
+        return task;
+    }
+    
+    /**
+     * ✅ FUNCTIONAL PERSISTENCE: Save completed task
+     */
+    private Result<Task, TaskError> persistCompletedTask(Task task, Long taskId) {
+        try {
+            String taskJson = objectMapper.writeValueAsString(task);
+            return Result.tryExecute(() -> {
+                String taskKey = TASK_DATA_PREFIX + taskId;
+                redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofDays(7));
+                return task;
+            }, e -> TaskError.redisError("persist_completed_task", TASK_DATA_PREFIX + taskId, e));
+        } catch (Exception e) {
+            return Result.failure(TaskError.serializationError(taskId.toString(), e));
+        }
+    }
+    
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Mark task as failed with retry logic using Railway Programming
      */
     @Async
     public CompletableFuture<Boolean> failTask(Long taskId, String agentId, String errorMessage) {
@@ -212,153 +288,302 @@ public class TaskQueueService {
             var timer = metrics.startApiTimer();
             structuredLogger.setOperationContext("task_fail");
             
-            try {
-                Optional<Task> taskOpt = getTaskById(taskId);
-                if (taskOpt.isEmpty()) {
-                    return false;
-                }
-                
-                Task task = taskOpt.get();
-                
-                // ✅ RETRY LOGIC: Check if task should be retried
-                if (task.getRetryCount() < maxRetryAttempts) {
-                    // ✅ RETRY: Increment retry count and re-enqueue
-                    task.setRetryCount(task.getRetryCount() + 1);
-                    task.setStatus(TaskStatus.PENDING);
-                    enqueueTask(task);
-                    
-                    structuredLogger.logBusinessTransaction(
-                        "task_retry",
-                        taskId.toString(),
-                        "retry",
-                        agentId,
-                        Map.of("retryCount", task.getRetryCount(), "error", errorMessage)
-                    );
-                } else {
-                    // ✅ FINAL FAILURE: Mark as permanently failed
-                    task.setStatus(TaskStatus.FAILED);
-                    task.setCompletedAt(Instant.now());
-                    
-                    // ✅ FAILED QUEUE: Move to failed tasks queue for analysis
-                    String failedKey = TASK_FAILED_PREFIX + Instant.now().toEpochMilli();
-                    Map<String, Object> failureInfo = Map.of(
-                        "taskId", taskId,
-                        "agentId", agentId,
-                        "error", errorMessage,
-                        "retryCount", task.getRetryCount(),
-                        "failedAt", Instant.now()
-                    );
-                    redisTemplate.opsForValue().set(failedKey, objectMapper.writeValueAsString(failureInfo), Duration.ofDays(30));
-                    
-                    structuredLogger.logTaskFailure(
-                        taskId.toString(),
-                        task.getTaskType().toString(),
-                        agentId,
-                        errorMessage,
-                        System.currentTimeMillis() - task.getCreatedAt().toEpochMilli()
-                    );
-                }
-                
-                // ✅ CLEANUP: Remove from processing
-                String processingKey = TASK_PROCESSING_PREFIX + agentId;
-                redisTemplate.opsForSet().remove(processingKey, taskId.toString());
-                
-                // ✅ PERSISTENCE: Save updated task
-                String taskJson = objectMapper.writeValueAsString(task);
-                String taskKey = TASK_DATA_PREFIX + taskId;
-                redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofDays(30));
-                
-                timer.stop(metrics.getApiResponseTime());
-                return true;
-                
-            } catch (Exception e) {
-                timer.stop(metrics.getApiResponseTime());
-                metrics.recordError("task_fail", e.getClass().getSimpleName());
-                structuredLogger.logError("task_fail", e.getMessage(), e,
-                    Map.of("taskId", taskId, "agentId", agentId, "errorMessage", errorMessage));
-                return false;
-            }
+            return processTaskFailureFunctional(taskId, agentId, errorMessage)
+                .onSuccess(task -> {
+                    timer.stop(metrics.getApiResponseTime());
+                })
+                .onFailure(error -> {
+                    timer.stop(metrics.getApiResponseTime());
+                    metrics.recordError("task_fail", error.getErrorCode());
+                    structuredLogger.logError("task_fail", error.getMessage(), null,
+                        Map.of("taskId", taskId, "agentId", agentId, "errorMessage", errorMessage, "errorCode", error.getErrorCode()));
+                })
+                .map(task -> true)
+                .getOrElse(false);
         });
     }
     
     /**
-     * ✅ QUERY: Get queue statistics
+     * ✅ RAILWAY PROGRAMMING: Functional task failure processing pipeline
+     */
+    private Result<Task, TaskError> processTaskFailureFunctional(Long taskId, String agentId, String errorMessage) {
+        return getTaskByIdFunctional(taskId)
+            .flatMap(task -> handleTaskFailureRetryFunctional(task, agentId, errorMessage));
+    }
+    
+    /**
+     * ✅ RAILWAY PROGRAMMING: Handle retry logic for failed task
+     */
+    private Result<Task, TaskError> handleTaskFailureRetryFunctional(Task task, String agentId, String errorMessage) {
+        return task.getRetryCount() < maxRetryAttempts
+            ? retryFailedTaskFunctional(task, agentId, errorMessage)
+            : markTaskAsPermanentlyFailedFunctional(task, agentId, errorMessage);
+    }
+    
+    /**
+     * ✅ FUNCTIONAL RETRY: Retry a failed task using functional pipeline
+     */
+    private Result<Task, TaskError> retryFailedTaskFunctional(Task task, String agentId, String errorMessage) {
+        task.setRetryCount(task.getRetryCount() + 1);
+        task.setStatus(TaskStatus.PENDING);
+        
+        // Re-enqueue task asynchronously (fire and forget)
+        enqueueTask(task);
+        
+        structuredLogger.logBusinessTransaction(
+            "task_retry",
+            task.getTaskId().toString(),
+            "retry",
+            agentId,
+            Map.of("retryCount", task.getRetryCount(), "error", errorMessage)
+        );
+        
+        return cleanupAndPersistTaskFunctional(task, agentId);
+    }
+    
+    /**
+     * ✅ FUNCTIONAL FAILURE: Mark task as permanently failed using functional pipeline
+     */
+    private Result<Task, TaskError> markTaskAsPermanentlyFailedFunctional(Task task, String agentId, String errorMessage) {
+        task.setStatus(TaskStatus.FAILED);
+        task.setCompletedAt(Instant.now());
+        
+        return recordFailedTaskFunctional(task, agentId, errorMessage)
+            .flatMap(ignored -> {
+                logTaskFailure(task, agentId, errorMessage);
+                return cleanupAndPersistTaskFunctional(task, agentId);
+            });
+    }
+    
+    /**
+     * ✅ FUNCTIONAL RECORDING: Record failed task for analysis using Result monad
+     */
+    private Result<Void, TaskError> recordFailedTaskFunctional(Task task, String agentId, String errorMessage) {
+        String failedKey = TASK_FAILED_PREFIX + Instant.now().toEpochMilli();
+        Map<String, Object> failureInfo = Map.of(
+            "taskId", task.getTaskId(),
+            "agentId", agentId,
+            "error", errorMessage,
+            "retryCount", task.getRetryCount(),
+            "failedAt", Instant.now()
+        );
+        
+        try {
+            String failureJson = objectMapper.writeValueAsString(failureInfo);
+            return Result.tryExecute(() -> {
+                redisTemplate.opsForValue().set(failedKey, failureJson, Duration.ofDays(30));
+                return null;
+            }, e -> TaskError.redisError("record_failed_task", failedKey, e));
+        } catch (Exception e) {
+            return Result.failure(TaskError.serializationError("failure_info_" + task.getTaskId(), e));
+        }
+    }
+    
+    /**
+     * ✅ COGNITIVE COMPLEXITY: Log task failure (Complexity: 1)
+     */
+    private void logTaskFailure(Task task, String agentId, String errorMessage) {
+        structuredLogger.logTaskFailure(
+            task.getTaskId().toString(),
+            task.getTaskType().toString(),
+            agentId,
+            errorMessage,
+            System.currentTimeMillis() - task.getCreatedAt().toEpochMilli()
+        );
+    }
+    
+    /**
+     * ✅ FUNCTIONAL CLEANUP: Cleanup and persist task changes using Result monad
+     */
+    private Result<Task, TaskError> cleanupAndPersistTaskFunctional(Task task, String agentId) {
+        return removeFromProcessingQueue(task.getTaskId(), agentId)
+            .flatMap(ignored -> {
+                try {
+                    String taskJson = objectMapper.writeValueAsString(task);
+                    return Result.tryExecute(() -> {
+                        String taskKey = TASK_DATA_PREFIX + task.getTaskId();
+                        redisTemplate.opsForValue().set(taskKey, taskJson, Duration.ofDays(30));
+                        return task;
+                    }, e -> TaskError.redisError("persist_task", TASK_DATA_PREFIX + task.getTaskId(), e));
+                } catch (Exception e) {
+                    return Result.failure(TaskError.serializationError(task.getTaskId().toString(), e));
+                }
+            });
+    }
+    
+    /**
+     * ✅ LEGACY COMPATIBILITY: Keep original method for backward compatibility
+     */
+    private Boolean cleanupAndPersistTask(Task task, String agentId) {
+        return cleanupAndPersistTaskFunctional(task, agentId)
+            .map(persistedTask -> true)
+            .getOrElse(false);
+    }
+    
+    /**
+     * ✅ FUNCTIONAL QUERY: Get queue statistics using Result monad
      */
     public TaskQueueStats getQueueStats() {
-        try {
+        return getQueueStatsFunctional()
+            .onFailure(error -> structuredLogger.logError("get_queue_stats", error.getMessage(), null, 
+                Map.of("errorCode", error.getErrorCode())))
+            .getOrElse(TaskQueueStats.builder().build());
+    }
+    
+    /**
+     * ✅ FUNCTIONAL STATS: Get queue statistics pipeline
+     */
+    private Result<TaskQueueStats, TaskError> getQueueStatsFunctional() {
+        return Result.tryExecute(() -> {
             long highPriorityCount = redisTemplate.opsForList().size(HIGH_PRIORITY_QUEUE);
             long normalPriorityCount = redisTemplate.opsForList().size(NORMAL_PRIORITY_QUEUE);
             long lowPriorityCount = redisTemplate.opsForList().size(LOW_PRIORITY_QUEUE);
+            long totalTasks = highPriorityCount + normalPriorityCount + lowPriorityCount;
             
             return TaskQueueStats.builder()
                 .highPriorityTasks(highPriorityCount)
                 .normalPriorityTasks(normalPriorityCount)
                 .lowPriorityTasks(lowPriorityCount)
-                .totalTasks(highPriorityCount + normalPriorityCount + lowPriorityCount)
+                .totalTasks(totalTasks)
                 .maxQueueSize(maxQueueSize)
-                .utilizationPercent((double) (highPriorityCount + normalPriorityCount + lowPriorityCount) / maxQueueSize * 100)
+                .utilizationPercent((double) totalTasks / maxQueueSize * 100)
                 .build();
-                
-        } catch (Exception e) {
-            structuredLogger.logError("get_queue_stats", e.getMessage(), e, Map.of());
-            return TaskQueueStats.builder().build();
-        }
+        }, e -> TaskError.redisError("get_queue_stats", "queue_statistics", e));
     }
     
     /**
-     * ✅ CLEANUP: Remove expired tasks and clean up processing queues
+     * ✅ FUNCTIONAL CLEANUP: Remove expired tasks using Result monad
      */
     @Async
     public CompletableFuture<Void> cleanupExpiredTasks() {
         return CompletableFuture.runAsync(() -> {
             structuredLogger.setOperationContext("task_cleanup");
             
-            try {
-                // ✅ PROCESSING TIMEOUT: Find stale processing tasks
-                Instant staleThreshold = Instant.now().minus(Duration.ofMinutes(30));
-                // Implementation would scan processing queues and re-enqueue stale tasks
-                
-                structuredLogger.logBusinessTransaction(
+            cleanupExpiredTasksFunctional()
+                .onSuccess(ignored -> structuredLogger.logBusinessTransaction(
                     "task_cleanup",
                     "system",
                     "cleanup",
                     "system",
                     Map.of("cleanupTime", Instant.now())
-                );
-                
-            } catch (Exception e) {
-                structuredLogger.logError("task_cleanup", e.getMessage(), e, Map.of());
-            }
+                ))
+                .onFailure(error -> structuredLogger.logError("task_cleanup", error.getMessage(), null, 
+                    Map.of("errorCode", error.getErrorCode())));
         });
+    }
+    
+    /**
+     * ✅ FUNCTIONAL CLEANUP: Expired tasks cleanup pipeline
+     */
+    private Result<Void, TaskError> cleanupExpiredTasksFunctional() {
+        return Result.tryExecute(() -> {
+            Instant staleThreshold = Instant.now().minus(Duration.ofMinutes(30));
+            
+            // ✅ FUNCTIONAL: Scan processing queues and re-enqueue stale tasks
+            String processingPattern = TASK_PROCESSING_PREFIX + "*";
+            
+            return redisTemplate.keys(processingPattern).stream()
+                .map(this::processStaleTaskKey)
+                .filter(Objects::nonNull)
+                .reduce(0, Integer::sum) > 0 ? null : null;
+        }, e -> TaskError.redisError("cleanup_expired_tasks", "task_cleanup", e));
+    }
+    
+    /**
+     * ✅ FUNCTIONAL: Process individual stale task key
+     */
+    private Integer processStaleTaskKey(String processingKey) {
+        try {
+            String taskData = redisTemplate.opsForValue().get(processingKey);
+            if (taskData == null) return 0;
+            
+            Task task = objectMapper.readValue(taskData, Task.class);
+            Instant staleThreshold = Instant.now().minus(Duration.ofMinutes(30));
+            
+            // ✅ FUNCTIONAL: Check if task is stale using ternary operator
+            boolean isStale = task.getUpdatedAt() != null && task.getUpdatedAt().isBefore(staleThreshold);
+            
+            if (isStale) {
+                // ✅ FUNCTIONAL: Re-enqueue stale task and remove from processing
+                String queueKey = getQueueKeyByPriority(task.getPriority());
+                redisTemplate.opsForList().rightPush(queueKey, task.getTaskId().toString());
+                redisTemplate.delete(processingKey);
+                
+                log.info("Re-enqueued stale task: {} from processing queue", task.getTaskId());
+                return 1;
+            }
+            return 0;
+        } catch (Exception e) {
+            log.error("Error processing stale task key: {}", processingKey, e);
+            return 0;
+        }
     }
     
     // ✅ PRIVATE METHODS
     
-    private Optional<Task> dequeueFromQueue(String queueKey, String agentId) throws JsonProcessingException {
-        String taskIdStr = redisTemplate.opsForList().leftPop(queueKey);
-        if (taskIdStr == null) {
-            return Optional.empty();
-        }
-        
-        Long taskId = Long.parseLong(taskIdStr);
-        return getTaskById(taskId);
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Dequeue from specific queue using Result monad
+     */
+    private Result<Optional<Task>, TaskError> dequeueFromQueueFunctional(String queueKey, String agentId) {
+        return Result.tryExecute(() -> redisTemplate.opsForList().leftPop(queueKey))
+            .mapError(e -> TaskError.redisError("dequeue", queueKey, e))
+            .flatMap(taskIdStr -> {
+                if (taskIdStr == null) {
+                    return Result.<Optional<Task>, TaskError>success(Optional.empty());
+                }
+                return Result.tryExecute(() -> Long.parseLong(taskIdStr))
+                    .mapError(e -> TaskError.deserializationError(taskIdStr, e))
+                    .flatMap(this::getTaskByIdFunctional)
+                    .map(Optional::of);
+            });
     }
     
-    private Optional<Task> getTaskById(Long taskId) throws JsonProcessingException {
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Get task by ID using Result monad
+     */
+    private Result<Task, TaskError> getTaskByIdFunctional(Long taskId) {
         String taskKey = TASK_DATA_PREFIX + taskId;
-        String taskJson = redisTemplate.opsForValue().get(taskKey);
-        if (taskJson == null) {
-            return Optional.empty();
-        }
-        
-        Task task = objectMapper.readValue(taskJson, Task.class);
-        return Optional.of(task);
+        return Result.tryExecute(() -> redisTemplate.opsForValue().get(taskKey))
+            .mapError(e -> TaskError.redisError("get_task", taskKey, e))
+            .flatMap(taskJson -> {
+                if (taskJson == null) {
+                    return Result.<Task, TaskError>failure(TaskError.notFound(taskId.toString(), "get_task_by_id"));
+                }
+                try {
+                    Task task = objectMapper.readValue(taskJson, Task.class);
+                    return Result.<Task, TaskError>success(task);
+                } catch (Exception e) {
+                    return Result.<Task, TaskError>failure(TaskError.deserializationError(taskId.toString(), e));
+                }
+            });
     }
     
+    /**
+     * ✅ FUNCTIONAL ERROR HANDLING: Mark task as processing using Result monad
+     */
+    private Result<Void, TaskError> markTaskAsProcessingFunctional(Task task, String agentId) {
+        return Result.tryExecute(() -> {
+            String processingKey = TASK_PROCESSING_PREFIX + agentId;
+            redisTemplate.opsForSet().add(processingKey, task.getTaskId().toString());
+            redisTemplate.expire(processingKey, Duration.ofHours(2));
+            return null;
+        }, e -> TaskError.redisError("mark_processing", TASK_PROCESSING_PREFIX + agentId, e));
+    }
+    
+    /**
+     * ✅ LEGACY COMPATIBILITY: Keep original method for backward compatibility
+     */
+    private Optional<Task> getTaskById(Long taskId) {
+        return getTaskByIdFunctional(taskId).toOptional();
+    }
+    
+    /**
+     * ✅ LEGACY COMPATIBILITY: Keep original method for backward compatibility 
+     */
     private void markTaskAsProcessing(Task task, String agentId) {
-        String processingKey = TASK_PROCESSING_PREFIX + agentId;
-        redisTemplate.opsForSet().add(processingKey, task.getTaskId().toString());
-        redisTemplate.expire(processingKey, Duration.ofHours(2));
+        markTaskAsProcessingFunctional(task, agentId)
+            .onFailure(error -> structuredLogger.logError("mark_task_processing", error.getMessage(), null,
+                Map.of("taskId", task.getTaskId(), "agentId", agentId, "errorCode", error.getErrorCode())));
     }
     
     private String getQueueKeyByPriority(TaskPriority priority) {

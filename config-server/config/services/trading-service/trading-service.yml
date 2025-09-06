@@ -1,0 +1,114 @@
+# Trading Service Specific Configuration
+
+spring:
+  application:
+    name: trading-service
+  profiles:
+    active: consul
+    
+  # Database Configuration
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trademaster_trading}
+    username: ${DATABASE_USERNAME:trading_user}
+    password: ${DATABASE_PASSWORD:trading_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  
+  # Redis Configuration
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    jedis:
+      pool:
+        max-active: 20
+        max-idle: 8
+        min-idle: 2
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8083}
+  servlet:
+    context-path: /
+
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      brokerApi:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30000
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+      database:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 60000
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-secret-key-change-in-production}
+  expiration: ${JWT_EXPIRATION:86400} # 24 hours
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800} # 7 days
+
+# Trading Service Specific Properties
+trading:
+  order:
+    max-quantity: ${MAX_ORDER_QUANTITY:10000}
+    max-value: ${MAX_ORDER_VALUE:1000000.00}
+    timeout-seconds: ${ORDER_TIMEOUT:30}
+  risk:
+    max-exposure-percent: ${MAX_EXPOSURE_PERCENT:80.0}
+    max-daily-loss: ${MAX_DAILY_LOSS:50000.00}
+    
+# Consul Service Discovery
+spring:
+  cloud:
+    consul:
+      host: ${CONSUL_HOST:localhost}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        service-name: trading-service
+        health-check-path: /api/v2/health
+        tags:
+          - trading-service
+          - microservice
+          - java24
+          - virtual-threads
+        metadata:
+          version: "2.0.0"
+          service-type: trading
+          virtual-threads: enabled
+          java-version: "24"
+
+# OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method

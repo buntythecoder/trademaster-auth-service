@@ -7,6 +7,9 @@ import com.trademaster.portfolio.entity.Portfolio;
 import com.trademaster.portfolio.entity.Position;
 import com.trademaster.portfolio.model.PortfolioStatus;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -260,64 +263,30 @@ public interface PortfolioService {
      * @param reason Reason for deletion
      */
     void deletePortfolio(Long portfolioId, Long adminUserId, String reason);
+    
+    /**
+     * Get portfolios for user with optional filtering
+     * 
+     * @param userId The user ID
+     * @param status Optional status filter
+     * @param pageable Pagination parameters
+     * @return Page of portfolio summaries
+     */
+    Page<PortfolioSummary> getPortfoliosForUser(Long userId, String status, Pageable pageable);
+    
+    /**
+     * Initiate portfolio rebalancing
+     * 
+     * @param portfolioId The portfolio ID
+     * @param strategy Rebalancing strategy
+     * @return Rebalancing result
+     */
+    CompletableFuture<Object> initiateRebalancing(Long portfolioId, String strategy);
+    
+    /**
+     * Delete portfolio (simple version for controller)
+     * 
+     * @param portfolioId The portfolio ID
+     */
+    void deletePortfolio(Long portfolioId);
 }
-
-/**
- * Portfolio Metrics DTO
- */
-record PortfolioMetrics(
-    Long portfolioId,
-    BigDecimal totalValue,
-    BigDecimal totalCost,
-    BigDecimal totalPnl,
-    BigDecimal totalReturn,
-    BigDecimal dayPnl,
-    BigDecimal realizedPnl,
-    BigDecimal unrealizedPnl,
-    Integer totalPositions,
-    Integer profitablePositions,
-    Integer losingPositions,
-    BigDecimal largestPosition,
-    BigDecimal concentrationRisk,
-    Instant lastValuationAt,
-    Instant calculatedAt
-) {}
-
-/**
- * Portfolio Performance DTO
- */
-record PortfolioPerformance(
-    Long portfolioId,
-    Instant fromDate,
-    Instant toDate,
-    BigDecimal startingValue,
-    BigDecimal endingValue,
-    BigDecimal totalReturn,
-    BigDecimal annualizedReturn,
-    BigDecimal volatility,
-    BigDecimal sharpeRatio,
-    BigDecimal maxDrawdown,
-    BigDecimal averageDailyReturn,
-    Integer tradingDays,
-    BigDecimal totalFees,
-    BigDecimal totalDividends,
-    Instant calculatedAt
-) {}
-
-/**
- * Portfolio Statistics DTO
- */
-record PortfolioStatistics(
-    Long totalPortfolios,
-    Long activePortfolios,
-    Long suspendedPortfolios,
-    Long closedPortfolios,
-    BigDecimal totalAUM,
-    BigDecimal averagePortfolioValue,
-    BigDecimal totalRealizedPnl,
-    BigDecimal totalUnrealizedPnl,
-    Long totalPositions,
-    Long profitablePortfolios,
-    Long losingPortfolios,
-    Instant calculatedAt
-) {}

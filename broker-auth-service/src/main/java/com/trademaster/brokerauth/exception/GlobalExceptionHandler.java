@@ -1,319 +1,230 @@
 package com.trademaster.brokerauth.exception;
 
-import com.trademaster.brokerauth.config.CorrelationConfig;
-import com.trademaster.brokerauth.service.StructuredLoggingService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.validation.FieldError;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.servlet.NoHandlerFoundException;
 
-import java.time.Instant;
-import java.util.HashMap;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
-import java.util.stream.Collectors;
 
 /**
- * Global Exception Handler
+ * Global Exception Handler for Broker Auth Service
  * 
- * Handles all exceptions across the broker authentication service with proper HTTP status codes
- * and structured error responses with correlation tracking.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Error Handling Patterns - Rule #11
+ * MANDATORY: Functional Programming - Rule #3
+ * MANDATORY: Structured Logging - Rule #15
  */
 @RestControllerAdvice
-@RequiredArgsConstructor
 @Slf4j
 public class GlobalExceptionHandler {
 
-    private final StructuredLoggingService loggingService;
-
     /**
-     * Handle authentication exceptions
-     */
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleAuthenticationException(
-            AuthenticationException ex, WebRequest request) {
-        
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.UNAUTHORIZED,
-            "Unauthorized",
-            "Authentication failed",
-            "AUTHENTICATION_FAILED",
-            request,
-            null
-        );
-
-        log.warn("Authentication failed: {} (correlationId: {})", 
-                ex.getMessage(), CorrelationConfig.CorrelationContext.getCorrelationId());
-        
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
-    }
-
-    /**
-     * Handle access denied exceptions
-     */
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDenied(
-            AccessDeniedException ex, WebRequest request) {
-        
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.FORBIDDEN,
-            "Forbidden",
-            "Access denied - insufficient privileges",
-            "ACCESS_DENIED",
-            request,
-            null
-        );
-
-        log.warn("Access denied: {} (correlationId: {}, userId: {})", 
-                ex.getMessage(), 
-                CorrelationConfig.CorrelationContext.getCorrelationId(),
-                CorrelationConfig.CorrelationContext.getUserId());
-        
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
-    }
-
-    /**
-     * Handle broker authentication specific exceptions
+     * Handle broker authentication exceptions
+     * 
+     * MANDATORY: Pattern matching - Rule #14
      */
     @ExceptionHandler(BrokerAuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleBrokerAuthentication(
+    public ResponseEntity<ErrorResponse> handleBrokerAuthenticationException(
             BrokerAuthenticationException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
-            ex.getHttpStatus(),
-            ex.getHttpStatus().getReasonPhrase(),
-            ex.getMessage(),
-            ex.getErrorCode(),
-            request,
-            ex.getAdditionalData()
-        );
-
-        // Log broker auth errors
-        loggingService.logError(
-            "broker_auth_exception",
-            ex.getMessage(),
-            ex.getErrorCode(),
-            ex,
-            Map.of(
-                "brokerType", ex.getBrokerType() != null ? ex.getBrokerType().toString() : "unknown",
-                "userId", ex.getUserId() != null ? ex.getUserId().toString() : "unknown",
-                "correlationId", CorrelationConfig.CorrelationContext.getCorrelationId()
-            )
-        );
+        String correlationId = UUID.randomUUID().toString();
         
-        return ResponseEntity.status(ex.getHttpStatus()).body(errorResponse);
+        log.error("Broker authentication failed - CorrelationId: {}, Broker: {}, UserId: {}, Error: {}", 
+            correlationId, ex.getBrokerType(), maskUserId(ex.getUserId()), ex.getMessage());
+        
+        return switch (ex.getErrorType()) {
+            case INVALID_CREDENTIALS -> createErrorResponse(
+                correlationId, 
+                "INVALID_CREDENTIALS", 
+                "Invalid broker credentials provided",
+                HttpStatus.UNAUTHORIZED,
+                request.getDescription(false)
+            );
+            case SESSION_EXPIRED -> createErrorResponse(
+                correlationId,
+                "SESSION_EXPIRED", 
+                "Broker session has expired. Please re-authenticate",
+                HttpStatus.UNAUTHORIZED,
+                request.getDescription(false)
+            );
+            case RATE_LIMIT_EXCEEDED -> createErrorResponse(
+                correlationId,
+                "RATE_LIMIT_EXCEEDED",
+                "API rate limit exceeded. Please retry after some time",
+                HttpStatus.TOO_MANY_REQUESTS,
+                request.getDescription(false)
+            );
+            case BROKER_UNAVAILABLE -> createErrorResponse(
+                correlationId,
+                "BROKER_UNAVAILABLE",
+                "Broker API is currently unavailable. Please try again later",
+                HttpStatus.SERVICE_UNAVAILABLE,
+                request.getDescription(false)
+            );
+            case INVALID_TOTP -> createErrorResponse(
+                correlationId,
+                "INVALID_TOTP",
+                "Invalid TOTP code provided",
+                HttpStatus.BAD_REQUEST,
+                request.getDescription(false)
+            );
+        };
     }
 
     /**
      * Handle session management exceptions
      */
     @ExceptionHandler(SessionManagementException.class)
-    public ResponseEntity<ErrorResponse> handleSessionManagement(
+    public ResponseEntity<ErrorResponse> handleSessionManagementException(
             SessionManagementException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.BAD_REQUEST,
-            "Session Error",
-            ex.getMessage(),
-            "SESSION_ERROR",
-            request,
-            Map.of("sessionId", ex.getSessionId() != null ? ex.getSessionId() : "unknown")
-        );
-
-        log.warn("Session management error: {} (correlationId: {}, sessionId: {})", 
-                ex.getMessage(), 
-                CorrelationConfig.CorrelationContext.getCorrelationId(),
-                ex.getSessionId());
+        String correlationId = UUID.randomUUID().toString();
         
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        log.error("Session management error - CorrelationId: {}, SessionId: {}, Error: {}", 
+            correlationId, maskSessionId(ex.getSessionId()), ex.getMessage());
+        
+        return switch (ex.getErrorType()) {
+            case SESSION_NOT_FOUND -> createErrorResponse(
+                correlationId,
+                "SESSION_NOT_FOUND",
+                "Session not found or expired",
+                HttpStatus.NOT_FOUND,
+                request.getDescription(false)
+            );
+            case SESSION_CREATION_FAILED -> createErrorResponse(
+                correlationId,
+                "SESSION_CREATION_FAILED",
+                "Failed to create session. Please try again",
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                request.getDescription(false)
+            );
+            case CONCURRENT_SESSION_LIMIT -> createErrorResponse(
+                correlationId,
+                "CONCURRENT_SESSION_LIMIT",
+                "Maximum concurrent sessions exceeded",
+                HttpStatus.CONFLICT,
+                request.getDescription(false)
+            );
+        };
     }
 
     /**
-     * Handle rate limit exceeded exceptions
+     * Handle rate limit exceptions
      */
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(
+    public ResponseEntity<ErrorResponse> handleRateLimitExceededException(
             RateLimitExceededException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.TOO_MANY_REQUESTS,
-            "Too Many Requests",
-            ex.getMessage(),
+        String correlationId = UUID.randomUUID().toString();
+        
+        log.warn("Rate limit exceeded - CorrelationId: {}, UserId: {}, RetryAfter: {} seconds", 
+            correlationId, maskUserId(ex.getUserId()), ex.getRetryAfterSeconds());
+        
+        ErrorResponse errorResponse = new ErrorResponse(
+            correlationId,
             "RATE_LIMIT_EXCEEDED",
-            request,
-            Map.of(
-                "retryAfterSeconds", ex.getRetryAfterSeconds(),
-                "brokerType", ex.getBrokerType() != null ? ex.getBrokerType().toString() : "unknown"
-            )
-        );
-
-        // Log rate limit violations as security incidents
-        loggingService.logSecurityIncident(
-            "rate_limit_exceeded",
-            "medium",
-            ex.getUserId() != null ? ex.getUserId().toString() : null,
-            null,
-            null,
-            Map.of(
-                "brokerType", ex.getBrokerType() != null ? ex.getBrokerType().toString() : "unknown",
-                "retryAfterSeconds", ex.getRetryAfterSeconds()
-            )
+            "Rate limit exceeded. Please retry after " + ex.getRetryAfterSeconds() + " seconds",
+            HttpStatus.TOO_MANY_REQUESTS.value(),
+            LocalDateTime.now(),
+            request.getDescription(false),
+            List.of("Retry-After: " + ex.getRetryAfterSeconds() + " seconds")
         );
         
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+            .body(errorResponse);
     }
 
     /**
      * Handle credential management exceptions
      */
     @ExceptionHandler(CredentialManagementException.class)
-    public ResponseEntity<ErrorResponse> handleCredentialManagement(
+    public ResponseEntity<ErrorResponse> handleCredentialManagementException(
             CredentialManagementException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.BAD_REQUEST,
-            "Credential Error",
-            ex.getMessage(),
-            "CREDENTIAL_ERROR",
-            request,
-            null
-        );
-
-        log.warn("Credential management error: {} (correlationId: {})", 
-                ex.getMessage(), CorrelationConfig.CorrelationContext.getCorrelationId());
+        String correlationId = UUID.randomUUID().toString();
         
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        log.error("Credential management error - CorrelationId: {}, Error: {}", 
+            correlationId, ex.getMessage());
+        
+        return switch (ex.getErrorType()) {
+            case ENCRYPTION_FAILED -> createErrorResponse(
+                correlationId,
+                "ENCRYPTION_ERROR",
+                "Failed to secure credentials. Please try again",
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                request.getDescription(false)
+            );
+            case DECRYPTION_FAILED -> createErrorResponse(
+                correlationId,
+                "DECRYPTION_ERROR",
+                "Failed to retrieve credentials. Please re-authenticate",
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                request.getDescription(false)
+            );
+            case INVALID_CREDENTIAL_FORMAT -> createErrorResponse(
+                correlationId,
+                "INVALID_CREDENTIAL_FORMAT",
+                "Invalid credential format provided",
+                HttpStatus.BAD_REQUEST,
+                request.getDescription(false)
+            );
+        };
     }
 
     /**
-     * Handle WebClient response exceptions (broker API errors)
-     */
-    @ExceptionHandler(WebClientResponseException.class)
-    public ResponseEntity<ErrorResponse> handleWebClientResponse(
-            WebClientResponseException ex, WebRequest request) {
-        
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.BAD_GATEWAY,
-            "Broker API Error",
-            "Broker service temporarily unavailable",
-            "BROKER_API_ERROR",
-            request,
-            Map.of(
-                "brokerResponseStatus", ex.getStatusCode().value(),
-                "brokerErrorBody", ex.getResponseBodyAsString()
-            )
-        );
-
-        log.error("Broker API error: {} {} (correlationId: {})", 
-                ex.getStatusCode(), ex.getResponseBodyAsString(),
-                CorrelationConfig.CorrelationContext.getCorrelationId());
-        
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(errorResponse);
-    }
-
-    /**
-     * Handle method argument validation exceptions
+     * Handle validation exceptions
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(
+    public ResponseEntity<ErrorResponse> handleValidationException(
             MethodArgumentNotValidException ex, WebRequest request) {
         
-        Map<String, List<String>> fieldErrors = ex.getBindingResult()
+        String correlationId = UUID.randomUUID().toString();
+        
+        List<String> validationErrors = ex.getBindingResult()
             .getFieldErrors()
             .stream()
-            .collect(Collectors.groupingBy(
-                FieldError::getField,
-                Collectors.mapping(FieldError::getDefaultMessage, Collectors.toList())
-            ));
-
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.BAD_REQUEST,
-            "Validation Error",
-            "Invalid request data",
+            .map(error -> error.getField() + ": " + error.getDefaultMessage())
+            .toList();
+        
+        log.warn("Validation error - CorrelationId: {}, Errors: {}", correlationId, validationErrors);
+        
+        ErrorResponse errorResponse = new ErrorResponse(
+            correlationId,
             "VALIDATION_ERROR",
-            request,
-            Map.of("validationErrors", fieldErrors)
+            "Request validation failed",
+            HttpStatus.BAD_REQUEST.value(),
+            LocalDateTime.now(),
+            request.getDescription(false),
+            validationErrors
         );
         
-        errorResponse.setFieldErrors(fieldErrors);
-
-        log.warn("Method argument validation error: {} (correlationId: {})", 
-                fieldErrors, CorrelationConfig.CorrelationContext.getCorrelationId());
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        return ResponseEntity.badRequest().body(errorResponse);
     }
 
     /**
      * Handle illegal argument exceptions
      */
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
             IllegalArgumentException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
+        String correlationId = UUID.randomUUID().toString();
+        
+        log.error("Invalid argument - CorrelationId: {}, Error: {}", correlationId, ex.getMessage());
+        
+        return createErrorResponse(
+            correlationId,
+            "INVALID_REQUEST",
+            "Invalid request parameters: " + ex.getMessage(),
             HttpStatus.BAD_REQUEST,
-            "Bad Request",
-            ex.getMessage(),
-            "ILLEGAL_ARGUMENT",
-            request,
-            null
+            request.getDescription(false)
         );
-
-        log.warn("Illegal argument: {} (correlationId: {})", 
-                ex.getMessage(), CorrelationConfig.CorrelationContext.getCorrelationId());
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-    }
-
-    /**
-     * Handle completion exceptions (from CompletableFuture)
-     */
-    @ExceptionHandler(CompletionException.class)
-    public ResponseEntity<ErrorResponse> handleCompletionException(
-            CompletionException ex, WebRequest request) {
-        
-        // Unwrap the cause and handle it appropriately
-        Throwable cause = ex.getCause();
-        if (cause instanceof BrokerAuthenticationException) {
-            return handleBrokerAuthentication((BrokerAuthenticationException) cause, request);
-        } else if (cause instanceof RateLimitExceededException) {
-            return handleRateLimitExceeded((RateLimitExceededException) cause, request);
-        } else if (cause instanceof WebClientResponseException) {
-            return handleWebClientResponse((WebClientResponseException) cause, request);
-        }
-        
-        // Generic completion exception handling
-        ErrorResponse errorResponse = createErrorResponse(
-            HttpStatus.INTERNAL_SERVER_ERROR,
-            "Internal Server Error",
-            "An async operation failed",
-            "ASYNC_OPERATION_FAILED",
-            request,
-            Map.of("causedBy", cause != null ? cause.getClass().getSimpleName() : "unknown")
-        );
-
-        log.error("Completion exception (correlationId: {}): ", 
-                CorrelationConfig.CorrelationContext.getCorrelationId(), ex);
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 
     /**
@@ -323,32 +234,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleRuntimeException(
             RuntimeException ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
+        String correlationId = UUID.randomUUID().toString();
+        
+        log.error("Runtime error - CorrelationId: {}, Error: {}", correlationId, ex.getMessage(), ex);
+        
+        return createErrorResponse(
+            correlationId,
+            "INTERNAL_ERROR",
+            "An internal error occurred. Please contact support with correlation ID: " + correlationId,
             HttpStatus.INTERNAL_SERVER_ERROR,
-            "Internal Server Error",
-            "An unexpected error occurred",
-            "INTERNAL_SERVER_ERROR",
-            request,
-            Map.of("exceptionType", ex.getClass().getSimpleName())
+            request.getDescription(false)
         );
-
-        // Log error with full context
-        loggingService.logError(
-            "runtime_exception",
-            ex.getMessage(),
-            "RUNTIME_EXCEPTION",
-            ex,
-            Map.of(
-                "path", extractPath(request),
-                "correlationId", CorrelationConfig.CorrelationContext.getCorrelationId(),
-                "requestId", CorrelationConfig.CorrelationContext.getRequestId()
-            )
-        );
-        
-        log.error("Unexpected runtime exception (correlationId: {}): ", 
-                CorrelationConfig.CorrelationContext.getCorrelationId(), ex);
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 
     /**
@@ -358,76 +254,78 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex, WebRequest request) {
         
-        ErrorResponse errorResponse = createErrorResponse(
+        String correlationId = UUID.randomUUID().toString();
+        
+        log.error("Unexpected error - CorrelationId: {}, Error: {}", correlationId, ex.getMessage(), ex);
+        
+        return createErrorResponse(
+            correlationId,
+            "UNEXPECTED_ERROR",
+            "An unexpected error occurred. Please contact support with correlation ID: " + correlationId,
             HttpStatus.INTERNAL_SERVER_ERROR,
-            "Internal Server Error",
-            "An unexpected error occurred",
-            "INTERNAL_SERVER_ERROR",
-            request,
-            Map.of("exceptionType", ex.getClass().getSimpleName())
+            request.getDescription(false)
         );
-
-        // Log error with full context
-        loggingService.logError(
-            "generic_exception",
-            ex.getMessage(),
-            "GENERIC_EXCEPTION",
-            ex,
-            Map.of(
-                "path", extractPath(request),
-                "correlationId", CorrelationConfig.CorrelationContext.getCorrelationId(),
-                "requestId", CorrelationConfig.CorrelationContext.getRequestId()
-            )
-        );
-        
-        log.error("Unexpected exception (correlationId: {}): ", 
-                CorrelationConfig.CorrelationContext.getCorrelationId(), ex);
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 
     /**
-     * Create standardized error response with correlation tracking
+     * Create standardized error response
+     * 
+     * MANDATORY: Immutable data structures - Rule #9
      */
-    private ErrorResponse createErrorResponse(HttpStatus status, String error, String message, 
-                                            String errorCode, WebRequest request, Map<String, Object> additionalDetails) {
+    private ResponseEntity<ErrorResponse> createErrorResponse(
+            String correlationId,
+            String errorCode,
+            String message,
+            HttpStatus status,
+            String path) {
         
-        String correlationId = CorrelationConfig.CorrelationContext.getCorrelationId();
-        String requestId = CorrelationConfig.CorrelationContext.getRequestId();
-        String userId = CorrelationConfig.CorrelationContext.getUserId();
+        ErrorResponse errorResponse = new ErrorResponse(
+            correlationId,
+            errorCode,
+            message,
+            status.value(),
+            LocalDateTime.now(),
+            path,
+            List.of()
+        );
         
-        Map<String, Object> details = new HashMap<>();
-        details.put("correlationId", correlationId);
-        details.put("requestId", requestId);
-        details.put("timestamp", Instant.now().toString());
-        
-        if (userId != null) {
-            details.put("userId", userId);
-        }
-        
-        if (additionalDetails != null) {
-            details.putAll(additionalDetails);
-        }
-        
-        return ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(status.value())
-                .error(error)
-                .message(message)
-                .errorCode(errorCode)
-                .path(extractPath(request))
-                .details(details)
-                .build();
+        return ResponseEntity.status(status).body(errorResponse);
     }
 
     /**
-     * Extract clean path from web request
+     * Mask user ID for logging
+     * 
+     * MANDATORY: Security by default - Rule #6
      */
-    private String extractPath(WebRequest request) {
-        String description = request.getDescription(false);
-        if (description.startsWith("uri=")) {
-            return description.substring(4);
+    private String maskUserId(String userId) {
+        if (userId == null || userId.length() < 3) {
+            return "***";
         }
-        return description;
+        return userId.substring(0, 2) + "***" + userId.substring(userId.length() - 1);
     }
+
+    /**
+     * Mask session ID for logging
+     */
+    private String maskSessionId(String sessionId) {
+        if (sessionId == null || sessionId.length() < 8) {
+            return "***";
+        }
+        return sessionId.substring(0, 4) + "***" + sessionId.substring(sessionId.length() - 4);
+    }
+
+    /**
+     * Error Response DTO
+     * 
+     * MANDATORY: Records for DTOs - Rule #9
+     */
+    public record ErrorResponse(
+        String correlationId,
+        String errorCode,
+        String message,
+        int status,
+        LocalDateTime timestamp,
+        String path,
+        List<String> details
+    ) {}
 }

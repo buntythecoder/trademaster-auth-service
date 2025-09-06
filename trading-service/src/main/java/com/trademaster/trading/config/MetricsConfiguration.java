@@ -361,137 +361,143 @@ public class MetricsConfiguration {
             this.concurrentUsers = new AtomicInteger(0);
             
             // Register Gauge metrics for real-time values
-            Gauge.builder("trading.portfolio.total_value")
+            Gauge.builder("trading.portfolio.total_value", totalPortfolioValue, AtomicLong::get)
                 .description("Total portfolio value")
                 .tag("service", "trading")
-                .register(meterRegistry, totalPortfolioValue, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.portfolio.unrealized_pnl")
+            Gauge.builder("trading.portfolio.unrealized_pnl", unrealizedPnL, AtomicLong::get)
                 .description("Unrealized P&L")
                 .tag("service", "trading")
-                .register(meterRegistry, unrealizedPnL, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.portfolio.realized_pnl")
+            Gauge.builder("trading.portfolio.realized_pnl", realizedPnL, AtomicLong::get)
                 .description("Realized P&L")
                 .tag("service", "trading")
-                .register(meterRegistry, realizedPnL, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.portfolio.active_positions")
+            Gauge.builder("trading.portfolio.active_positions", activePositions, AtomicInteger::get)
                 .description("Active positions")
                 .tag("service", "trading")
-                .register(meterRegistry, activePositions, AtomicInteger::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.risk.current_var")
+            Gauge.builder("trading.risk.current_var", currentVaR, AtomicLong::get)
                 .description("Current Value at Risk")
                 .tag("service", "trading")
-                .register(meterRegistry, currentVaR, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.risk.max_drawdown")
+            Gauge.builder("trading.risk.max_drawdown", maxDrawdown, AtomicLong::get)
                 .description("Maximum drawdown")
                 .tag("service", "trading")
-                .register(meterRegistry, maxDrawdown, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.business.daily_trading_volume")
+            Gauge.builder("trading.business.daily_trading_volume", dailyTradingVolume, AtomicLong::get)
                 .description("Daily trading volume")
                 .tag("service", "trading")
-                .register(meterRegistry, dailyTradingVolume, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.business.daily_pnl")
+            Gauge.builder("trading.business.daily_pnl", dailyPnL, AtomicLong::get)
                 .description("Daily P&L")
                 .tag("service", "trading")
-                .register(meterRegistry, dailyPnL, AtomicLong::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.strategy.active_strategies")
+            Gauge.builder("trading.strategy.active_strategies", activeStrategies, AtomicInteger::get)
                 .description("Active strategies")
                 .tag("service", "trading")
-                .register(meterRegistry, activeStrategies, AtomicInteger::get);
+                .register(meterRegistry);
             
-            Gauge.builder("trading.users.concurrent")
+            Gauge.builder("trading.users.concurrent", concurrentUsers, AtomicInteger::get)
                 .description("Concurrent users")
                 .tag("service", "trading")
-                .register(meterRegistry, concurrentUsers, AtomicInteger::get);
+                .register(meterRegistry);
             
             log.info("Trading Service metrics initialized successfully");
         }
         
         // Order Management Methods
         public void recordOrderSubmission(String symbol, String orderType, String side, double quantity, long processingTimeMs) {
-            orderSubmissions.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "order_type", orderType,
-                    "side", side
-                )
-            );
+            Counter.builder("trading.orders.submissions")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("order_type", orderType)
+                .tag("side", side)
+                .register(meterRegistry)
+                .increment();
             orderProcessingTime.record(processingTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordOrderExecution(String orderId, String symbol, double quantity, double price, long latencyMs) {
-            orderExecutions.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "execution_type", "full"
-                )
-            );
+            Counter.builder("trading.orders.executions")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("execution_type", "full")
+                .register(meterRegistry)
+                .increment();
             orderExecutionLatency.record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordOrderCancellation(String orderId, String symbol, String reason) {
-            orderCancellations.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "reason", reason
-                )
-            );
+            Counter.builder("trading.orders.cancellations")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordOrderRejection(String symbol, String reason, String errorCode) {
-            orderRejections.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "reason", reason,
-                    "error_code", errorCode
-                )
-            );
+            Counter.builder("trading.orders.rejections")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("reason", reason)
+                .tag("error_code", errorCode)
+                .register(meterRegistry)
+                .increment();
         }
         
         // Trade Execution Methods
         public void recordTradeExecution(String symbol, String side, double quantity, double price,
                                        boolean isPartialFill, long fillLatencyMs) {
-            tradesExecuted.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "side", side
-                )
-            );
+            Counter.builder("trading.trades.executed")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("side", side)
+                .register(meterRegistry)
+                .increment();
             
             if (isPartialFill) {
-                partialFills.increment(
-                    io.micrometer.core.instrument.Tags.of("symbol", symbol)
-                );
+                Counter.builder("trading.trades.partial_fills")
+                    .tag("service", "trading")
+                    .tag("symbol", symbol)
+                    .register(meterRegistry)
+                    .increment();
             } else {
-                fullFills.increment(
-                    io.micrometer.core.instrument.Tags.of("symbol", symbol)
-                );
+                Counter.builder("trading.trades.full_fills")
+                    .tag("service", "trading")
+                    .tag("symbol", symbol)
+                    .register(meterRegistry)
+                    .increment();
             }
             
             fillLatency.record(fillLatencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordSlippageEvent(String symbol, double expectedPrice, double actualPrice, double slippageBps) {
-            slippageEvents.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "slippage_severity", slippageBps > 10 ? "high" : slippageBps > 5 ? "medium" : "low"
-                )
-            );
+            Counter.builder("trading.trades.slippage_events")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("slippage_severity", slippageBps > 10 ? "high" : slippageBps > 5 ? "medium" : "low")
+                .register(meterRegistry)
+                .increment();
         }
         
         // Portfolio Management Methods
         public void recordPortfolioUpdate(String updateType, long calculationTimeMs) {
-            portfolioUpdates.increment(
-                io.micrometer.core.instrument.Tags.of("update_type", updateType)
-            );
+            Counter.builder("trading.portfolio.updates")
+                .tag("service", "trading")
+                .tag("update_type", updateType)
+                .register(meterRegistry)
+                .increment();
             portfolioCalculationTime.record(calculationTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
@@ -504,37 +510,39 @@ public class MetricsConfiguration {
         
         // Risk Management Methods
         public void recordRiskViolation(String violationType, String symbol, String severity) {
-            riskViolations.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "violation_type", violationType,
-                    "symbol", symbol,
-                    "severity", severity
-                )
-            );
+            Counter.builder("trading.risk.violations")
+                .tag("service", "trading")
+                .tag("violation_type", violationType)
+                .tag("symbol", symbol)
+                .tag("severity", severity)
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordPositionLimitBreach(String symbol, double currentPosition, double limit) {
-            positionLimitBreaches.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "breach_type", currentPosition > limit ? "long" : "short"
-                )
-            );
+            Counter.builder("trading.risk.position_limit_breaches")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("breach_type", currentPosition > limit ? "long" : "short")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordMarginCall(String accountId, double requiredMargin, double availableMargin) {
-            marginCalls.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "account_id", accountId,
-                    "severity", (requiredMargin / availableMargin) > 2.0 ? "critical" : "warning"
-                )
-            );
+            Counter.builder("trading.risk.margin_calls")
+                .tag("service", "trading")
+                .tag("account_id", accountId)
+                .tag("severity", (requiredMargin / availableMargin) > 2.0 ? "critical" : "warning")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordRiskCalculation(String calculationType, long durationMs) {
-            riskCalculationTime.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of("calculation_type", calculationType)
-            );
+            Timer.builder("trading.risk.calculation_time")
+                .tag("service", "trading")
+                .tag("calculation_type", calculationType)
+                .register(meterRegistry)
+                .record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void updateRiskMetrics(long var, long drawdown) {
@@ -544,161 +552,179 @@ public class MetricsConfiguration {
         
         // Market Data Integration Methods
         public void recordPriceUpdate(String symbol, long latencyMs) {
-            priceUpdatesProcessed.increment(
-                io.micrometer.core.instrument.Tags.of("symbol", symbol)
-            );
+            Counter.builder("trading.market_data.price_updates")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .register(meterRegistry)
+                .increment();
             marketDataLatency.record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordStaleDataEvent(String symbol, long ageMs) {
-            staleDataEvents.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "staleness", ageMs > 5000 ? "critical" : ageMs > 1000 ? "high" : "medium"
-                )
-            );
+            Counter.builder("trading.market_data.stale_events")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("staleness", ageMs > 5000 ? "critical" : ageMs > 1000 ? "high" : "medium")
+                .register(meterRegistry)
+                .increment();
         }
         
         // Strategy Performance Methods
         public void recordStrategySignal(String strategyName, String signal, String symbol) {
-            strategySignals.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "strategy", strategyName,
-                    "signal", signal,
-                    "symbol", symbol
-                )
-            );
+            Counter.builder("trading.strategy.signals")
+                .tag("service", "trading")
+                .tag("strategy", strategyName)
+                .tag("signal", signal)
+                .tag("symbol", symbol)
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordStrategyExecution(String strategyName, String symbol, boolean success, long processingTimeMs) {
-            strategyExecutions.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "strategy", strategyName,
-                    "symbol", symbol,
-                    "success", String.valueOf(success)
-                )
-            );
+            Counter.builder("trading.strategy.executions")
+                .tag("service", "trading")
+                .tag("strategy", strategyName)
+                .tag("symbol", symbol)
+                .tag("success", String.valueOf(success))
+                .register(meterRegistry)
+                .increment();
             strategyProcessingTime.record(processingTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordStrategyTradeResult(String strategyName, String symbol, double pnl) {
             if (pnl > 0) {
-                strategyProfitTrades.increment(
-                    io.micrometer.core.instrument.Tags.of("strategy", strategyName, "symbol", symbol)
-                );
+                Counter.builder("trading.strategy.profit_trades")
+                    .tag("service", "trading")
+                    .tag("strategy", strategyName)
+                    .tag("symbol", symbol)
+                    .register(meterRegistry)
+                    .increment();
             } else {
-                strategyLossTrades.increment(
-                    io.micrometer.core.instrument.Tags.of("strategy", strategyName, "symbol", symbol)
-                );
+                Counter.builder("trading.strategy.loss_trades")
+                    .tag("service", "trading")
+                    .tag("strategy", strategyName)
+                    .tag("symbol", symbol)
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         
         // Broker Integration Methods
         public void recordBrokerRequest(String broker, String operation, int statusCode, long responseTimeMs) {
-            brokerRequests.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "broker", broker,
-                    "operation", operation,
-                    "status_code", String.valueOf(statusCode)
-                )
-            );
+            Counter.builder("trading.broker.requests")
+                .tag("service", "trading")
+                .tag("broker", broker)
+                .tag("operation", operation)
+                .tag("status_code", String.valueOf(statusCode))
+                .register(meterRegistry)
+                .increment();
             brokerResponseTime.record(responseTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (statusCode >= 400) {
-                brokerErrors.increment(
-                    io.micrometer.core.instrument.Tags.of(
-                        "broker", broker,
-                        "status_code", String.valueOf(statusCode)
-                    )
-                );
+                Counter.builder("trading.broker.errors")
+                    .tag("service", "trading")
+                    .tag("broker", broker)
+                    .tag("status_code", String.valueOf(statusCode))
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         
         public void recordConnectionFailure(String broker, String reason) {
-            connectionFailures.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "broker", broker,
-                    "reason", reason
-                )
-            );
+            Counter.builder("trading.broker.connection_failures")
+                .tag("service", "trading")
+                .tag("broker", broker)
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
         }
         
         // Performance Analytics Methods
         public void recordOrderBookAnalysis(String symbol, long analysisTimeMs) {
-            orderBookAnalysisTime.record(analysisTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of("symbol", symbol)
-            );
+            Timer.builder("trading.analysis.order_book_time")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .register(meterRegistry)
+                .record(analysisTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordMarketImpactEvent(String symbol, double impactBps, String severity) {
-            marketImpactEvents.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "severity", severity
-                )
-            );
+            Counter.builder("trading.analysis.market_impact_events")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("severity", severity)
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordMissedOpportunity(String symbol, String reason, double potentialPnl) {
-            opportunityMissed.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "symbol", symbol,
-                    "reason", reason,
-                    "significance", potentialPnl > 1000 ? "high" : potentialPnl > 100 ? "medium" : "low"
-                )
-            );
+            Counter.builder("trading.analysis.opportunity_missed")
+                .tag("service", "trading")
+                .tag("symbol", symbol)
+                .tag("reason", reason)
+                .tag("significance", potentialPnl > 1000 ? "high" : potentialPnl > 100 ? "medium" : "low")
+                .register(meterRegistry)
+                .increment();
         }
         
         public void recordDecisionLatency(String decisionType, long latencyMs) {
-            decisionLatency.record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of("decision_type", decisionType)
-            );
+            Timer.builder("trading.analysis.decision_latency")
+                .tag("service", "trading")
+                .tag("decision_type", decisionType)
+                .register(meterRegistry)
+                .record(latencyMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         // System Methods
         public void recordDatabaseQuery(String queryType, String table, long durationMs) {
-            databaseQueryDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of(
-                    "query_type", queryType,
-                    "table", table
-                )
-            );
+            Timer.builder("trading.system.database_query_duration")
+                .tag("service", "trading")
+                .tag("query_type", queryType)
+                .tag("table", table)
+                .register(meterRegistry)
+                .record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
         
         public void recordCacheOperation(String operation, boolean hit, long durationMs) {
-            cacheOperationDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS,
-                io.micrometer.core.instrument.Tags.of("operation", operation)
-            );
+            Timer.builder("trading.system.cache_operation_duration")
+                .tag("service", "trading")
+                .tag("operation", operation)
+                .register(meterRegistry)
+                .record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (hit) {
-                cacheHits.increment(
-                    io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                Counter.builder("trading.system.cache_hits")
+                    .tag("service", "trading")
+                    .tag("operation", operation)
+                    .register(meterRegistry)
+                    .increment();
             } else {
-                cacheMisses.increment(
-                    io.micrometer.core.instrument.Tags.of("operation", operation)
-                );
+                Counter.builder("trading.system.cache_misses")
+                    .tag("service", "trading")
+                    .tag("operation", operation)
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         
         // API Methods
         public void recordApiRequest(String endpoint, String method, int statusCode, long durationMs) {
-            apiRequests.increment(
-                io.micrometer.core.instrument.Tags.of(
-                    "endpoint", endpoint,
-                    "method", method,
-                    "status_code", String.valueOf(statusCode)
-                )
-            );
+            Counter.builder("trading.api.requests")
+                .tag("service", "trading")
+                .tag("endpoint", endpoint)
+                .tag("method", method)
+                .tag("status_code", String.valueOf(statusCode))
+                .register(meterRegistry)
+                .increment();
             apiRequestDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
             if (statusCode >= 400) {
-                apiErrors.increment(
-                    io.micrometer.core.instrument.Tags.of(
-                        "endpoint", endpoint,
-                        "status_code", String.valueOf(statusCode)
-                    )
-                );
+                Counter.builder("trading.api.errors")
+                    .tag("service", "trading")
+                    .tag("endpoint", endpoint)
+                    .tag("status_code", String.valueOf(statusCode))
+                    .register(meterRegistry)
+                    .increment();
             }
         }
         

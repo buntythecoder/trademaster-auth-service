@@ -1,4 +1,4 @@
-import { EventEmitter } from 'events'
+import { BrowserEventEmitter } from '../utils/BrowserEventEmitter'
 
 // TypeScript interfaces for WebSocket communication
 export interface WebSocketConfig {
@@ -31,7 +31,7 @@ export interface QueuedMessage {
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'reconnecting'
 export type SubscriptionCallback = (data: any) => void
 
-class WebSocketService extends EventEmitter {
+class WebSocketService extends BrowserEventEmitter {
   private ws: WebSocket | null = null
   private reconnectAttempts = 0
   private reconnectDelay: number

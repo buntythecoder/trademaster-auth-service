@@ -1,0 +1,469 @@
+# ML Platform Helm Chart Values
+# Production-Grade ML Infrastructure Platform Configuration
+
+# Global configuration
+global:
+  namespace: ml-platform
+  imageRegistry: docker.io
+  imagePullPolicy: IfNotPresent
+  storageClass: standard
+  
+# ML Infrastructure Platform Service
+mlPlatform:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: trademaster/ml-infrastructure-platform
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  replicaCount: 3
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: ml-platform.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: ml-platform-tls
+        hosts:
+          - ml-platform.local
+  
+  resources:
+    limits:
+      cpu: 2
+      memory: 4Gi
+    requests:
+      cpu: 1
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  env:
+    SPRING_PROFILES_ACTIVE: "production"
+    SPRING_THREADS_VIRTUAL_ENABLED: "true"
+    ML_INFRASTRUCTURE_MINIO_ENDPOINT: "http://minio:9000"
+    ML_INFRASTRUCTURE_MINIO_BUCKET: "ml-platform"
+    ML_MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    
+  config:
+    server:
+      port: 8080
+      compression:
+        enabled: true
+      http2:
+        enabled: true
+    
+    logging:
+      level:
+        com.trademaster: INFO
+        org.springframework.kafka: WARN
+      pattern:
+        console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+      endpoint:
+        health:
+          show-details: when-authorized
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+
+# MLflow Configuration
+mlflow:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: python
+    tag: "3.11-slim"
+  
+  replicaCount: 2
+  
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+  
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: mlflow.local
+        paths:
+          - path: /
+            pathType: Prefix
+  
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  env:
+    MLFLOW_BACKEND_STORE_URI: "postgresql://postgres:postgres@postgresql:5432/mlflow"
+    MLFLOW_DEFAULT_ARTIFACT_ROOT: "s3://ml-platform/mlflow-artifacts"
+    AWS_ACCESS_KEY_ID: "minioadmin"
+    AWS_SECRET_ACCESS_KEY: "minioadmin"
+    MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
+
+# MinIO Configuration
+minio:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: minio/minio
+    tag: "RELEASE.2024-01-16T16-07-38Z"
+  
+  mode: standalone
+  
+  auth:
+    rootUser: minioadmin
+    rootPassword: minioadmin
+  
+  service:
+    type: ClusterIP
+    ports:
+      api: 9000
+      console: 9001
+  
+  ingress:
+    enabled: true
+    hostname: minio.local
+    
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: standard
+  
+  defaultBuckets: "ml-platform,mlflow-artifacts,model-artifacts"
+
+# PostgreSQL Configuration
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: postgres
+    username: postgres
+    password: postgres
+    database: ml_platform
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: standard
+    
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  
+  initdb:
+    scripts:
+      create-databases.sql: |
+        CREATE DATABASE mlflow;
+        CREATE DATABASE feature_store;
+        GRANT ALL PRIVILEGES ON DATABASE mlflow TO postgres;
+        GRANT ALL PRIVILEGES ON DATABASE feature_store TO postgres;
+
+# Redis Configuration
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: standard
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  replica:
+    replicaCount: 2
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Kafka Configuration
+kafka:
+  enabled: true
+  
+  controller:
+    replicaCount: 3
+    
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  
+  broker:
+    replicaCount: 3
+    
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: standard
+  
+  topics:
+    - name: ml-events
+      partitions: 12
+      replicationFactor: 3
+    - name: feature-updates
+      partitions: 6
+      replicationFactor: 3
+    - name: model-predictions
+      partitions: 12
+      replicationFactor: 3
+    - name: model-feedback
+      partitions: 6
+      replicationFactor: 3
+
+# Monitoring Configuration
+monitoring:
+  prometheus:
+    enabled: true
+    server:
+      persistentVolume:
+        enabled: true
+        size: 50Gi
+        storageClass: standard
+      
+      resources:
+        limits:
+          cpu: 1
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 1Gi
+    
+    alertmanager:
+      enabled: true
+      persistentVolume:
+        enabled: true
+        size: 10Gi
+        storageClass: standard
+  
+  grafana:
+    enabled: true
+    
+    admin:
+      existingSecret: ""
+      userKey: admin-user
+      passwordKey: admin-password
+    
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: standard
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    
+    ingress:
+      enabled: true
+      hostname: grafana.local
+    
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+    
+    dashboards:
+      default:
+        ml-platform-overview:
+          gnetId: 1860
+          revision: 27
+          datasource: Prometheus
+        ml-models-performance:
+          gnetId: 7249
+          revision: 1
+          datasource: Prometheus
+
+# Logging Configuration
+logging:
+  elasticsearch:
+    enabled: true
+    
+    master:
+      replicaCount: 3
+      
+      resources:
+        limits:
+          cpu: 1
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 1Gi
+    
+    data:
+      replicaCount: 2
+      
+      resources:
+        limits:
+          cpu: 1
+          memory: 4Gi
+        requests:
+          cpu: 500m
+          memory: 2Gi
+      
+      persistence:
+        enabled: true
+        size: 100Gi
+        storageClass: standard
+  
+  kibana:
+    enabled: true
+    
+    ingress:
+      enabled: true
+      hostname: kibana.local
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Model Serving Configuration
+modelServing:
+  seldonCore:
+    enabled: true
+    
+    operator:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 250m
+          memory: 512Mi
+  
+  tensorflowServing:
+    enabled: true
+    
+    defaultImage:
+      registry: docker.io
+      repository: tensorflow/serving
+      tag: "2.14.0"
+    
+    defaultResources:
+      limits:
+        cpu: 2
+        memory: 4Gi
+        nvidia.com/gpu: 1
+      requests:
+        cpu: 1
+        memory: 2Gi
+
+# GPU Support
+gpuSupport:
+  enabled: true
+  
+  nodeSelector:
+    accelerator: nvidia-tesla-k80
+  
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+
+# Security Configuration
+security:
+  networkPolicies:
+    enabled: true
+  
+  podSecurityPolicy:
+    enabled: true
+  
+  rbac:
+    enabled: true
+  
+  serviceAccount:
+    create: true
+    name: ml-platform
+
+# Backup Configuration
+backup:
+  enabled: true
+  
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  
+  retention:
+    days: 30
+  
+  storage:
+    type: s3
+    bucket: ml-platform-backups
+    region: us-east-1

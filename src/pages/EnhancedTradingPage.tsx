@@ -3,18 +3,12 @@
 
 import React from 'react'
 import { PageLayout } from '../components/layout/PageLayout'
-import { EnhancedTradingInterface } from '../components/trading/EnhancedTradingInterface'
-import { useAuthStore } from '../stores/auth.store'
+import { EnhancedTradingInterface } from '../components/trading/EnhancedTradingInterface/EnhancedTradingInterface'
 
 export const EnhancedTradingPage: React.FC = () => {
-  const { user } = useAuthStore()
-
   return (
     <PageLayout>
-      <EnhancedTradingInterface 
-        userId={user?.id || 'demo-user'} 
-        defaultSymbol="RELIANCE" 
-      />
+      <EnhancedTradingInterface />
     </PageLayout>
   )
 }

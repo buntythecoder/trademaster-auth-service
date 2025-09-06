@@ -1,0 +1,1624 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Grid,
+  Button,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Chip,
+  Alert,
+  AlertTitle,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton,
+  Tooltip,
+  Stack,
+  Divider,
+  Switch,
+  FormControlLabel,
+  Tabs,
+  Tab,
+  Badge,
+  LinearProgress,
+  CircularProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Avatar
+} from '@mui/material';
+import {
+  TrendingUpIcon,
+  TrendingDownIcon,
+  ShowChartIcon,
+  AccountBalanceWalletIcon,
+  SecurityIcon,
+  WarningIcon,
+  CheckCircleIcon,
+  CancelIcon,
+  RefreshIcon,
+  SettingsIcon,
+  NotificationsIcon,
+  HistoryIcon,
+  SpeedIcon,
+  TargetIcon,
+  ShieldIcon,
+  FlashOnIcon,
+  TimelineIcon,
+  ExpandMoreIcon,
+  PlayArrowIcon,
+  StopIcon,
+  EditIcon,
+  DeleteIcon,
+  InfoIcon,
+  ReportIcon,
+  AssessmentIcon,
+  MonetizationOnIcon,
+  TrendingFlatIcon
+} from '@mui/icons-material';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
+
+// Enhanced Interfaces for Real Trading
+interface RealOrder {
+  id: string;
+  clientOrderId: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  orderType: 'MARKET' | 'LIMIT' | 'STOP_LOSS' | 'STOP_LIMIT' | 'BRACKET' | 'OCO';
+  quantity: number;
+  price?: number;
+  stopPrice?: number;
+  targetPrice?: number;
+  timeInForce: 'DAY' | 'GTC' | 'IOC' | 'FOK';
+  status: 'PENDING' | 'SUBMITTED' | 'ACKNOWLEDGED' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELLED' | 'REJECTED';
+  filledQuantity: number;
+  averagePrice?: number;
+  timestamp: Date;
+  lastUpdateTime: Date;
+  brokerId: string;
+  brokerName: string;
+  commission?: number;
+  taxes?: number;
+  netAmount?: number;
+  errorMessage?: string;
+  exchangeOrderId?: string;
+  exchangeTimestamp?: Date;
+  validity: Date;
+  tag?: string;
+}
+
+interface RealPosition {
+  id: string;
+  symbol: string;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  marketValue: number;
+  unrealizedPnL: number;
+  realizedPnL: number;
+  totalPnL: number;
+  pnLPercentage: number;
+  side: 'LONG' | 'SHORT';
+  brokerId: string;
+  brokerName: string;
+  sector: string;
+  industry: string;
+  lastTradeTime: Date;
+  dayChange: number;
+  dayChangePercentage: number;
+  marginUsed?: number;
+  leverageRatio?: number;
+  stopLoss?: number;
+  target?: number;
+}
+
+interface BrokerConnection {
+  brokerId: string;
+  brokerName: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR' | 'CONNECTING';
+  lastConnected?: Date;
+  sessionToken?: string;
+  availableMargin: number;
+  usedMargin: number;
+  totalEquity: number;
+  dayPnL: number;
+  totalPnL: number;
+  supportedOrderTypes: string[];
+  supportedExchanges: string[];
+  tradingPermissions: TradingPermissions;
+  rateLimit: RateLimit;
+}
+
+interface TradingPermissions {
+  equity: boolean;
+  derivatives: boolean;
+  commodities: boolean;
+  currency: boolean;
+  intraday: boolean;
+  delivery: boolean;
+  marginTrading: boolean;
+  options: boolean;
+  futures: boolean;
+}
+
+interface RateLimit {
+  ordersPerSecond: number;
+  ordersPerMinute: number;
+  currentUsage: number;
+  resetTime: Date;
+}
+
+interface OrderFormData {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  orderType: 'MARKET' | 'LIMIT' | 'STOP_LOSS' | 'STOP_LIMIT' | 'BRACKET' | 'OCO';
+  quantity: number;
+  price?: number;
+  stopPrice?: number;
+  targetPrice?: number;
+  timeInForce: 'DAY' | 'GTC' | 'IOC' | 'FOK';
+  brokerId: string;
+  tag?: string;
+  disclosure: boolean;
+}
+
+interface RiskValidation {
+  isValid: boolean;
+  warnings: string[];
+  errors: string[];
+  marginRequired?: number;
+  impact?: string;
+  riskScore?: number;
+}
+
+interface MarketData {
+  symbol: string;
+  lastPrice: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  bid: number;
+  ask: number;
+  high: number;
+  low: number;
+  open: number;
+  previousClose: number;
+  timestamp: Date;
+}
+
+interface TradingStats {
+  totalTrades: number;
+  successfulTrades: number;
+  successRate: number;
+  totalVolume: number;
+  totalPnL: number;
+  totalCommission: number;
+  netPnL: number;
+  averageWin: number;
+  averageLoss: number;
+  winLossRatio: number;
+  profitFactor: number;
+  largestWin: number;
+  largestLoss: number;
+  currentStreak: number;
+  longestWinStreak: number;
+}
+
+const EnhancedTradingInterface: React.FC = () => {
+  const [activeTab, setActiveTab] = useState(0);
+  const [selectedBroker, setSelectedBroker] = useState<string>('');
+  const [brokerConnections, setBrokerConnections] = useState<BrokerConnection[]>([]);
+  const [orders, setOrders] = useState<RealOrder[]>([]);
+  const [positions, setPositions] = useState<RealPosition[]>([]);
+  const [orderFormData, setOrderFormData] = useState<OrderFormData>({
+    symbol: '',
+    side: 'BUY',
+    orderType: 'LIMIT',
+    quantity: 0,
+    price: 0,
+    timeInForce: 'DAY',
+    brokerId: '',
+    disclosure: false
+  });
+  const [marketData, setMarketData] = useState<{ [key: string]: MarketData }>({});
+  const [tradingStats, setTradingStats] = useState<TradingStats | null>(null);
+  const [orderDialogOpen, setOrderDialogOpen] = useState(false);
+  const [riskValidation, setRiskValidation] = useState<RiskValidation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<RealOrder | null>(null);
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [advancedMode, setAdvancedMode] = useState(false);
+
+  // Popular Indian stocks for demo
+  const popularSymbols = [
+    'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 
+    'ICICIBANK', 'KOTAKBANK', 'BHARTIARTL', 'ITC', 'SBIN',
+    'ASIANPAINT', 'MARUTI', 'BAJFINANCE', 'LT', 'HCLTECH',
+    'AXISBANK', 'TITAN', 'NESTLEIND', 'WIPRO', 'ULTRACEMCO'
+  ];
+
+  // Mock data generation
+  const generateMockBrokers = useCallback((): BrokerConnection[] => {
+    return [
+      {
+        brokerId: 'zerodha',
+        brokerName: 'Zerodha',
+        status: 'CONNECTED',
+        lastConnected: new Date(),
+        availableMargin: 250000,
+        usedMargin: 75000,
+        totalEquity: 485000,
+        dayPnL: 12500,
+        totalPnL: 65000,
+        supportedOrderTypes: ['MARKET', 'LIMIT', 'STOP_LOSS', 'BRACKET'],
+        supportedExchanges: ['NSE', 'BSE', 'MCX', 'NCDEX'],
+        tradingPermissions: {
+          equity: true,
+          derivatives: true,
+          commodities: true,
+          currency: true,
+          intraday: true,
+          delivery: true,
+          marginTrading: true,
+          options: true,
+          futures: true
+        },
+        rateLimit: {
+          ordersPerSecond: 10,
+          ordersPerMinute: 200,
+          currentUsage: 45,
+          resetTime: new Date(Date.now() + 60000)
+        }
+      },
+      {
+        brokerId: 'upstox',
+        brokerName: 'Upstox',
+        status: 'CONNECTED',
+        lastConnected: new Date(),
+        availableMargin: 180000,
+        usedMargin: 45000,
+        totalEquity: 325000,
+        dayPnL: -2500,
+        totalPnL: 35000,
+        supportedOrderTypes: ['MARKET', 'LIMIT', 'STOP_LOSS'],
+        supportedExchanges: ['NSE', 'BSE'],
+        tradingPermissions: {
+          equity: true,
+          derivatives: true,
+          commodities: false,
+          currency: false,
+          intraday: true,
+          delivery: true,
+          marginTrading: true,
+          options: true,
+          futures: true
+        },
+        rateLimit: {
+          ordersPerSecond: 8,
+          ordersPerMinute: 150,
+          currentUsage: 23,
+          resetTime: new Date(Date.now() + 45000)
+        }
+      },
+      {
+        brokerId: 'angel',
+        brokerName: 'Angel One',
+        status: 'DISCONNECTED',
+        availableMargin: 0,
+        usedMargin: 0,
+        totalEquity: 0,
+        dayPnL: 0,
+        totalPnL: 0,
+        supportedOrderTypes: ['MARKET', 'LIMIT'],
+        supportedExchanges: ['NSE', 'BSE'],
+        tradingPermissions: {
+          equity: true,
+          derivatives: false,
+          commodities: false,
+          currency: false,
+          intraday: true,
+          delivery: true,
+          marginTrading: false,
+          options: false,
+          futures: false
+        },
+        rateLimit: {
+          ordersPerSecond: 5,
+          ordersPerMinute: 100,
+          currentUsage: 0,
+          resetTime: new Date()
+        }
+      }
+    ];
+  }, []);
+
+  const generateMockOrders = useCallback((): RealOrder[] => {
+    return [
+      {
+        id: 'order_001',
+        clientOrderId: 'TM_001_' + Date.now(),
+        symbol: 'RELIANCE',
+        side: 'BUY',
+        orderType: 'LIMIT',
+        quantity: 10,
+        price: 2450.00,
+        timeInForce: 'DAY',
+        status: 'FILLED',
+        filledQuantity: 10,
+        averagePrice: 2448.50,
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        lastUpdateTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        brokerId: 'zerodha',
+        brokerName: 'Zerodha',
+        commission: 25.50,
+        taxes: 12.75,
+        netAmount: 24511.25,
+        exchangeOrderId: 'NSE_12345678',
+        exchangeTimestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        validity: new Date(Date.now() + 24 * 60 * 60 * 1000)
+      },
+      {
+        id: 'order_002',
+        clientOrderId: 'TM_002_' + Date.now(),
+        symbol: 'TCS',
+        side: 'SELL',
+        orderType: 'MARKET',
+        quantity: 5,
+        timeInForce: 'DAY',
+        status: 'PENDING',
+        filledQuantity: 0,
+        timestamp: new Date(Date.now() - 30 * 60 * 1000),
+        lastUpdateTime: new Date(Date.now() - 30 * 60 * 1000),
+        brokerId: 'zerodha',
+        brokerName: 'Zerodha',
+        validity: new Date(Date.now() + 23.5 * 60 * 60 * 1000)
+      },
+      {
+        id: 'order_003',
+        clientOrderId: 'TM_003_' + Date.now(),
+        symbol: 'HDFCBANK',
+        side: 'BUY',
+        orderType: 'BRACKET',
+        quantity: 20,
+        price: 1580.00,
+        stopPrice: 1560.00,
+        targetPrice: 1620.00,
+        timeInForce: 'DAY',
+        status: 'ACKNOWLEDGED',
+        filledQuantity: 0,
+        timestamp: new Date(Date.now() - 15 * 60 * 1000),
+        lastUpdateTime: new Date(Date.now() - 15 * 60 * 1000),
+        brokerId: 'upstox',
+        brokerName: 'Upstox',
+        validity: new Date(Date.now() + 23.75 * 60 * 60 * 1000)
+      }
+    ];
+  }, []);
+
+  const generateMockPositions = useCallback((): RealPosition[] => {
+    return [
+      {
+        id: 'pos_001',
+        symbol: 'RELIANCE',
+        quantity: 10,
+        averagePrice: 2448.50,
+        currentPrice: 2465.75,
+        marketValue: 24657.50,
+        unrealizedPnL: 172.50,
+        realizedPnL: 0,
+        totalPnL: 172.50,
+        pnLPercentage: 0.70,
+        side: 'LONG',
+        brokerId: 'zerodha',
+        brokerName: 'Zerodha',
+        sector: 'Energy',
+        industry: 'Oil & Gas',
+        lastTradeTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        dayChange: 17.25,
+        dayChangePercentage: 0.71
+      },
+      {
+        id: 'pos_002',
+        symbol: 'TCS',
+        quantity: -15,
+        averagePrice: 3847.20,
+        currentPrice: 3835.50,
+        marketValue: -57532.50,
+        unrealizedPnL: 175.50,
+        realizedPnL: -450.00,
+        totalPnL: -274.50,
+        pnLPercentage: -0.48,
+        side: 'SHORT',
+        brokerId: 'zerodha',
+        brokerName: 'Zerodha',
+        sector: 'Information Technology',
+        industry: 'IT Services',
+        lastTradeTime: new Date(Date.now() - 4 * 60 * 60 * 1000),
+        dayChange: -11.70,
+        dayChangePercentage: -0.30
+      },
+      {
+        id: 'pos_003',
+        symbol: 'INFY',
+        quantity: 25,
+        averagePrice: 1456.80,
+        currentPrice: 1471.25,
+        marketValue: 36781.25,
+        unrealizedPnL: 361.25,
+        realizedPnL: 125.50,
+        totalPnL: 486.75,
+        pnLPercentage: 1.34,
+        side: 'LONG',
+        brokerId: 'upstox',
+        brokerName: 'Upstox',
+        sector: 'Information Technology',
+        industry: 'IT Services',
+        lastTradeTime: new Date(Date.now() - 1 * 60 * 60 * 1000),
+        dayChange: 14.45,
+        dayChangePercentage: 0.99,
+        stopLoss: 1420.00,
+        target: 1520.00
+      }
+    ];
+  }, []);
+
+  const generateMockMarketData = useCallback(): { [key: string]: MarketData } => {
+    const data: { [key: string]: MarketData } = {};
+    popularSymbols.forEach(symbol => {
+      const basePrice = Math.random() * 3000 + 500;
+      const change = (Math.random() - 0.5) * 100;
+      data[symbol] = {
+        symbol,
+        lastPrice: basePrice + change,
+        change,
+        changePercent: (change / basePrice) * 100,
+        volume: Math.floor(Math.random() * 1000000) + 10000,
+        bid: basePrice + change - 0.5,
+        ask: basePrice + change + 0.5,
+        high: basePrice + change + Math.random() * 50,
+        low: basePrice + change - Math.random() * 50,
+        open: basePrice,
+        previousClose: basePrice,
+        timestamp: new Date()
+      };
+    });
+    return data;
+  }, []);
+
+  const generateTradingStats = useCallback((): TradingStats => {
+    return {
+      totalTrades: 1247,
+      successfulTrades: 856,
+      successRate: 68.7,
+      totalVolume: 25687459,
+      totalPnL: 145670,
+      totalCommission: 8945,
+      netPnL: 136725,
+      averageWin: 1250,
+      averageLoss: -845,
+      winLossRatio: 1.48,
+      profitFactor: 1.85,
+      largestWin: 15670,
+      largestLoss: -8945,
+      currentStreak: 5,
+      longestWinStreak: 12
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      // Simulate API calls
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const brokers = generateMockBrokers();
+      const orders = generateMockOrders();
+      const positions = generateMockPositions();
+      const market = generateMockMarketData();
+      const stats = generateTradingStats();
+      
+      setBrokerConnections(brokers);
+      setOrders(orders);
+      setPositions(positions);
+      setMarketData(market);
+      setTradingStats(stats);
+      
+      // Set first connected broker as default
+      const connectedBroker = brokers.find(b => b.status === 'CONNECTED');
+      if (connectedBroker) {
+        setSelectedBroker(connectedBroker.brokerId);
+        setOrderFormData(prev => ({ ...prev, brokerId: connectedBroker.brokerId }));
+      }
+      
+      setLoading(false);
+    };
+
+    loadData();
+
+    // Auto-refresh data
+    const interval = setInterval(() => {
+      if (autoRefresh) {
+        setMarketData(generateMockMarketData());
+        // Update positions with new prices
+        setPositions(prev => prev.map(pos => ({
+          ...pos,
+          currentPrice: marketData[pos.symbol]?.lastPrice || pos.currentPrice,
+          marketValue: (marketData[pos.symbol]?.lastPrice || pos.currentPrice) * pos.quantity,
+          unrealizedPnL: ((marketData[pos.symbol]?.lastPrice || pos.currentPrice) - pos.averagePrice) * pos.quantity,
+          dayChange: marketData[pos.symbol]?.change || pos.dayChange,
+          dayChangePercentage: marketData[pos.symbol]?.changePercent || pos.dayChangePercentage
+        })));
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [generateMockBrokers, generateMockOrders, generateMockPositions, generateMockMarketData, generateTradingStats, autoRefresh, marketData]);
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
+  const validateOrder = useCallback((formData: OrderFormData): RiskValidation => {
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    
+    // Basic validation
+    if (!formData.symbol) {
+      errors.push('Symbol is required');
+    }
+    if (formData.quantity <= 0) {
+      errors.push('Quantity must be greater than 0');
+    }
+    if (formData.orderType === 'LIMIT' && (!formData.price || formData.price <= 0)) {
+      errors.push('Price is required for limit orders');
+    }
+    if (!formData.brokerId) {
+      errors.push('Broker selection is required');
+    }
+    if (!formData.disclosure) {
+      errors.push('Trading disclosure must be acknowledged');
+    }
+
+    // Risk assessment
+    const broker = brokerConnections.find(b => b.brokerId === formData.brokerId);
+    const symbol = marketData[formData.symbol];
+    
+    if (broker && symbol) {
+      const orderValue = (formData.price || symbol.lastPrice) * formData.quantity;
+      const marginRequired = orderValue * 0.2; // Assuming 20% margin
+      
+      if (marginRequired > broker.availableMargin) {
+        errors.push('Insufficient margin available');
+      }
+      
+      if (orderValue > broker.availableMargin * 5) {
+        warnings.push('High risk: Order value exceeds 5x available margin');
+      }
+      
+      if (symbol.changePercent > 5 || symbol.changePercent < -5) {
+        warnings.push('High volatility detected in selected symbol');
+      }
+    }
+
+    const riskScore = warnings.length * 30 + errors.length * 50;
+    
+    return {
+      isValid: errors.length === 0,
+      warnings,
+      errors,
+      marginRequired: broker && symbol ? (formData.price || symbol.lastPrice) * formData.quantity * 0.2 : 0,
+      impact: riskScore > 60 ? 'HIGH' : riskScore > 30 ? 'MEDIUM' : 'LOW',
+      riskScore
+    };
+  }, [brokerConnections, marketData]);
+
+  const handlePlaceOrder = async () => {
+    const validation = validateOrder(orderFormData);
+    setRiskValidation(validation);
+    
+    if (!validation.isValid) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Simulate order placement API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const newOrder: RealOrder = {
+        id: `order_${Date.now()}`,
+        clientOrderId: `TM_${Date.now()}`,
+        symbol: orderFormData.symbol,
+        side: orderFormData.side,
+        orderType: orderFormData.orderType,
+        quantity: orderFormData.quantity,
+        price: orderFormData.price,
+        stopPrice: orderFormData.stopPrice,
+        targetPrice: orderFormData.targetPrice,
+        timeInForce: orderFormData.timeInForce,
+        status: 'SUBMITTED',
+        filledQuantity: 0,
+        timestamp: new Date(),
+        lastUpdateTime: new Date(),
+        brokerId: orderFormData.brokerId,
+        brokerName: brokerConnections.find(b => b.brokerId === orderFormData.brokerId)?.brokerName || '',
+        validity: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        tag: orderFormData.tag
+      };
+
+      setOrders(prev => [newOrder, ...prev]);
+      setOrderDialogOpen(false);
+      
+      // Reset form
+      setOrderFormData({
+        symbol: '',
+        side: 'BUY',
+        orderType: 'LIMIT',
+        quantity: 0,
+        price: 0,
+        timeInForce: 'DAY',
+        brokerId: selectedBroker,
+        disclosure: false
+      });
+      
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Failed to place order:', error);
+      setLoading(false);
+    }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      setLoading(true);
+      // Simulate cancel order API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setOrders(prev => prev.map(order => 
+        order.id === orderId 
+          ? { ...order, status: 'CANCELLED' as const, lastUpdateTime: new Date() }
+          : order
+      ));
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to cancel order:', error);
+      setLoading(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'FILLED': return 'success';
+      case 'PENDING': case 'SUBMITTED': case 'ACKNOWLEDGED': return 'info';
+      case 'CANCELLED': return 'warning';
+      case 'REJECTED': return 'error';
+      case 'PARTIALLY_FILLED': return 'primary';
+      default: return 'default';
+    }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return `₹${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const selectedBrokerData = useMemo(() => {
+    return brokerConnections.find(b => b.brokerId === selectedBroker);
+  }, [brokerConnections, selectedBroker]);
+
+  if (loading && brokerConnections.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress size={60} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 3 }}>
+      {/* Header Section */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box>
+          <Typography variant="h4" fontWeight="bold" gutterBottom>
+            Advanced Trading Interface
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Real-time order execution with multi-broker support
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <FormControlLabel
+            control={<Switch checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />}
+            label="Auto Refresh"
+          />
+          <FormControlLabel
+            control={<Switch checked={advancedMode} onChange={(e) => setAdvancedMode(e.target.checked)} />}
+            label="Advanced Mode"
+          />
+          <Button
+            variant="contained"
+            startIcon={<FlashOnIcon />}
+            onClick={() => setOrderDialogOpen(true)}
+            disabled={!selectedBrokerData || selectedBrokerData.status !== 'CONNECTED'}
+          >
+            New Order
+          </Button>
+        </Stack>
+      </Box>
+
+      {/* Broker Status Cards */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {brokerConnections.map((broker) => (
+          <Grid item xs={12} md={4} key={broker.brokerId}>
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Card 
+                sx={{ 
+                  cursor: 'pointer',
+                  border: selectedBroker === broker.brokerId ? '2px solid #2196f3' : '1px solid #e0e0e0',
+                  '&:hover': { boxShadow: 4 }
+                }}
+                onClick={() => setSelectedBroker(broker.brokerId)}
+              >
+                <CardContent>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                    <Typography variant="h6" fontWeight="bold">
+                      {broker.brokerName}
+                    </Typography>
+                    <Chip 
+                      label={broker.status}
+                      color={broker.status === 'CONNECTED' ? 'success' : broker.status === 'CONNECTING' ? 'info' : 'error'}
+                      size="small"
+                    />
+                  </Box>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="text.secondary">Available Margin</Typography>
+                      <Typography variant="h6" color="primary">
+                        {formatCurrency(broker.availableMargin)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="text.secondary">Day P&L</Typography>
+                      <Typography 
+                        variant="h6" 
+                        color={broker.dayPnL >= 0 ? 'success.main' : 'error.main'}
+                      >
+                        {formatCurrency(broker.dayPnL)}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  
+                  <LinearProgress
+                    variant="determinate"
+                    value={(broker.usedMargin / (broker.availableMargin + broker.usedMargin)) * 100}
+                    sx={{ mt: 2, height: 6, borderRadius: 3 }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Margin Usage: {((broker.usedMargin / (broker.availableMargin + broker.usedMargin)) * 100).toFixed(1)}%
+                  </Typography>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Navigation Tabs */}
+      <Card sx={{ mb: 3 }}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          variant="scrollable"
+          scrollButtons="auto"
+        >
+          <Tab icon={<PlayArrowIcon />} label="Active Orders" />
+          <Tab icon={<AccountBalanceWalletIcon />} label="Positions" />
+          <Tab icon={<HistoryIcon />} label="Order History" />
+          <Tab icon={<AssessmentIcon />} label="Performance" />
+          <Tab icon={<SettingsIcon />} label="Settings" />
+        </Tabs>
+      </Card>
+
+      {/* Tab Content */}
+      <Box>
+        {/* Active Orders Tab */}
+        {activeTab === 0 && (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                    <Typography variant="h6">Active Orders</Typography>
+                    <Stack direction="row" spacing={2}>
+                      <Button variant="outlined" startIcon={<RefreshIcon />} size="small">
+                        Refresh
+                      </Button>
+                      <Button 
+                        variant="contained" 
+                        startIcon={<FlashOnIcon />}
+                        onClick={() => setOrderDialogOpen(true)}
+                        disabled={!selectedBrokerData || selectedBrokerData.status !== 'CONNECTED'}
+                      >
+                        Place Order
+                      </Button>
+                    </Stack>
+                  </Box>
+                  
+                  <TableContainer>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell>Side</TableCell>
+                          <TableCell>Type</TableCell>
+                          <TableCell align="right">Qty</TableCell>
+                          <TableCell align="right">Price</TableCell>
+                          <TableCell align="right">Filled</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Broker</TableCell>
+                          <TableCell>Time</TableCell>
+                          <TableCell align="center">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {orders.filter(order => ['PENDING', 'SUBMITTED', 'ACKNOWLEDGED', 'PARTIALLY_FILLED'].includes(order.status)).map((order) => (
+                          <TableRow key={order.id}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight="bold">
+                                {order.symbol}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={order.side} 
+                                color={order.side === 'BUY' ? 'success' : 'error'} 
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>{order.orderType}</TableCell>
+                            <TableCell align="right">{order.quantity}</TableCell>
+                            <TableCell align="right">
+                              {order.price ? formatCurrency(order.price) : 'Market'}
+                            </TableCell>
+                            <TableCell align="right">{order.filledQuantity}</TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={order.status} 
+                                color={getStatusColor(order.status) as any}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>{order.brokerName}</TableCell>
+                            <TableCell>{order.timestamp.toLocaleTimeString()}</TableCell>
+                            <TableCell align="center">
+                              <Stack direction="row" spacing={1}>
+                                <Tooltip title="View Details">
+                                  <IconButton size="small" onClick={() => setSelectedOrder(order)}>
+                                    <InfoIcon />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Cancel Order">
+                                  <IconButton 
+                                    size="small" 
+                                    color="error"
+                                    onClick={() => handleCancelOrder(order.id)}
+                                    disabled={!['PENDING', 'SUBMITTED', 'ACKNOWLEDGED'].includes(order.status)}
+                                  >
+                                    <CancelIcon />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+
+        {/* Positions Tab */}
+        {activeTab === 1 && (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                    <Typography variant="h6">Current Positions</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total P&L: {formatCurrency(positions.reduce((sum, pos) => sum + pos.totalPnL, 0))}
+                    </Typography>
+                  </Box>
+                  
+                  <TableContainer>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell align="right">Quantity</TableCell>
+                          <TableCell align="right">Avg Price</TableCell>
+                          <TableCell align="right">Current Price</TableCell>
+                          <TableCell align="right">Market Value</TableCell>
+                          <TableCell align="right">P&L</TableCell>
+                          <TableCell align="right">P&L %</TableCell>
+                          <TableCell>Broker</TableCell>
+                          <TableCell align="center">Actions</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {positions.map((position) => (
+                          <TableRow key={position.id}>
+                            <TableCell>
+                              <Box>
+                                <Typography variant="body2" fontWeight="bold">
+                                  {position.symbol}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {position.sector}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2">
+                                {position.quantity}
+                              </Typography>
+                              <Chip 
+                                label={position.side} 
+                                size="small"
+                                color={position.side === 'LONG' ? 'success' : 'error'}
+                              />
+                            </TableCell>
+                            <TableCell align="right">{formatCurrency(position.averagePrice)}</TableCell>
+                            <TableCell align="right">
+                              <Box display="flex" flexDirection="column" alignItems="flex-end">
+                                <Typography variant="body2">
+                                  {formatCurrency(position.currentPrice)}
+                                </Typography>
+                                <Typography 
+                                  variant="caption" 
+                                  color={position.dayChangePercentage >= 0 ? 'success.main' : 'error.main'}
+                                >
+                                  {position.dayChangePercentage >= 0 ? '+' : ''}{position.dayChangePercentage.toFixed(2)}%
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">{formatCurrency(position.marketValue)}</TableCell>
+                            <TableCell align="right">
+                              <Typography 
+                                variant="body2" 
+                                color={position.totalPnL >= 0 ? 'success.main' : 'error.main'}
+                                fontWeight="bold"
+                              >
+                                {formatCurrency(position.totalPnL)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography 
+                                variant="body2" 
+                                color={position.pnLPercentage >= 0 ? 'success.main' : 'error.main'}
+                                fontWeight="bold"
+                              >
+                                {position.pnLPercentage >= 0 ? '+' : ''}{position.pnLPercentage.toFixed(2)}%
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{position.brokerName}</TableCell>
+                            <TableCell align="center">
+                              <Button 
+                                variant="outlined" 
+                                size="small" 
+                                color={position.side === 'LONG' ? 'error' : 'success'}
+                              >
+                                {position.side === 'LONG' ? 'Sell' : 'Cover'}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+
+        {/* Order History Tab */}
+        {activeTab === 2 && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Order History
+              </Typography>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Order ID</TableCell>
+                      <TableCell>Symbol</TableCell>
+                      <TableCell>Side</TableCell>
+                      <TableCell>Type</TableCell>
+                      <TableCell align="right">Quantity</TableCell>
+                      <TableCell align="right">Price</TableCell>
+                      <TableCell align="right">Filled Qty</TableCell>
+                      <TableCell align="right">Avg Price</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Broker</TableCell>
+                      <TableCell>Time</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {orders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell>
+                          <Typography variant="body2" fontFamily="monospace">
+                            {order.clientOrderId}
+                          </Typography>
+                        </TableCell>
+                        <TableCell fontWeight="bold">{order.symbol}</TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={order.side} 
+                            color={order.side === 'BUY' ? 'success' : 'error'} 
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>{order.orderType}</TableCell>
+                        <TableCell align="right">{order.quantity}</TableCell>
+                        <TableCell align="right">
+                          {order.price ? formatCurrency(order.price) : 'Market'}
+                        </TableCell>
+                        <TableCell align="right">{order.filledQuantity}</TableCell>
+                        <TableCell align="right">
+                          {order.averagePrice ? formatCurrency(order.averagePrice) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={order.status} 
+                            color={getStatusColor(order.status) as any}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>{order.brokerName}</TableCell>
+                        <TableCell>{order.timestamp.toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Performance Tab */}
+        {activeTab === 3 && (
+          <Grid container spacing={3}>
+            {tradingStats && (
+              <>
+                <Grid item xs={12} md={4}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Overall Performance
+                      </Typography>
+                      <Stack spacing={2}>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Net P&L</Typography>
+                          <Typography variant="h4" color="success.main" fontWeight="bold">
+                            {formatCurrency(tradingStats.netPnL)}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Success Rate</Typography>
+                          <Typography variant="h5" fontWeight="bold">
+                            {tradingStats.successRate.toFixed(1)}%
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">Profit Factor</Typography>
+                          <Typography variant="h5" fontWeight="bold">
+                            {tradingStats.profitFactor.toFixed(2)}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} md={4}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Trading Volume
+                      </Typography>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <PieChart>
+                          <Pie
+                            data={[
+                              { name: 'Profitable', value: tradingStats.successfulTrades },
+                              { name: 'Loss-making', value: tradingStats.totalTrades - tradingStats.successfulTrades }
+                            ]}
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            dataKey="value"
+                            label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          >
+                            <Cell fill="#4CAF50" />
+                            <Cell fill="#F44336" />
+                          </Pie>
+                          <RechartsTooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid item xs={12} md={4}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Key Metrics
+                      </Typography>
+                      <List dense>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Total Trades" 
+                            secondary={tradingStats.totalTrades.toLocaleString()} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Win/Loss Ratio" 
+                            secondary={tradingStats.winLossRatio.toFixed(2)} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Average Win" 
+                            secondary={formatCurrency(tradingStats.averageWin)} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Average Loss" 
+                            secondary={formatCurrency(tradingStats.averageLoss)} 
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText 
+                            primary="Current Streak" 
+                            secondary={`${tradingStats.currentStreak} wins`} 
+                          />
+                        </ListItem>
+                      </List>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </>
+            )}
+          </Grid>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 4 && (
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Trading Settings
+                  </Typography>
+                  <Stack spacing={3}>
+                    <FormControlLabel
+                      control={<Switch checked={alertsEnabled} onChange={(e) => setAlertsEnabled(e.target.checked)} />}
+                      label="Enable order notifications"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />}
+                      label="Auto-refresh market data"
+                    />
+                    <FormControlLabel
+                      control={<Switch checked={advancedMode} onChange={(e) => setAdvancedMode(e.target.checked)} />}
+                      label="Advanced trading mode"
+                    />
+                    <TextField
+                      label="Default Order Quantity"
+                      type="number"
+                      defaultValue={10}
+                      fullWidth
+                      variant="outlined"
+                    />
+                    <FormControl fullWidth>
+                      <InputLabel>Default Time in Force</InputLabel>
+                      <Select defaultValue="DAY" label="Default Time in Force">
+                        <MenuItem value="DAY">Day</MenuItem>
+                        <MenuItem value="GTC">Good Till Cancelled</MenuItem>
+                        <MenuItem value="IOC">Immediate or Cancel</MenuItem>
+                        <MenuItem value="FOK">Fill or Kill</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Risk Management
+                  </Typography>
+                  <Stack spacing={3}>
+                    <TextField
+                      label="Max Order Value (₹)"
+                      type="number"
+                      defaultValue={100000}
+                      fullWidth
+                      variant="outlined"
+                    />
+                    <TextField
+                      label="Daily Loss Limit (₹)"
+                      type="number"
+                      defaultValue={50000}
+                      fullWidth
+                      variant="outlined"
+                    />
+                    <TextField
+                      label="Position Size Limit (%)"
+                      type="number"
+                      defaultValue={20}
+                      fullWidth
+                      variant="outlined"
+                      helperText="Maximum percentage of portfolio in a single position"
+                    />
+                    <FormControlLabel
+                      control={<Switch defaultChecked />}
+                      label="Require stop loss for all positions"
+                    />
+                    <FormControlLabel
+                      control={<Switch />}
+                      label="Auto-square off at market close"
+                    />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+      </Box>
+
+      {/* Place Order Dialog */}
+      <Dialog
+        open={orderDialogOpen}
+        onClose={() => setOrderDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Place New Order</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Broker: {selectedBrokerData?.brokerName}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Symbol"
+                value={orderFormData.symbol}
+                onChange={(e) => setOrderFormData(prev => ({ ...prev, symbol: e.target.value.toUpperCase() }))}
+                fullWidth
+                variant="outlined"
+                helperText="Enter stock symbol (e.g., RELIANCE, TCS)"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Side</InputLabel>
+                <Select
+                  value={orderFormData.side}
+                  label="Side"
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, side: e.target.value as 'BUY' | 'SELL' }))}
+                >
+                  <MenuItem value="BUY">Buy</MenuItem>
+                  <MenuItem value="SELL">Sell</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Order Type</InputLabel>
+                <Select
+                  value={orderFormData.orderType}
+                  label="Order Type"
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, orderType: e.target.value as any }))}
+                >
+                  <MenuItem value="MARKET">Market</MenuItem>
+                  <MenuItem value="LIMIT">Limit</MenuItem>
+                  <MenuItem value="STOP_LOSS">Stop Loss</MenuItem>
+                  <MenuItem value="BRACKET">Bracket</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Quantity"
+                type="number"
+                value={orderFormData.quantity}
+                onChange={(e) => setOrderFormData(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                fullWidth
+                variant="outlined"
+              />
+            </Grid>
+            {orderFormData.orderType !== 'MARKET' && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Price"
+                  type="number"
+                  value={orderFormData.price}
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, price: Number(e.target.value) }))}
+                  fullWidth
+                  variant="outlined"
+                  step="0.05"
+                />
+              </Grid>
+            )}
+            {(orderFormData.orderType === 'STOP_LOSS' || orderFormData.orderType === 'BRACKET') && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Stop Price"
+                  type="number"
+                  value={orderFormData.stopPrice}
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, stopPrice: Number(e.target.value) }))}
+                  fullWidth
+                  variant="outlined"
+                  step="0.05"
+                />
+              </Grid>
+            )}
+            {orderFormData.orderType === 'BRACKET' && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Target Price"
+                  type="number"
+                  value={orderFormData.targetPrice}
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, targetPrice: Number(e.target.value) }))}
+                  fullWidth
+                  variant="outlined"
+                  step="0.05"
+                />
+              </Grid>
+            )}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Time in Force</InputLabel>
+                <Select
+                  value={orderFormData.timeInForce}
+                  label="Time in Force"
+                  onChange={(e) => setOrderFormData(prev => ({ ...prev, timeInForce: e.target.value as any }))}
+                >
+                  <MenuItem value="DAY">Day</MenuItem>
+                  <MenuItem value="GTC">Good Till Cancelled</MenuItem>
+                  <MenuItem value="IOC">Immediate or Cancel</MenuItem>
+                  <MenuItem value="FOK">Fill or Kill</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Tag (Optional)"
+                value={orderFormData.tag}
+                onChange={(e) => setOrderFormData(prev => ({ ...prev, tag: e.target.value }))}
+                fullWidth
+                variant="outlined"
+                helperText="Optional tag for order identification"
+              />
+            </Grid>
+            
+            {/* Risk Validation */}
+            {riskValidation && (
+              <Grid item xs={12}>
+                {riskValidation.errors.length > 0 && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    <AlertTitle>Order Validation Errors</AlertTitle>
+                    {riskValidation.errors.map((error, index) => (
+                      <Typography key={index} variant="body2">• {error}</Typography>
+                    ))}
+                  </Alert>
+                )}
+                
+                {riskValidation.warnings.length > 0 && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <AlertTitle>Risk Warnings</AlertTitle>
+                    {riskValidation.warnings.map((warning, index) => (
+                      <Typography key={index} variant="body2">• {warning}</Typography>
+                    ))}
+                  </Alert>
+                )}
+                
+                {riskValidation.isValid && (
+                  <Alert severity="info">
+                    <Typography variant="body2">
+                      Estimated Margin Required: {formatCurrency(riskValidation.marginRequired || 0)}
+                    </Typography>
+                    <Typography variant="body2">
+                      Risk Level: {riskValidation.impact}
+                    </Typography>
+                  </Alert>
+                )}
+              </Grid>
+            )}
+            
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={orderFormData.disclosure}
+                    onChange={(e) => setOrderFormData(prev => ({ ...prev, disclosure: e.target.checked }))}
+                  />
+                }
+                label="I acknowledge the risks associated with this trade and confirm the order details"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOrderDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handlePlaceOrder}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={20} /> : 'Place Order'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Order Details Dialog */}
+      <Dialog
+        open={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        {selectedOrder && (
+          <>
+            <DialogTitle>
+              Order Details - {selectedOrder.symbol}
+            </DialogTitle>
+            <DialogContent>
+              <Stack spacing={2}>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Order ID:</Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {selectedOrder.clientOrderId}
+                  </Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Status:</Typography>
+                  <Chip 
+                    label={selectedOrder.status} 
+                    color={getStatusColor(selectedOrder.status) as any}
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Side:</Typography>
+                  <Chip 
+                    label={selectedOrder.side} 
+                    color={selectedOrder.side === 'BUY' ? 'success' : 'error'} 
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Order Type:</Typography>
+                  <Typography variant="body2">{selectedOrder.orderType}</Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Quantity:</Typography>
+                  <Typography variant="body2">{selectedOrder.quantity}</Typography>
+                </Box>
+                {selectedOrder.price && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Price:</Typography>
+                    <Typography variant="body2">{formatCurrency(selectedOrder.price)}</Typography>
+                  </Box>
+                )}
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Filled Quantity:</Typography>
+                  <Typography variant="body2">{selectedOrder.filledQuantity}</Typography>
+                </Box>
+                {selectedOrder.averagePrice && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Average Price:</Typography>
+                    <Typography variant="body2">{formatCurrency(selectedOrder.averagePrice)}</Typography>
+                  </Box>
+                )}
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Broker:</Typography>
+                  <Typography variant="body2">{selectedOrder.brokerName}</Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Time:</Typography>
+                  <Typography variant="body2">{selectedOrder.timestamp.toLocaleString()}</Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Validity:</Typography>
+                  <Typography variant="body2">{selectedOrder.validity.toLocaleDateString()}</Typography>
+                </Box>
+                {selectedOrder.errorMessage && (
+                  <Alert severity="error">
+                    {selectedOrder.errorMessage}
+                  </Alert>
+                )}
+              </Stack>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setSelectedOrder(null)}>Close</Button>
+              {['PENDING', 'SUBMITTED', 'ACKNOWLEDGED'].includes(selectedOrder.status) && (
+                <Button 
+                  variant="contained" 
+                  color="error"
+                  onClick={() => {
+                    handleCancelOrder(selectedOrder.id);
+                    setSelectedOrder(null);
+                  }}
+                >
+                  Cancel Order
+                </Button>
+              )}
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+    </Box>
+  );
+};
+
+export default EnhancedTradingInterface;

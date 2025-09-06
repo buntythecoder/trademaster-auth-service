@@ -1,51 +1,71 @@
 package com.trademaster.subscription.dto;
 
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
 /**
  * Usage Check Request DTO
  * 
- * Request object for checking and incrementing feature usage.
+ * MANDATORY: Immutable Record - TradeMaster Rule #9
+ * MANDATORY: Functional Programming - TradeMaster Rule #3
  * 
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
-public class UsageCheckRequest {
-
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record UsageCheckRequest(
+    UUID userId,
+    String featureName,
+    Long usageAmount,
+    Boolean incrementUsage
+) {
+    
     /**
-     * User ID to check usage for
+     * Constructor with validation and defaults
      */
-    @NotNull(message = "User ID is required")
-    private UUID userId;
-
+    public UsageCheckRequest {
+        // Validation using pattern matching
+        switch (userId) {
+            case null -> throw new IllegalArgumentException("User ID is required");
+            default -> {}
+        }
+        
+        switch (featureName) {
+            case null -> throw new IllegalArgumentException("Feature name is required");
+            default -> {
+                if (featureName.trim().isEmpty()) {
+                    throw new IllegalArgumentException("Feature name is required");
+                }
+            }
+        }
+        
+        // Set defaults using pattern matching
+        usageAmount = switch (usageAmount) {
+            case null -> 1L;
+            case Long value when value < 1 -> throw new IllegalArgumentException("Usage amount must be at least 1");
+            default -> usageAmount;
+        };
+        
+        incrementUsage = switch (incrementUsage) {
+            case null -> false;
+            default -> incrementUsage;
+        };
+    }
+    
     /**
-     * Feature name to check
+     * Check if usage should be incremented
      */
-    @NotBlank(message = "Feature name is required")
-    private String featureName;
-
+    public boolean isIncrementUsage() {
+        return incrementUsage != null && incrementUsage;
+    }
+    
     /**
-     * Amount of usage to check/increment
+     * Check if this is a check-only request
      */
-    @Min(value = 1, message = "Usage amount must be at least 1")
-    @Builder.Default
-    private Long usageAmount = 1L;
-
-    /**
-     * Whether to actually increment usage (false for check-only)
-     */
-    @Builder.Default
-    private Boolean incrementUsage = false;
+    public boolean isCheckOnly() {
+        return !isIncrementUsage();
+    }
 }

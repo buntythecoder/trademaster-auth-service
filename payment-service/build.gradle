@@ -53,6 +53,7 @@ ext {
     razorpayVersion = '1.4.3'
     stripeVersion = '24.16.0'
     testcontainersVersion = '1.19.3'
+    set('springCloudVersion', "2023.0.4")
 }
 
 dependencies {
@@ -83,6 +84,13 @@ dependencies {
     // Rate Limiting
     implementation 'com.github.vladimir-bukhtoyarov:bucket4j-core:7.6.0'
     implementation 'com.github.vladimir-bukhtoyarov:bucket4j-redis:7.6.0'
+    
+    // Circuit Breaker & Resilience
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-all:2.2.0'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
     
     // Monitoring & Observability
     implementation 'io.micrometer:micrometer-registry-prometheus'
@@ -125,6 +133,12 @@ dependencies {
     testImplementation 'com.h2database:h2'
     testImplementation 'org.mockito:mockito-inline:5.2.0'
     testImplementation 'org.awaitility:awaitility'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+    }
 }
 
 

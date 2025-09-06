@@ -1,0 +1,47 @@
+# Bootstrap Configuration for Config Server
+# This file is loaded before application.yml and provides initial configuration
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:development}
+  cloud:
+    config:
+      # Disable config server for itself to avoid circular dependency
+      enabled: false
+      discovery:
+        enabled: false
+
+# Encryption configuration
+encrypt:
+  # For symmetric encryption (simpler setup)
+  key: ${ENCRYPT_KEY:trademaster-symmetric-key-2024}
+  # For asymmetric encryption (more secure, requires key store)
+  # key-store:
+  #   location: classpath:/config-server.jks
+  #   password: ${KEYSTORE_PASSWORD:changeit}
+  #   alias: config-server-key
+  #   secret: ${KEY_SECRET:changeit}
+
+# Service discovery bootstrap
+eureka:
+  client:
+    enabled: true
+    register-with-eureka: false  # Don't register until fully started
+    fetch-registry: true
+    service-url:
+      defaultZone: ${EUREKA_URI:http://eureka-server:8761/eureka/}
+
+# Management endpoints for bootstrap health check
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      enabled: true
+  health:
+    defaults:
+      enabled: true

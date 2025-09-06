@@ -9,16 +9,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 /**
  * Credential Management Service
  * 
- * Manages secure storage and retrieval of broker credentials.
- * Handles encryption/decryption and credential validation.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Secure credential storage with encryption - Rule #23
+ * MANDATORY: Virtual Threads for performance - Rule #12
+ * MANDATORY: Transactional data operations - Rule #26
  */
 @Service
 @RequiredArgsConstructor
@@ -29,281 +30,197 @@ public class CredentialManagementService {
     private final CredentialEncryptionService encryptionService;
     
     /**
-     * Store encrypted credentials for a broker account
+     * Store encrypted broker credentials for user
+     * 
+     * MANDATORY: Functional programming patterns - Rule #3
+     * MANDATORY: Virtual Threads - Rule #12
      */
     @Transactional
-    public void storeCredentials(Long userId, BrokerType brokerType, BrokerCredentials credentials) {
-        log.debug("Storing credentials for user {} and broker {}", userId, brokerType);
+    public CompletableFuture<Optional<BrokerAccount>> storeCredentials(
+            String userId, BrokerType brokerType, String brokerUserId, 
+            String password, String apiKey, String apiSecret, String totpSecret) {
         
-        Optional<BrokerAccount> existingAccount = brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType);
-        
-        BrokerAccount account = existingAccount.orElse(
-                BrokerAccount.builder()
-                        .userId(userId)
-                        .brokerType(brokerType)
-                        .isActive(true)
-                        .isVerified(false)
-                        .build()
-        );
-        
-        // Encrypt and store credentials based on broker type
-        updateCredentialsForBrokerType(account, brokerType, credentials);
-        
-        // Save the account
-        brokerAccountRepository.save(account);
-        
-        log.info("Credentials stored successfully for user {} and broker {}", userId, brokerType);
+        return CompletableFuture
+            .supplyAsync(() -> createEncryptedAccount(userId, brokerType, brokerUserId, 
+                        password, apiKey, apiSecret, totpSecret),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleCredentialStorage);
     }
     
     /**
-     * Retrieve and decrypt credentials for a broker account
+     * Retrieve and decrypt broker credentials
+     * 
+     * MANDATORY: Secure data access - Rule #23
      */
     @Transactional(readOnly = true)
-    public Optional<BrokerCredentials> getCredentials(Long userId, BrokerType brokerType) {
-        log.debug("Retrieving credentials for user {} and broker {}", userId, brokerType);
+    public CompletableFuture<Optional<BrokerAccount>> getDecryptedCredentials(
+            String userId, BrokerType brokerType) {
         
-        Optional<BrokerAccount> accountOpt = brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType);
+        return CompletableFuture
+            .supplyAsync(() -> brokerAccountRepository.findByUserIdAndBrokerType(userId, brokerType),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .thenCompose(this::decryptAccountCredentials);
+    }
+    
+    /**
+     * Update broker credentials with encryption
+     * 
+     * MANDATORY: Secure updates - Rule #23
+     */
+    @Transactional
+    public CompletableFuture<Boolean> updateCredentials(
+            String userId, BrokerType brokerType, String password, 
+            String apiKey, String apiSecret, String totpSecret) {
+        
+        return CompletableFuture
+            .supplyAsync(() -> brokerAccountRepository.findByUserIdAndBrokerType(userId, brokerType),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .thenCompose(accountOpt -> accountOpt.map(account -> 
+                updateAccountCredentials(account, password, apiKey, apiSecret, totpSecret))
+                .orElse(CompletableFuture.completedFuture(false)));
+    }
+    
+    /**
+     * Deactivate broker account
+     * 
+     * MANDATORY: Security operations - Rule #23
+     */
+    @Transactional
+    public CompletableFuture<Boolean> deactivateAccount(String userId, BrokerType brokerType) {
+        return CompletableFuture
+            .supplyAsync(() -> brokerAccountRepository
+                .deactivateAccount(userId, brokerType, LocalDateTime.now()) > 0,
+                Executors.newVirtualThreadPerTaskExecutor())
+            .handle((result, throwable) -> {
+                if (throwable != null) {
+                    log.error("Failed to deactivate account for user: {} broker: {}", 
+                        userId, brokerType, throwable);
+                    return false;
+                }
+                log.info("Account deactivated for user: {} broker: {}", userId, brokerType);
+                return result;
+            });
+    }
+    
+    /**
+     * Get all active accounts for user
+     * 
+     * MANDATORY: User data access - Rule #23
+     */
+    @Transactional(readOnly = true)
+    public CompletableFuture<List<BrokerAccount>> getUserActiveAccounts(String userId) {
+        return CompletableFuture
+            .supplyAsync(() -> brokerAccountRepository.findAllActiveByUserId(userId),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle((accounts, throwable) -> {
+                if (throwable != null) {
+                    log.error("Failed to retrieve accounts for user: {}", userId, throwable);
+                    return List.of();
+                }
+                return accounts;
+            });
+    }
+    
+    private BrokerAccount createEncryptedAccount(
+            String userId, BrokerType brokerType, String brokerUserId,
+            String password, String apiKey, String apiSecret, String totpSecret) {
+        
+        try {
+            BrokerAccount account = new BrokerAccount();
+            account.setUserId(userId);
+            account.setBrokerType(brokerType);
+            account.setBrokerUserId(brokerUserId);
+            account.setIsActive(true);
+            
+            // Encrypt credentials asynchronously
+            Optional<String> encryptedPassword = password != null ? 
+                encryptionService.encryptCredential(password).join() : Optional.empty();
+            Optional<String> encryptedApiKey = apiKey != null ?
+                encryptionService.encryptCredential(apiKey).join() : Optional.empty();
+            Optional<String> encryptedApiSecret = apiSecret != null ?
+                encryptionService.encryptCredential(apiSecret).join() : Optional.empty();
+            Optional<String> encryptedTotpSecret = totpSecret != null ?
+                encryptionService.encryptCredential(totpSecret).join() : Optional.empty();
+            
+            account.setEncryptedPassword(encryptedPassword.orElse(null));
+            account.setEncryptedApiKey(encryptedApiKey.orElse(null));
+            account.setEncryptedApiSecret(encryptedApiSecret.orElse(null));
+            account.setEncryptedTotpSecret(encryptedTotpSecret.orElse(null));
+            
+            return brokerAccountRepository.save(account);
+            
+        } catch (Exception e) {
+            log.error("Failed to create encrypted account for user: {} broker: {}", 
+                userId, brokerType, e);
+            throw new RuntimeException("Credential storage failed", e);
+        }
+    }
+    
+    private CompletableFuture<Optional<BrokerAccount>> decryptAccountCredentials(
+            Optional<BrokerAccount> accountOpt) {
         
         if (accountOpt.isEmpty()) {
-            log.warn("No broker account found for user {} and broker {}", userId, brokerType);
-            return Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
         
         BrokerAccount account = accountOpt.get();
-        if (!account.canAuthenticate()) {
-            log.warn("Broker account cannot authenticate for user {} and broker {}", userId, brokerType);
+        
+        return CompletableFuture.allOf(
+            decryptField(account.getEncryptedPassword()),
+            decryptField(account.getEncryptedApiKey()),
+            decryptField(account.getEncryptedApiSecret()),
+            decryptField(account.getEncryptedTotpSecret())
+        ).thenApply(v -> Optional.of(account));
+    }
+    
+    private CompletableFuture<Boolean> updateAccountCredentials(
+            BrokerAccount account, String password, String apiKey, 
+            String apiSecret, String totpSecret) {
+        
+        return CompletableFuture
+            .supplyAsync(() -> {
+                try {
+                    if (password != null) {
+                        Optional<String> encrypted = encryptionService.encryptCredential(password).join();
+                        account.setEncryptedPassword(encrypted.orElse(null));
+                    }
+                    if (apiKey != null) {
+                        Optional<String> encrypted = encryptionService.encryptCredential(apiKey).join();
+                        account.setEncryptedApiKey(encrypted.orElse(null));
+                    }
+                    if (apiSecret != null) {
+                        Optional<String> encrypted = encryptionService.encryptCredential(apiSecret).join();
+                        account.setEncryptedApiSecret(encrypted.orElse(null));
+                    }
+                    if (totpSecret != null) {
+                        Optional<String> encrypted = encryptionService.encryptCredential(totpSecret).join();
+                        account.setEncryptedTotpSecret(encrypted.orElse(null));
+                    }
+                    
+                    brokerAccountRepository.save(account);
+                    return true;
+                    
+                } catch (Exception e) {
+                    log.error("Failed to update credentials for account: {}", account.getId(), e);
+                    return false;
+                }
+            }, Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    private CompletableFuture<Optional<String>> decryptField(String encryptedField) {
+        if (encryptedField == null || encryptedField.trim().isEmpty()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return encryptionService.decryptCredential(encryptedField);
+    }
+    
+    private Optional<BrokerAccount> handleCredentialStorage(BrokerAccount account, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Credential storage failed", throwable);
             return Optional.empty();
         }
-        
-        try {
-            BrokerCredentials credentials = decryptCredentialsForBrokerType(account, brokerType);
-            return Optional.of(credentials);
-        } catch (Exception e) {
-            log.error("Failed to decrypt credentials for user {} and broker {}", userId, brokerType, e);
-            return Optional.empty();
-        }
-    }
-    
-    /**
-     * Update credentials for existing account
-     */
-    @Transactional
-    public void updateCredentials(Long userId, BrokerType brokerType, BrokerCredentials credentials) {
-        log.debug("Updating credentials for user {} and broker {}", userId, brokerType);
-        
-        BrokerAccount account = brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType)
-                .orElseThrow(() -> new IllegalArgumentException("Broker account not found"));
-        
-        updateCredentialsForBrokerType(account, brokerType, credentials);
-        account.setIsVerified(false); // Need to re-verify after update
-        
-        brokerAccountRepository.save(account);
-        
-        log.info("Credentials updated successfully for user {} and broker {}", userId, brokerType);
-    }
-    
-    /**
-     * Delete credentials for a broker account
-     */
-    @Transactional
-    public void deleteCredentials(Long userId, BrokerType brokerType) {
-        log.debug("Deleting credentials for user {} and broker {}", userId, brokerType);
-        
-        Optional<BrokerAccount> accountOpt = brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType);
-        
-        if (accountOpt.isPresent()) {
-            BrokerAccount account = accountOpt.get();
-            account.deactivate("Credentials deleted by user");
-            
-            // Clear all encrypted fields
-            account.setEncryptedApiKey(null);
-            account.setEncryptedApiSecret(null);
-            account.setEncryptedPassword(null);
-            account.setEncryptedTotpSecret(null);
-            
-            brokerAccountRepository.save(account);
-            
-            log.info("Credentials deleted successfully for user {} and broker {}", userId, brokerType);
-        }
-    }
-    
-    /**
-     * Verify credentials by attempting to decrypt them
-     */
-    @Transactional
-    public boolean verifyCredentials(Long userId, BrokerType brokerType) {
-        log.debug("Verifying credentials for user {} and broker {}", userId, brokerType);
-        
-        Optional<BrokerAccount> accountOpt = brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType);
-        
-        if (accountOpt.isEmpty()) {
-            return false;
-        }
-        
-        BrokerAccount account = accountOpt.get();
-        
-        try {
-            // Try to decrypt credentials
-            decryptCredentialsForBrokerType(account, brokerType);
-            
-            // Mark as verified if successful
-            account.verify();
-            brokerAccountRepository.save(account);
-            
-            log.info("Credentials verified successfully for user {} and broker {}", userId, brokerType);
-            return true;
-            
-        } catch (Exception e) {
-            log.error("Credential verification failed for user {} and broker {}", userId, brokerType, e);
-            return false;
-        }
-    }
-    
-    /**
-     * Check if credentials exist for a broker account
-     */
-    @Transactional(readOnly = true)
-    public boolean hasCredentials(Long userId, BrokerType brokerType) {
-        return brokerAccountRepository
-                .findByUserIdAndBrokerType(userId, brokerType)
-                .map(BrokerAccount::hasRequiredCredentials)
-                .orElse(false);
-    }
-    
-    /**
-     * Update credentials based on broker type
-     */
-    private void updateCredentialsForBrokerType(BrokerAccount account, BrokerType brokerType, 
-                                               BrokerCredentials credentials) {
-        switch (brokerType) {
-            case ZERODHA -> {
-                if (credentials.getApiKey() == null || credentials.getApiSecret() == null) {
-                    throw new IllegalArgumentException("Zerodha requires API key and secret");
-                }
-                account.setEncryptedApiKey(encryptionService.encrypt(credentials.getApiKey()));
-                account.setEncryptedApiSecret(encryptionService.encrypt(credentials.getApiSecret()));
-            }
-            
-            case UPSTOX -> {
-                if (credentials.getClientId() == null || credentials.getApiSecret() == null) {
-                    throw new IllegalArgumentException("Upstox requires client ID and API secret");
-                }
-                account.setClientId(credentials.getClientId()); // Not encrypted
-                account.setEncryptedApiSecret(encryptionService.encrypt(credentials.getApiSecret()));
-                if (credentials.getRedirectUri() != null) {
-                    account.setRedirectUri(credentials.getRedirectUri());
-                }
-            }
-            
-            case ANGEL_ONE -> {
-                if (credentials.getApiKey() == null || credentials.getPassword() == null || 
-                    credentials.getTotpSecret() == null) {
-                    throw new IllegalArgumentException("Angel One requires API key, password, and TOTP secret");
-                }
-                account.setEncryptedApiKey(encryptionService.encrypt(credentials.getApiKey()));
-                account.setEncryptedPassword(encryptionService.encrypt(credentials.getPassword()));
-                account.setEncryptedTotpSecret(encryptionService.encrypt(credentials.getTotpSecret()));
-                if (credentials.getBrokerUserId() != null) {
-                    account.setBrokerUserId(credentials.getBrokerUserId());
-                }
-            }
-            
-            case ICICI_DIRECT -> {
-                if (credentials.getBrokerUserId() == null || credentials.getPassword() == null) {
-                    throw new IllegalArgumentException("ICICI Direct requires user ID and password");
-                }
-                account.setBrokerUserId(credentials.getBrokerUserId());
-                account.setEncryptedPassword(encryptionService.encrypt(credentials.getPassword()));
-            }
-        }
-        
-        // Set common fields
-        if (credentials.getAccountName() != null) {
-            account.setAccountName(credentials.getAccountName());
-        }
-        if (credentials.getBrokerUsername() != null) {
-            account.setBrokerUsername(credentials.getBrokerUsername());
-        }
-    }
-    
-    /**
-     * Decrypt credentials based on broker type
-     */
-    private BrokerCredentials decryptCredentialsForBrokerType(BrokerAccount account, BrokerType brokerType) {
-        BrokerCredentials.BrokerCredentialsBuilder builder = BrokerCredentials.builder()
-                .brokerType(brokerType)
-                .accountName(account.getAccountName())
-                .brokerUserId(account.getBrokerUserId())
-                .brokerUsername(account.getBrokerUsername());
-        
-        switch (brokerType) {
-            case ZERODHA -> {
-                builder.apiKey(encryptionService.decrypt(account.getEncryptedApiKey()));
-                builder.apiSecret(encryptionService.decrypt(account.getEncryptedApiSecret()));
-            }
-            
-            case UPSTOX -> {
-                builder.clientId(account.getClientId());
-                builder.apiSecret(encryptionService.decrypt(account.getEncryptedApiSecret()));
-                builder.redirectUri(account.getRedirectUri());
-            }
-            
-            case ANGEL_ONE -> {
-                builder.apiKey(encryptionService.decrypt(account.getEncryptedApiKey()));
-                builder.password(encryptionService.decrypt(account.getEncryptedPassword()));
-                builder.totpSecret(encryptionService.decrypt(account.getEncryptedTotpSecret()));
-            }
-            
-            case ICICI_DIRECT -> {
-                builder.password(encryptionService.decrypt(account.getEncryptedPassword()));
-            }
-        }
-        
-        return builder.build();
-    }
-    
-    /**
-     * Broker Credentials DTO
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class BrokerCredentials {
-        private BrokerType brokerType;
-        private String accountName;
-        private String brokerUserId;
-        private String brokerUsername;
-        
-        // Common credential fields
-        private String apiKey;
-        private String apiSecret;
-        private String password;
-        private String totpSecret;
-        
-        // OAuth specific
-        private String clientId;
-        private String redirectUri;
-        
-        /**
-         * Validate credentials for broker type
-         */
-        public boolean isValid() {
-            if (brokerType == null) {
-                return false;
-            }
-            
-            return switch (brokerType) {
-                case ZERODHA -> apiKey != null && apiSecret != null;
-                case UPSTOX -> clientId != null && apiSecret != null;
-                case ANGEL_ONE -> apiKey != null && password != null && totpSecret != null;
-                case ICICI_DIRECT -> brokerUserId != null && password != null;
-            };
-        }
+        log.info("Credentials stored successfully for user: {} broker: {}", 
+            account.getUserId(), account.getBrokerType());
+        return Optional.of(account);
     }
 }

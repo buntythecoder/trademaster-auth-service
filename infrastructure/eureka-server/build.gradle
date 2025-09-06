@@ -1,0 +1,83 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.trademaster'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+// MANDATORY: Java 24 Preview Features
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('test') {
+    jvmArgs += ['--enable-preview']
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    set('springCloudVersion', "2024.0.0")
+}
+
+dependencies {
+    // Eureka Server
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-server'
+    
+    // Actuator for health checks
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    
+    // Web starter
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    
+    // Security for production
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    
+    // JSON Processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // Monitoring
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    
+    // Test dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    jvmArgs += ['--enable-preview']
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
+}
+
+bootRun {
+    jvmArgs += ['--enable-preview']
+}
+
+// Docker image configuration
+bootBuildImage {
+    imageName = "trademaster/eureka-server:${version}"
+    environment = [
+        "BP_JVM_VERSION": "24",
+        "BPE_APPEND_JAVA_TOOL_OPTIONS": "--enable-preview"
+    ]
+}

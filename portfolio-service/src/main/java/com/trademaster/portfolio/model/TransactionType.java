@@ -17,7 +17,7 @@ public enum TransactionType {
      * - Debits cash balance
      * - Affects average cost calculation
      */
-    BUY("buy"),
+    BUY("BUY"),
     
     /**
      * Sell transaction - reducing a long position
@@ -25,7 +25,7 @@ public enum TransactionType {
      * - Credits cash balance
      * - Realizes P&L
      */
-    SELL("sell"),
+    SELL("SELL"),
     
     /**
      * Short sell transaction - opening a short position
@@ -33,7 +33,7 @@ public enum TransactionType {
      * - Credits cash balance (proceeds from short sale)
      * - Requires margin maintenance
      */
-    SHORT_SELL("short_sell"),
+    SHORT_SELL("SHORT_SELL"),
     
     /**
      * Buy to cover transaction - closing a short position
@@ -41,7 +41,7 @@ public enum TransactionType {
      * - Debits cash balance
      * - Realizes P&L on short position
      */
-    BUY_TO_COVER("buy_to_cover"),
+    BUY_TO_COVER("BUY_TO_COVER"),
     
     /**
      * Dividend received
@@ -49,7 +49,7 @@ public enum TransactionType {
      * - No position quantity change
      * - Affects total return calculation
      */
-    DIVIDEND("dividend"),
+    DIVIDEND("DIVIDEND"),
     
     /**
      * Interest earned on cash balance
@@ -57,7 +57,7 @@ public enum TransactionType {
      * - No position quantity change
      * - Part of portfolio income
      */
-    INTEREST("interest"),
+    INTEREST("INTEREST"),
     
     /**
      * Commission/fee charged
@@ -65,7 +65,7 @@ public enum TransactionType {
      * - Affects net P&L calculation
      * - Transaction cost tracking
      */
-    FEE("fee"),
+    FEE("FEE"),
     
     /**
      * Cash deposit to portfolio
@@ -73,7 +73,7 @@ public enum TransactionType {
      * - No position changes
      * - Affects portfolio value
      */
-    DEPOSIT("deposit"),
+    DEPOSIT("DEPOSIT"),
     
     /**
      * Cash withdrawal from portfolio
@@ -81,7 +81,7 @@ public enum TransactionType {
      * - No position changes
      * - Affects portfolio value
      */
-    WITHDRAWAL("withdrawal"),
+    WITHDRAWAL("WITHDRAWAL"),
     
     /**
      * Stock split adjustment
@@ -89,7 +89,7 @@ public enum TransactionType {
      * - No cash impact
      * - Maintains total position value
      */
-    SPLIT("split"),
+    SPLIT("SPLIT"),
     
     /**
      * Stock dividend (additional shares)
@@ -97,7 +97,7 @@ public enum TransactionType {
      * - No cash impact
      * - Adjusts average cost basis
      */
-    STOCK_DIVIDEND("stock_dividend"),
+    STOCK_DIVIDEND("STOCK_DIVIDEND"),
     
     /**
      * Spin-off transaction
@@ -105,7 +105,7 @@ public enum TransactionType {
      * - Adjusts existing position
      * - Complex corporate action
      */
-    SPINOFF("spinoff");
+    SPINOFF("SPINOFF");
     
     private final String value;
     

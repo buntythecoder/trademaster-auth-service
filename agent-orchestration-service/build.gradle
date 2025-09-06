@@ -51,6 +51,22 @@ dependencies {
     // MANDATORY: Kafka for event streaming
     implementation 'org.springframework.kafka:spring-kafka'
     
+    // MANDATORY: Service Discovery - Eureka Client
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    
+    // MANDATORY: Circuit Breaker - Resilience4j
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.1.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.1.0'
+    
+    // MANDATORY: Distributed Tracing - Micrometer Tracing
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-zipkin'
+    implementation 'io.opentelemetry.semconv:opentelemetry-semconv:1.21.0-alpha'
+    
+    // MANDATORY: Load Balancer
+    implementation 'org.springframework.cloud:spring-cloud-starter-loadbalancer'
+    
     // Database with connection pooling
     implementation 'org.postgresql:postgresql'
     implementation 'org.flywaydb:flyway-core'
@@ -93,7 +109,7 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testImplementation 'org.testcontainers:kafka'
-    testImplementation 'org.testcontainers:redis'
+    testImplementation 'org.testcontainers:testcontainers'
     
     // Architecture testing
     testImplementation 'com.tngtech.archunit:archunit:1.2.1'

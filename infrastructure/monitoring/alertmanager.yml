@@ -1,0 +1,246 @@
+# AlertManager Configuration for TradeMaster
+global:
+  # SMTP configuration for email alerts
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@trademaster.local'
+  smtp_auth_username: ''
+  smtp_auth_password: ''
+  smtp_require_tls: false
+  
+  # Slack configuration (configure with your webhook URL)
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Alert routing and grouping
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  
+  routes:
+    # Critical trading alerts - immediate notification
+    - match:
+        severity: critical
+        category: trading
+      receiver: 'trading-critical'
+      group_wait: 5s
+      repeat_interval: 1h
+      
+    # Financial impact alerts - immediate notification
+    - match:
+        impact: financial
+      receiver: 'financial-alerts'
+      group_wait: 5s
+      repeat_interval: 30m
+      
+    # Security alerts - immediate notification
+    - match:
+        category: security
+      receiver: 'security-alerts'
+      group_wait: 10s
+      repeat_interval: 2h
+      
+    # Infrastructure alerts - grouped notification
+    - match:
+        category: infrastructure
+      receiver: 'infrastructure-alerts'
+      group_wait: 2m
+      repeat_interval: 4h
+      
+    # Database alerts - grouped notification
+    - match:
+        category: database
+      receiver: 'database-alerts'
+      group_wait: 1m
+      repeat_interval: 2h
+      
+    # Performance alerts - grouped notification
+    - match:
+        category: performance
+      receiver: 'performance-alerts'
+      group_wait: 5m
+      repeat_interval: 6h
+
+# Inhibition rules - prevent cascade alerts
+inhibit_rules:
+  # If service is down, inhibit other alerts for that service
+  - source_match:
+      alertname: ServiceDown
+    target_match:
+      job: '.*'
+    equal: ['job']
+    
+  # If trading service is critical, inhibit other trading warnings
+  - source_match:
+      alertname: TradingServiceCritical
+    target_match:
+      category: trading
+      severity: warning
+    equal: ['job']
+    
+  # If database connection pool is exhausted, inhibit slow query alerts
+  - source_match:
+      alertname: DatabaseConnectionPoolExhausted
+    target_match:
+      alertname: SlowDatabaseQueries
+    equal: ['job']
+
+# Receivers - notification channels
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'devops@trademaster.local'
+        subject: '[TradeMaster] {{ .GroupLabels.alertname }} - {{ .Status }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}: {{ .Value }} {{ end }}
+          {{ end }}
+        html: |
+          <!DOCTYPE html>
+          <html>
+          <head><title>TradeMaster Alert</title></head>
+          <body>
+          <h2>TradeMaster Alert Notification</h2>
+          {{ range .Alerts }}
+          <div style="border: 1px solid #ddd; padding: 10px; margin: 10px;">
+            <h3 style="color: {{ if eq .Status "firing" }}red{{ else }}green{{ end }};">
+              {{ .Annotations.summary }}
+            </h3>
+            <p><strong>Status:</strong> {{ .Status }}</p>
+            <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+            <p><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05" }}</p>
+            {{ if .Labels.severity }}<p><strong>Severity:</strong> {{ .Labels.severity }}</p>{{ end }}
+            {{ if .Labels.category }}<p><strong>Category:</strong> {{ .Labels.category }}</p>{{ end }}
+            <p><strong>Labels:</strong></p>
+            <ul>{{ range .Labels.SortedPairs }}<li>{{ .Name }}: {{ .Value }}</li>{{ end }}</ul>
+          </div>
+          {{ end }}
+          </body>
+          </html>
+
+  - name: 'trading-critical'
+    email_configs:
+      - to: 'trading-team@trademaster.local,cto@trademaster.local'
+        subject: '🚨 [CRITICAL] TradeMaster Trading Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          CRITICAL TRADING SYSTEM ALERT
+          ============================
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+          
+          IMMEDIATE ACTION REQUIRED - Trading operations may be impacted
+        headers:
+          Subject: '🚨 [CRITICAL] TradeMaster Trading Alert'
+          Priority: 'high'
+    
+    # Slack notification for critical trading alerts
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#trading-alerts'
+        username: 'TradeMaster AlertManager'
+        icon_emoji: ':rotating_light:'
+        title: '🚨 CRITICAL Trading Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          *Service:* {{ .Labels.job }}
+          *Started:* {{ .StartsAt.Format "15:04:05" }}
+          {{ end }}
+        color: 'danger'
+        send_resolved: true
+
+  - name: 'financial-alerts'
+    email_configs:
+      - to: 'risk-management@trademaster.local,trading-team@trademaster.local'
+        subject: '💰 [FINANCIAL] TradeMaster Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          FINANCIAL IMPACT ALERT
+          =====================
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Impact: {{ .Labels.impact }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+          
+          Please review immediately for potential financial impact
+
+  - name: 'security-alerts'
+    email_configs:
+      - to: 'security@trademaster.local,devops@trademaster.local'
+        subject: '🔐 [SECURITY] TradeMaster Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          SECURITY ALERT
+          ==============
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+          
+          Security team attention required
+
+  - name: 'infrastructure-alerts'
+    email_configs:
+      - to: 'devops@trademaster.local'
+        subject: '[INFRA] TradeMaster Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          INFRASTRUCTURE ALERT
+          ===================
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Category: {{ .Labels.category }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  - name: 'database-alerts'
+    email_configs:
+      - to: 'database-team@trademaster.local,devops@trademaster.local'
+        subject: '🗄️ [DATABASE] TradeMaster Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          DATABASE ALERT
+          ==============
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+  - name: 'performance-alerts'
+    email_configs:
+      - to: 'performance-team@trademaster.local'
+        subject: '⚡ [PERFORMANCE] TradeMaster Alert - {{ .GroupLabels.alertname }}'
+        body: |
+          PERFORMANCE ALERT
+          =================
+          
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.job }}
+          Started: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+
+# Templates for custom notification formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

@@ -1,174 +1,131 @@
 package com.trademaster.subscription.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.UUID;
 
 /**
  * Usage Check Response DTO
  * 
- * Response object for feature usage checks and increments.
+ * MANDATORY: Immutable Record - TradeMaster Rule #9
+ * MANDATORY: Functional Programming - TradeMaster Rule #3
  * 
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class UsageCheckResponse {
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record UsageCheckResponse(
+    Boolean canUse,
+    UUID userId,
+    String featureName,
+    Long currentUsage,
+    Long usageLimit,
+    Long remainingUsage,
+    Double usagePercentage,
+    Boolean limitExceeded,
+    Boolean isUnlimited,
+    UsageTrackingResponse.WarningLevel warningLevel,
+    String warningMessage,
+    String subscriptionTier,
+    Boolean usageIncremented
+) {
 
     /**
-     * Whether user can use the feature
-     */
-    private Boolean canUse;
-
-    /**
-     * User ID
-     */
-    private UUID userId;
-
-    /**
-     * Feature name that was checked
-     */
-    private String featureName;
-
-    /**
-     * Current usage count after operation
-     */
-    private Long currentUsage;
-
-    /**
-     * Usage limit for this feature (-1 for unlimited)
-     */
-    private Long usageLimit;
-
-    /**
-     * Remaining usage allowance
-     */
-    private Long remainingUsage;
-
-    /**
-     * Usage percentage (0-100)
-     */
-    private Double usagePercentage;
-
-    /**
-     * Whether the limit was exceeded by this operation
-     */
-    private Boolean limitExceeded;
-
-    /**
-     * Whether feature has unlimited usage
-     */
-    private Boolean isUnlimited;
-
-    /**
-     * Warning level based on current usage
-     */
-    private UsageTrackingResponse.WarningLevel warningLevel;
-
-    /**
-     * Warning message (if applicable)
-     */
-    private String warningMessage;
-
-    /**
-     * Subscription tier providing this feature access
-     */
-    private String subscriptionTier;
-
-    /**
-     * Whether usage was actually incremented
-     */
-    private Boolean usageIncremented;
-
-    /**
-     * Create a successful response
+     * Factory method to create a successful response using pattern matching
      */
     public static UsageCheckResponse allowed(UUID userId, String featureName, 
                                            Long currentUsage, Long usageLimit, 
                                            String subscriptionTier, boolean incremented) {
-        return UsageCheckResponse.builder()
-            .canUse(true)
-            .userId(userId)
-            .featureName(featureName)
-            .currentUsage(currentUsage)
-            .usageLimit(usageLimit)
-            .remainingUsage(usageLimit == -1 ? Long.MAX_VALUE : Math.max(0, usageLimit - currentUsage))
-            .usagePercentage(usageLimit == -1 ? 0.0 : Math.min(100.0, (currentUsage.doubleValue() / usageLimit.doubleValue()) * 100.0))
-            .limitExceeded(false)
-            .isUnlimited(usageLimit == -1)
-            .warningLevel(calculateWarningLevel(currentUsage, usageLimit))
-            .subscriptionTier(subscriptionTier)
-            .usageIncremented(incremented)
-            .build();
+        
+        // Calculate remaining usage using pattern matching
+        Long remainingUsage = switch (usageLimit) {
+            case Long limit when limit == -1 -> Long.MAX_VALUE;
+            case Long limit -> Math.max(0L, limit - currentUsage);
+        };
+        
+        // Calculate usage percentage using pattern matching
+        Double usagePercentage = switch (usageLimit) {
+            case Long limit when limit == -1 -> 0.0;
+            case Long limit -> Math.min(100.0, (currentUsage.doubleValue() / limit.doubleValue()) * 100.0);
+        };
+        
+        return new UsageCheckResponse(
+            true,
+            userId,
+            featureName,
+            currentUsage,
+            usageLimit,
+            remainingUsage,
+            usagePercentage,
+            false,
+            usageLimit == -1,
+            calculateWarningLevel(currentUsage, usageLimit),
+            null,
+            subscriptionTier,
+            incremented
+        );
     }
 
     /**
-     * Create a denied response
+     * Factory method to create a denied response using pattern matching
      */
     public static UsageCheckResponse denied(UUID userId, String featureName, 
                                           Long currentUsage, Long usageLimit, 
                                           String reason, String subscriptionTier) {
-        return UsageCheckResponse.builder()
-            .canUse(false)
-            .userId(userId)
-            .featureName(featureName)
-            .currentUsage(currentUsage)
-            .usageLimit(usageLimit)
-            .remainingUsage(0L)
-            .usagePercentage(100.0)
-            .limitExceeded(true)
-            .isUnlimited(false)
-            .warningLevel(UsageTrackingResponse.WarningLevel.CRITICAL)
-            .warningMessage(reason)
-            .subscriptionTier(subscriptionTier)
-            .usageIncremented(false)
-            .build();
+        return new UsageCheckResponse(
+            false,
+            userId,
+            featureName,
+            currentUsage,
+            usageLimit,
+            0L,
+            100.0,
+            true,
+            false,
+            UsageTrackingResponse.WarningLevel.CRITICAL,
+            reason,
+            subscriptionTier,
+            false
+        );
     }
 
     /**
-     * Create response for no active subscription
+     * Factory method to create response for no active subscription
      */
     public static UsageCheckResponse noSubscription(UUID userId, String featureName) {
-        return UsageCheckResponse.builder()
-            .canUse(false)
-            .userId(userId)
-            .featureName(featureName)
-            .currentUsage(0L)
-            .usageLimit(0L)
-            .remainingUsage(0L)
-            .usagePercentage(0.0)
-            .limitExceeded(false)
-            .isUnlimited(false)
-            .warningLevel(UsageTrackingResponse.WarningLevel.NONE)
-            .warningMessage("No active subscription found")
-            .subscriptionTier("NONE")
-            .usageIncremented(false)
-            .build();
+        return new UsageCheckResponse(
+            false,
+            userId,
+            featureName,
+            0L,
+            0L,
+            0L,
+            0.0,
+            false,
+            false,
+            UsageTrackingResponse.WarningLevel.NONE,
+            "No active subscription found",
+            "NONE",
+            false
+        );
     }
 
+    /**
+     * Calculate warning level using pattern matching
+     */
     private static UsageTrackingResponse.WarningLevel calculateWarningLevel(Long currentUsage, Long usageLimit) {
-        if (usageLimit == -1) {
-            return UsageTrackingResponse.WarningLevel.NONE;
-        }
-        
-        double percentage = (currentUsage.doubleValue() / usageLimit.doubleValue()) * 100.0;
-        
-        if (percentage >= 100.0) {
-            return UsageTrackingResponse.WarningLevel.CRITICAL;
-        } else if (percentage >= 90.0) {
-            return UsageTrackingResponse.WarningLevel.HIGH;
-        } else if (percentage >= 80.0) {
-            return UsageTrackingResponse.WarningLevel.MEDIUM;
-        } else if (percentage >= 60.0) {
-            return UsageTrackingResponse.WarningLevel.LOW;
-        } else {
-            return UsageTrackingResponse.WarningLevel.NONE;
-        }
+        return switch (usageLimit) {
+            case Long limit when limit == -1 -> UsageTrackingResponse.WarningLevel.NONE;
+            case Long limit -> {
+                double percentage = (currentUsage.doubleValue() / limit.doubleValue()) * 100.0;
+                yield switch (percentage) {
+                    case double p when p >= 100.0 -> UsageTrackingResponse.WarningLevel.CRITICAL;
+                    case double p when p >= 90.0 -> UsageTrackingResponse.WarningLevel.HIGH;
+                    case double p when p >= 80.0 -> UsageTrackingResponse.WarningLevel.MEDIUM;
+                    case double p when p >= 60.0 -> UsageTrackingResponse.WarningLevel.LOW;
+                    default -> UsageTrackingResponse.WarningLevel.NONE;
+                };
+            }
+        };
     }
 }

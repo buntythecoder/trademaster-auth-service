@@ -207,19 +207,94 @@ rate-limiting:
     tokens: 10
     refill-period: 60
 
+# MANDATORY: Resilience4j Circuit Breaker Configuration per TradeMaster Standards  
+resilience4j:
+  circuitbreaker:
+    instances:
+      subscription-service:
+        failure-rate-threshold: 50.0
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        
+      payment-service:
+        failure-rate-threshold: 60.0
+        sliding-window-size: 15
+        minimum-number-of-calls: 8
+        wait-duration-in-open-state: 60s
+        
+      notification-service:
+        failure-rate-threshold: 40.0
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        wait-duration-in-open-state: 45s
+        
+      database-service:
+        failure-rate-threshold: 30.0
+        sliding-window-size: 25
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 120s
+        
+  retry:
+    instances:
+      subscription-service:
+        max-attempts: 3
+        wait-duration: 1s
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          
+      payment-service:
+        max-attempts: 2
+        wait-duration: 2s
+        
+      notification-service:
+        max-attempts: 4
+        wait-duration: 500ms
+        
+      database-service:
+        max-attempts: 5
+        wait-duration: 200ms
+        
+  timelimiter:
+    instances:
+      subscription-service:
+        timeout-duration: 10s
+        cancel-running-future: true
+        
+      payment-service:
+        timeout-duration: 15s
+        cancel-running-future: true
+        
+      notification-service:
+        timeout-duration: 8s
+        cancel-running-future: true
+        
+      database-service:
+        timeout-duration: 5s
+        cancel-running-future: true
+
 # MANDATORY: Enhanced Monitoring Configuration per TradeMaster Standards
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,env,threaddump,heapdump
+        include: health,info,metrics,prometheus,subscription,env,threaddump,heapdump
       base-path: /actuator
   endpoint:
     health:
       show-details: always
+      probes:
+        enabled: true
+    info:
+      enabled: true
     metrics:
       enabled: true
     prometheus:
+      enabled: true
+    subscription:
       enabled: true
   metrics:
     export:
@@ -227,20 +302,52 @@ management:
         enabled: true
         step: 1m
         descriptions: true
-    distribution:
-      percentiles:
-        http.server.requests: 0.5, 0.95, 0.99
-        subscriptions.processing.duration: 0.5, 0.95, 0.99
-        billing.processing.duration: 0.5, 0.95, 0.99
-        usage.tracking.duration: 0.5, 0.95, 0.99
-      slo:
-        http.server.requests: 50ms,100ms,200ms,500ms
-        subscriptions.processing.duration: 100ms,500ms,1s,3s
-        billing.processing.duration: 100ms,500ms,1s,5s
     tags:
       application: trademaster
       service: subscription-service
+      version: 2.0.0
       environment: ${spring.profiles.active:local}
+    web:
+      client:
+        request:
+          autotime:
+            enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[subscription.creation.duration]": true
+        "[payment.processing.duration]": true
+        "[database.query.duration]": true
+      percentiles:
+        http.server.requests: 0.5, 0.75, 0.95, 0.99
+        subscription.creation.duration: 0.5, 0.75, 0.95, 0.99
+        payment.processing.duration: 0.5, 0.75, 0.95, 0.99
+        database.query.duration: 0.5, 0.75, 0.95, 0.99
+        external.service.call.duration: 0.5, 0.75, 0.95, 0.99
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms
+        subscription.creation.duration: 50ms,100ms,500ms,1s
+        payment.processing.duration: 100ms,500ms,1s,5s
+        database.query.duration: 10ms,50ms,100ms,500ms
+        external.service.call.duration: 100ms,500ms,1s,3s
+  info:
+    env:
+      enabled: true
+    git:
+      mode: full
+    build:
+      enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    diskspace:
+      enabled: true
+    redis:
+      enabled: true
+    db:
+      enabled: true
       
 # Application Configuration
 app:

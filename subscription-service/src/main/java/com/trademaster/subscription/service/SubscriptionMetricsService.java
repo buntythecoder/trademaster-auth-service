@@ -4,8 +4,10 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,55 +23,10 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class SubscriptionMetricsService {
 
     private final MeterRegistry meterRegistry;
-    
-    // Counters for business metrics
-    private final Counter subscriptionsCreated = Counter.builder("subscriptions_created_total")
-        .description("Total number of subscriptions created")
-        .register(meterRegistry);
-    
-    private final Counter subscriptionsActivated = Counter.builder("subscriptions_activated_total")
-        .description("Total number of subscriptions activated")
-        .register(meterRegistry);
-    
-    private final Counter subscriptionsCancelled = Counter.builder("subscriptions_cancelled_total")
-        .description("Total number of subscriptions cancelled")
-        .register(meterRegistry);
-    
-    private final Counter subscriptionsUpgraded = Counter.builder("subscriptions_upgraded_total")
-        .description("Total number of subscription upgrades")
-        .register(meterRegistry);
-    
-    private final Counter subscriptionsDowngraded = Counter.builder("subscriptions_downgraded_total")
-        .description("Total number of subscription downgrades")
-        .register(meterRegistry);
-    
-    private final Counter billingSuccessful = Counter.builder("billing_successful_total")
-        .description("Total number of successful billing attempts")
-        .register(meterRegistry);
-    
-    private final Counter billingFailed = Counter.builder("billing_failed_total")
-        .description("Total number of failed billing attempts")
-        .register(meterRegistry);
-    
-    private final Counter usageLimitExceeded = Counter.builder("usage_limit_exceeded_total")
-        .description("Total number of usage limit violations")
-        .register(meterRegistry);
-    
-    // Timers for performance metrics
-    private final Timer subscriptionProcessingTimer = Timer.builder("subscription_processing_duration_seconds")
-        .description("Time taken to process subscription operations")
-        .register(meterRegistry);
-    
-    private final Timer billingProcessingTimer = Timer.builder("billing_processing_duration_seconds")
-        .description("Time taken to process billing operations")
-        .register(meterRegistry);
-    
-    private final Timer usageCheckTimer = Timer.builder("usage_check_duration_seconds")
-        .description("Time taken to check usage limits")
-        .register(meterRegistry);
     
     // Gauges for current state
     private final AtomicLong activeSubscriptions = new AtomicLong(0);
@@ -78,99 +35,114 @@ public class SubscriptionMetricsService {
     private final AtomicLong currentMRR = new AtomicLong(0);
     private final AtomicLong currentARR = new AtomicLong(0);
     
-    public SubscriptionMetricsService(MeterRegistry meterRegistry) {
-        this.meterRegistry = meterRegistry;
-        
+    // Register gauges in @PostConstruct to ensure proper initialization
+    @jakarta.annotation.PostConstruct
+    public void initializeMetrics() {
         // Register gauges
-        Gauge.builder("active_subscriptions")
+        Gauge.builder("active_subscriptions", activeSubscriptions, AtomicLong::doubleValue)
             .description("Current number of active subscriptions")
-            .register(meterRegistry, activeSubscriptions, AtomicLong::doubleValue);
+            .register(meterRegistry);
         
-        Gauge.builder("trial_subscriptions")
+        Gauge.builder("trial_subscriptions", trialSubscriptions, AtomicLong::doubleValue)
             .description("Current number of trial subscriptions")
-            .register(meterRegistry, trialSubscriptions, AtomicLong::doubleValue);
+            .register(meterRegistry);
         
-        Gauge.builder("suspended_subscriptions")
+        Gauge.builder("suspended_subscriptions", suspendedSubscriptions, AtomicLong::doubleValue)
             .description("Current number of suspended subscriptions")
-            .register(meterRegistry, suspendedSubscriptions, AtomicLong::doubleValue);
+            .register(meterRegistry);
         
-        Gauge.builder("monthly_recurring_revenue")
+        Gauge.builder("monthly_recurring_revenue", currentMRR, AtomicLong::doubleValue)
             .description("Current monthly recurring revenue in INR")
-            .register(meterRegistry, currentMRR, AtomicLong::doubleValue);
+            .register(meterRegistry);
         
-        Gauge.builder("annual_recurring_revenue")
+        Gauge.builder("annual_recurring_revenue", currentARR, AtomicLong::doubleValue)
             .description("Current annual recurring revenue in INR")
-            .register(meterRegistry, currentARR, AtomicLong::doubleValue);
+            .register(meterRegistry);
     }
     
     // Business Metrics Recording Methods
     
     public void recordSubscriptionCreated(String tier) {
-        subscriptionsCreated.increment(
-            "tier", tier
-        );
+        Counter.builder("subscriptions_created_total")
+            .description("Total number of subscriptions created")
+            .tag("tier", tier)
+            .register(meterRegistry)
+            .increment();
         log.debug("Subscription created metric recorded for tier: {}", tier);
     }
     
     public void recordSubscriptionActivated(String tier, String billingCycle) {
-        subscriptionsActivated.increment(
-            "tier", tier,
-            "billing_cycle", billingCycle
-        );
+        Counter.builder("subscriptions_activated_total")
+            .description("Total number of subscriptions activated")
+            .tag("tier", tier)
+            .tag("billing_cycle", billingCycle)
+            .register(meterRegistry)
+            .increment();
         log.debug("Subscription activated metric recorded for tier: {}, cycle: {}", tier, billingCycle);
     }
     
     public void recordSubscriptionCancelled(String tier, String reason) {
-        subscriptionsCancelled.increment(
-            "tier", tier,
-            "reason", reason != null ? reason.toLowerCase().replaceAll("\\s+", "_") : "unknown"
-        );
+        Counter.builder("subscriptions.cancelled")
+            .tag("tier", tier)
+            .tag("reason", reason != null ? reason.toLowerCase().replaceAll("\\s+", "_") : "unknown")
+            .register(meterRegistry)
+            .increment();
         log.debug("Subscription cancelled metric recorded for tier: {}, reason: {}", tier, reason);
     }
     
     public void recordSubscriptionUpgraded(String fromTier, String toTier) {
-        subscriptionsUpgraded.increment(
-            "from_tier", fromTier,
-            "to_tier", toTier
-        );
+        Counter.builder("subscriptions.upgraded")
+            .tag("from_tier", fromTier)
+            .tag("to_tier", toTier)
+            .register(meterRegistry)
+            .increment();
         log.debug("Subscription upgraded metric recorded from: {} to: {}", fromTier, toTier);
     }
     
     public void recordSubscriptionDowngraded(String fromTier, String toTier) {
-        subscriptionsDowngraded.increment(
-            "from_tier", fromTier,
-            "to_tier", toTier
-        );
+        Counter.builder("subscriptions.downgraded")
+            .tag("from_tier", fromTier)
+            .tag("to_tier", toTier)
+            .register(meterRegistry)
+            .increment();
         log.debug("Subscription downgraded metric recorded from: {} to: {}", fromTier, toTier);
     }
     
     public void recordBillingSuccessful(String tier, String billingCycle, long processingTimeMs) {
-        billingSuccessful.increment(
-            "tier", tier,
-            "billing_cycle", billingCycle
-        );
+        Counter.builder("billing.successful")
+            .tag("tier", tier)
+            .tag("billing_cycle", billingCycle)
+            .register(meterRegistry)
+            .increment();
         
-        billingProcessingTimer.record(Duration.ofMillis(processingTimeMs));
+        Timer.builder("billing_processing_duration_seconds")
+            .description("Time taken to process billing operations")
+            .tag("tier", tier)
+            .tag("billing_cycle", billingCycle)
+            .register(meterRegistry)
+            .record(Duration.ofMillis(processingTimeMs));
         
         log.debug("Billing successful metric recorded for tier: {}, cycle: {}, time: {}ms", 
                  tier, billingCycle, processingTimeMs);
     }
     
     public void recordBillingFailed(String tier, String billingCycle, String errorType) {
-        billingFailed.increment(
-            "tier", tier,
-            "billing_cycle", billingCycle,
-            "error_type", errorType
-        );
+        Counter.builder("billing.failed")
+            .tag("tier", tier)
+            .tag("billing_cycle", billingCycle)
+            .tag("error_type", errorType)
+            .register(meterRegistry)
+            .increment();
         log.debug("Billing failed metric recorded for tier: {}, cycle: {}, error: {}", 
                  tier, billingCycle, errorType);
     }
     
     public void recordUsageLimitExceeded(String userId, String feature, String tier) {
-        usageLimitExceeded.increment(
-            "feature", feature,
-            "tier", tier
-        );
+        Counter.builder("usage.limit_exceeded")
+            .tag("feature", feature)
+            .tag("tier", tier)
+            .register(meterRegistry)
+            .increment();
         log.debug("Usage limit exceeded metric recorded for user: {}, feature: {}, tier: {}", 
                  userId, feature, tier);
     }
@@ -278,5 +250,12 @@ public class SubscriptionMetricsService {
             .increment();
         
         log.debug("Price change recorded for tier: {}, old: {}, new: {}", tier, oldPrice, newPrice);
+    }
+    
+    /**
+     * Start notification processing timer
+     */
+    public Timer.Sample startNotificationProcessingTimer() {
+        return Timer.start(meterRegistry);
     }
 }

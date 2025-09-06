@@ -1,6 +1,9 @@
 package com.trademaster.trading.service;
 
 import com.trademaster.trading.entity.Order;
+import com.trademaster.trading.dto.OrderRequest;
+import com.trademaster.trading.common.Result;
+import com.trademaster.trading.common.TradeError;
 
 /**
  * Risk Management Service
@@ -51,4 +54,13 @@ public interface RiskManagementService {
      * @throws RiskCheckException if daily limits exceeded
      */
     void validateDailyLimits(Long userId, Order order);
+    
+    /**
+     * Validate order request functionally
+     * 
+     * @param orderRequest The order request to validate
+     * @param userId The user ID
+     * @return Result containing either success or validation error
+     */
+    Result<Void, TradeError> validateOrder(OrderRequest orderRequest, Long userId);
 }

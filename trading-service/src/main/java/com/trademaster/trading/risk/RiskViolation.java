@@ -64,7 +64,14 @@ enum RiskViolationType {
     PATTERN_DAY_TRADER,
     MARGIN_REQUIREMENT,
     SECTOR_EXPOSURE,
-    GENERAL
+    GENERAL,
+    
+    // Additional constants required by BasicRiskCheckEngine
+    SYSTEM_ERROR,
+    MAX_OPEN_ORDERS_EXCEEDED,
+    DAILY_TRADING_LIMIT_EXCEEDED,
+    CONCENTRATION_RISK_EXCEEDED,
+    ORDER_VALUE_EXCEEDED
 }
 
 /**

@@ -4,6 +4,10 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +29,10 @@ import java.util.Objects;
     @Index(name = "idx_task_created", columnList = "createdAt"),
     @Index(name = "idx_task_deadline", columnList = "deadline")
 })
+@Data
+@Builder(toBuilder = true)
+@NoArgsConstructor
+@AllArgsConstructor
 public class Task {
 
     @Id
@@ -46,11 +54,13 @@ public class Task {
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
+    @Builder.Default
     private TaskStatus status = TaskStatus.PENDING;
 
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private TaskPriority priority = TaskPriority.NORMAL;
 
     @Column(nullable = false)
@@ -71,6 +81,7 @@ public class Task {
     @Enumerated(EnumType.STRING)
     @CollectionTable(name = "task_required_capabilities", joinColumns = @JoinColumn(name = "task_id"))
     @Column(name = "capability", length = 50)
+    @Builder.Default
     private List<AgentCapability> requiredCapabilities = new ArrayList<>();
 
     @Column(name = "input_parameters", columnDefinition = "TEXT")
@@ -83,12 +94,15 @@ public class Task {
     private String errorMessage;
 
     @Column(name = "retry_count")
+    @Builder.Default
     private Integer retryCount = 0;
 
     @Column(name = "max_retries")
+    @Builder.Default
     private Integer maxRetries = 3;
 
     @Column(name = "timeout_seconds")
+    @Builder.Default
     private Integer timeoutSeconds = 300; // 5 minutes default
 
     @Column(name = "estimated_duration_seconds")
@@ -98,6 +112,7 @@ public class Task {
     private Integer actualDurationSeconds;
 
     @Column(name = "progress_percentage")
+    @Builder.Default
     private Integer progressPercentage = 0;
 
     @Column(name = "started_at")
@@ -115,18 +130,6 @@ public class Task {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    // Constructors
-    public Task() {
-        this.createdAt = Instant.now();
-        this.updatedAt = Instant.now();
-    }
-
-    public Task(String taskName, TaskType taskType, Long userId) {
-        this();
-        this.taskName = taskName;
-        this.taskType = taskType;
-        this.userId = userId;
-    }
 
     // Lifecycle callbacks
     @PreUpdate

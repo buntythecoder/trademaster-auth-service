@@ -110,6 +110,63 @@ payment:
     timeout: 10000
     retry-attempts: 3
 
+# MANDATORY: Resilience4j Configuration - Rule #24
+resilience4j:
+  circuitbreaker:
+    metrics:
+      enabled: true
+    instances:
+      payment-gateway:
+        failure-rate-threshold: 50.0
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.client.ResourceAccessException
+      razorpay-service:
+        failure-rate-threshold: 60.0
+        sliding-window-size: 15
+        minimum-number-of-calls: 8
+        wait-duration-in-open-state: 60s
+      stripe-service:
+        failure-rate-threshold: 40.0
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        wait-duration-in-open-state: 45s
+  
+  retry:
+    instances:
+      payment-gateway:
+        max-attempts: 3
+        wait-duration: 1s
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+      razorpay-service:
+        max-attempts: 2
+        wait-duration: 2s
+      stripe-service:
+        max-attempts: 4
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 1.5
+  
+  timelimiter:
+    instances:
+      payment-gateway:
+        timeout-duration: 10s
+        cancel-running-future: true
+      razorpay-service:
+        timeout-duration: 15s
+        cancel-running-future: true
+      stripe-service:
+        timeout-duration: 12s
+        cancel-running-future: true
+
 # Security Configuration
 security:
   payment:

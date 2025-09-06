@@ -165,7 +165,7 @@ public class OrderValidationResult {
     public static class PerformanceImpact {
         private BigDecimal estimatedExecutionCost; // Basis points
         private BigDecimal estimatedMarketImpact; // Basis points
-        private BigDecimal estimatedTiming Cost; // Basis points
+        private BigDecimal estimatedTimingCost; // Basis points
         private BigDecimal probabilityOfFill; // 0.0-1.0
         private String expectedExecutionTime; // Time range
         private BigDecimal slippageRisk; // Expected slippage range

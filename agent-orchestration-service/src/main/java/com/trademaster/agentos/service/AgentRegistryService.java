@@ -398,8 +398,8 @@ public class AgentRegistryService {
             
             // Count agents by status
             long activeCount = getAgentsByStatus(AgentStatus.ACTIVE).join().size();
-            long busyCount = getAgentsByStatus(AgentStatus.BUSY).join().size();
-            long errorCount = getAgentsByStatus(AgentStatus.ERROR).join().size();
+            long busyCount = getAgentsByStatus(AgentStatus.OVERLOADED).join().size();
+            long errorCount = getAgentsByStatus(AgentStatus.FAILED).join().size();
             
             return RegistryStats.builder()
                 .totalAgents(marketAnalysisCount + portfolioCount + tradingCount + riskCount)

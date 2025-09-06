@@ -148,27 +148,33 @@ public class Order {
     /**
      * Broker order ID for tracking external execution
      */
-    @Column("broker_order_id")
+    @Column(name = "broker_order_id", length = 100)
     private String brokerOrderId;
     
     /**
      * Broker name handling this order
      */
-    @Column("broker_name")
+    @Column(name = "broker_name", length = 50)
     private String brokerName;
     
     /**
      * Quantity filled so far
      */
-    @Column("filled_quantity")
+    @Column(name = "filled_quantity")
     @Builder.Default
     private Integer filledQuantity = 0;
     
     /**
      * Average fill price for executed quantity
      */
-    @Column("avg_fill_price")
+    @Column(name = "avg_fill_price", precision = 15, scale = 4)
     private BigDecimal avgFillPrice;
+    
+    /**
+     * Total value of filled quantity
+     */
+    @Column(name = "total_filled_value", precision = 18, scale = 4)
+    private BigDecimal totalFilledValue;
     
     /**
      * Remaining quantity to be filled
@@ -180,13 +186,13 @@ public class Order {
     /**
      * Rejection reason if order was rejected
      */
-    @Column("rejection_reason")
+    @Column(name = "rejection_reason")
     private String rejectionReason;
     
     /**
      * Additional order metadata as JSON
      */
-    @Column("metadata")
+    @Column(name = "metadata", columnDefinition = "JSONB")
     private String metadata;
     
     /**
@@ -206,13 +212,13 @@ public class Order {
     /**
      * Order submission timestamp (when sent to broker)
      */
-    @Column("submitted_at")
+    @Column(name = "submitted_at")
     private Instant submittedAt;
     
     /**
      * Order execution timestamp (when first fill received)
      */
-    @Column("executed_at")
+    @Column(name = "executed_at")
     private Instant executedAt;
     
     /**
@@ -245,6 +251,74 @@ public class Order {
             return 0.0;
         }
         return (filledQuantity.doubleValue() / quantity.doubleValue()) * 100.0;
+    }
+    
+    /**
+     * Get average execution price
+     */
+    public BigDecimal getAveragePrice() {
+        if (filledQuantity == null || filledQuantity == 0 || totalFilledValue == null) {
+            return BigDecimal.ZERO;
+        }
+        return totalFilledValue.divide(BigDecimal.valueOf(filledQuantity), 4, java.math.RoundingMode.HALF_UP);
+    }
+    
+    /**
+     * Check if order can be cancelled
+     */
+    public boolean isCancellable() {
+        return status != null && switch (status) {
+            case ACKNOWLEDGED, PARTIALLY_FILLED -> true;
+            default -> false;
+        };
+    }
+    
+    /**
+     * Check if order can be modified
+     */
+    public boolean isModifiable() {
+        return status != null && switch (status) {
+            case ACKNOWLEDGED -> true;
+            default -> false;
+        };
+    }
+    
+    
+    /**
+     * Check if order is active
+     */
+    public boolean isActive() {
+        return status != null && switch (status) {
+            case ACKNOWLEDGED, PARTIALLY_FILLED -> true;
+            default -> false;
+        };
+    }
+    
+    /**
+     * Check if order is final
+     */
+    public boolean isFinal() {
+        return status != null && switch (status) {
+            case FILLED, CANCELLED, REJECTED, EXPIRED -> true;
+            default -> false;
+        };
+    }
+    
+    /**
+     * Builder convenience method for creating test orders
+     */
+    public static OrderBuilder testOrder() {
+        return Order.builder()
+            .orderId(generateOrderId())
+            .symbol("RELIANCE")
+            .exchange("NSE")
+            .orderType(OrderType.MARKET)
+            .side(OrderSide.BUY)
+            .quantity(100)
+            .status(OrderStatus.ACKNOWLEDGED)
+            .timeInForce(TimeInForce.DAY)
+            .createdAt(Instant.now())
+            .updatedAt(Instant.now());
     }
     
     /**
@@ -308,14 +382,16 @@ public class Order {
             throw new IllegalArgumentException("Fill quantity exceeds order quantity");
         }
         
-        // Calculate new average fill price
-        if (avgFillPrice == null) {
+        // Calculate new average fill price and total filled value
+        BigDecimal fillValue = fillPrice.multiply(BigDecimal.valueOf(fillQuantity));
+        
+        if (totalFilledValue == null) {
+            totalFilledValue = fillValue;
             avgFillPrice = fillPrice;
         } else {
-            BigDecimal totalValue = avgFillPrice.multiply(BigDecimal.valueOf(filledQuantity))
-                                               .add(fillPrice.multiply(BigDecimal.valueOf(fillQuantity)));
-            avgFillPrice = totalValue.divide(BigDecimal.valueOf(newFilledQuantity), 
-                                           BigDecimal.ROUND_HALF_UP);
+            totalFilledValue = totalFilledValue.add(fillValue);
+            avgFillPrice = totalFilledValue.divide(BigDecimal.valueOf(newFilledQuantity), 
+                                                 4, java.math.RoundingMode.HALF_UP);
         }
         
         filledQuantity = newFilledQuantity;
@@ -326,6 +402,33 @@ public class Order {
         } else {
             updateStatus(OrderStatus.PARTIALLY_FILLED);
         }
+    }
+    
+    /**
+     * Convenience methods for record-style access (backward compatibility with tests)
+     */
+    public String symbol() {
+        return symbol;
+    }
+    
+    public OrderType orderType() {
+        return orderType;
+    }
+    
+    public Integer quantity() {
+        return quantity;
+    }
+    
+    public OrderSide side() {
+        return side;
+    }
+    
+    public BigDecimal limitPrice() {
+        return limitPrice;
+    }
+    
+    public String exchange() {
+        return exchange;
     }
     
     /**

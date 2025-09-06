@@ -1,6 +1,8 @@
 package com.trademaster.userprofile.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.trademaster.userprofile.entity.ChangeType;
+import com.trademaster.userprofile.entity.EntityType;
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -70,6 +72,9 @@ public class ProfileAuditLog {
     @Column(name = "session_id")
     private String sessionId;
     
+    @Column(name = "correlation_id")
+    private String correlationId;
+    
     @CreatedDate
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -89,60 +94,12 @@ public class ProfileAuditLog {
     }
     
     public boolean isSecurityEvent() {
-        return changeType == ChangeType.LOGIN || changeType == ChangeType.LOGOUT;
+        return changeType == ChangeType.LOGIN || changeType == ChangeType.LOGOUT || 
+               changeType == ChangeType.PROFILE_ACTIVATE || changeType == ChangeType.PROFILE_DEACTIVATE;
     }
     
     public boolean isKYCEvent() {
-        return changeType == ChangeType.KYC_SUBMIT || changeType == ChangeType.KYC_VERIFY;
-    }
-}
-
-public enum ChangeType {
-    CREATE("Create", "Entity created"),
-    UPDATE("Update", "Entity updated"),
-    DELETE("Delete", "Entity deleted"),
-    LOGIN("Login", "User logged in"),
-    LOGOUT("Logout", "User logged out"),
-    KYC_SUBMIT("KYC Submit", "KYC documentation submitted"),
-    KYC_VERIFY("KYC Verify", "KYC verification completed");
-    
-    private final String displayName;
-    private final String description;
-    
-    ChangeType(String displayName, String description) {
-        this.displayName = displayName;
-        this.description = description;
-    }
-    
-    public String getDisplayName() {
-        return displayName;
-    }
-    
-    public String getDescription() {
-        return description;
-    }
-}
-
-public enum EntityType {
-    PROFILE("Profile", "User profile information"),
-    DOCUMENT("Document", "User uploaded documents"),
-    TRADING_PREFERENCES("Trading Preferences", "Trading configuration and preferences"),
-    KYC("KYC", "Know Your Customer information"),
-    NOTIFICATION_SETTINGS("Notification Settings", "User notification preferences");
-    
-    private final String displayName;
-    private final String description;
-    
-    EntityType(String displayName, String description) {
-        this.displayName = displayName;
-        this.description = description;
-    }
-    
-    public String getDisplayName() {
-        return displayName;
-    }
-    
-    public String getDescription() {
-        return description;
+        return changeType == ChangeType.KYC_SUBMIT || changeType == ChangeType.KYC_VERIFY || 
+               changeType == ChangeType.DOCUMENT_VERIFY;
     }
 }

@@ -7,6 +7,12 @@ spring:
   application:
     name: broker-auth-service
   
+  # Config refresh capabilities
+  cloud:
+    refresh:
+      enabled: true
+      rate: 30s
+  
   # MANDATORY: Virtual Threads Configuration per TradeMaster Standards
   threads:
     virtual:
@@ -14,9 +20,9 @@ spring:
   
   # Database Configuration
   datasource:
-    url: jdbc:postgresql://localhost:5432/trademaster_broker_auth
-    username: trademaster_user
-    password: trademaster_password
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trademaster_broker_auth}
+    username: ${DATABASE_USERNAME:}
+    password: ${DATABASE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 50  # Optimized for Virtual Threads
@@ -155,22 +161,25 @@ broker:
       per-day: 100000
     session-validity: 43200  # 12 hours in seconds
     
-  icici-direct:
-    name: "ICICI Direct"
-    api-url: "https://api.icicidirect.com"
-    session-id: ${ICICI_SESSION_ID:}
-    session-token: ${ICICI_SESSION_TOKEN:}
+  icici:
+    name: "ICICI Direct Breeze"
+    api-url: "https://api.icicidirect.com/breezeapi"
+    login-url: "https://api.icicidirect.com/apiuser/login"
+    app-key: ${ICICI_APP_KEY:}
+    secret-key: ${ICICI_SECRET_KEY:}
+    redirect-uri: ${ICICI_REDIRECT_URI:http://localhost:8087/api/v1/auth/icici/callback}
     rate-limits:
-      per-second: 10
-      per-minute: 100
-      per-day: 10000
-    session-validity: 28800  # 8 hours in seconds
+      per-second: 2      # Conservative limit based on 100/minute
+      per-minute: 100    # Official limit per documentation
+      per-day: 5000      # Official limit per documentation
+    session-validity: 86400  # 24 hours in seconds (session token expiry)
+    checksum-timeout: 300    # 5 minutes for checksum validation
 
   # Common Configuration
   encryption:
     algorithm: "AES/GCM/NoPadding"
     key-size: 256
-    master-key: ${BROKER_ENCRYPTION_KEY:changeme_in_production}
+    master-key: ${BROKER_ENCRYPTION_KEY:}
     
   session:
     cleanup-interval: 3600  # 1 hour in seconds
@@ -194,20 +203,36 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,env,threaddump,heapdump
+        include: health,info,metrics,prometheus,env,threaddump,heapdump,configprops,refresh,beans
       base-path: /actuator
+      cors:
+        allowed-origins: "*"
+        allowed-methods: GET,POST
   endpoint:
     health:
       show-details: always
+      show-components: always
+      probes:
+        enabled: true
     metrics:
       enabled: true
     prometheus:
+      enabled: true
+    refresh:
+      enabled: true
+    configprops:
+      enabled: true
+      show-values: always
+  health:
+    config:
+      enabled: true
+    refresh:
       enabled: true
   metrics:
     export:
       prometheus:
         enabled: true
-        step: 1m
+        step: 30s
         descriptions: true
     distribution:
       percentiles:
@@ -215,14 +240,34 @@ management:
         broker.auth.duration: 0.5, 0.95, 0.99
         broker.api.calls.duration: 0.5, 0.95, 0.99
         session.management.duration: 0.5, 0.95, 0.99
+        config.refresh.duration: 0.5, 0.95, 0.99
       slo:
         http.server.requests: 50ms,100ms,200ms,500ms
         broker.auth.duration: 100ms,500ms,1s,3s
         broker.api.calls.duration: 100ms,500ms,1s,5s
+        config.refresh.duration: 100ms,500ms,1s,2s
+      percentiles-histogram:
+        http.server.requests: true
+        broker.auth.duration: true
     tags:
       application: trademaster
       service: broker-auth-service
       environment: ${spring.profiles.active:local}
+      config-server: ${CONFIG_SERVER_URL:localhost:8888}
+      version: ${info.app.version:1.0.0}
+  tracing:
+    sampling:
+      probability: 1.0
+    zipkin:
+      endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+
+# TradeMaster specific configuration
+trademaster:
+  security:
+    encryption:
+      key: ${ENCRYPTION_KEY:default-key-change-in-production-this-should-be-32-bytes}
+    cors:
+      allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
 
 # Application Configuration
 app:
@@ -301,6 +346,20 @@ resilience4j:
         minimum-number-of-calls: 10
         sliding-window-size: 20
         wait-duration-in-open-state: 30s
+      angel-one-api:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 3000ms
+        minimum-number-of-calls: 10
+        sliding-window-size: 20
+        wait-duration-in-open-state: 45s
+      icici-api:
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 60
+        slow-call-duration-threshold: 2500ms
+        minimum-number-of-calls: 8
+        sliding-window-size: 15
+        wait-duration-in-open-state: 30s
   
   ratelimiter:
     instances:
@@ -312,6 +371,14 @@ resilience4j:
         limit-for-period: 25
         limit-refresh-period: 1s
         timeout-duration: 5s
+      angel-one-api:
+        limit-for-period: 20
+        limit-refresh-period: 1s
+        timeout-duration: 5s
+      icici-api:
+        limit-for-period: 2
+        limit-refresh-period: 1s
+        timeout-duration: 3s
         
   retry:
     instances:

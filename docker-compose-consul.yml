@@ -1,0 +1,214 @@
+# Docker Compose file for TradeMaster with Consul Service Discovery
+version: '3.8'
+
+services:
+  # Consul Service Discovery
+  consul:
+    image: consul:1.18
+    ports:
+      - "8500:8500"
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+    command: >
+      consul agent
+      -server
+      -ui
+      -node=consul-server
+      -bootstrap-expect=1
+      -client=0.0.0.0
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: trademaster_trading
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: trading_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./trading-service/src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_user -d trademaster_trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis for Caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+
+  # Consul Configuration Setup (one-time job)
+  consul-config-setup:
+    image: curlimages/curl:latest
+    depends_on:
+      consul:
+        condition: service_started
+    volumes:
+      - ./scripts:/scripts
+    networks:
+      - trademaster-network
+    command: sh -c "
+      echo 'Waiting for Consul to be ready...';
+      until curl -s http://consul:8500/v1/status/leader > /dev/null 2>&1; do 
+        echo 'Waiting for Consul...'; 
+        sleep 2; 
+      done;
+      echo 'Consul is ready, setting up configuration...';
+      sh /scripts/consul-config-setup.sh"
+    restart: "no"
+
+  # Trading Service
+  trading-service:
+    build:
+      context: ./trading-service
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/trademaster_trading
+      - DATABASE_USERNAME=trading_user
+      - DATABASE_PASSWORD=trading_pass
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - HOST_IP=trading-service
+    depends_on:
+      consul:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      consul-config-setup:
+        condition: service_completed_successfully
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/api/v2/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Kong Gateway Database
+  kong-database:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    volumes:
+      - kong_postgres_data:/var/lib/postgresql/data
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong -d kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kong-migrations:
+    image: kong/kong-gateway:3.7.1
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+    depends_on:
+      kong-database:
+        condition: service_healthy
+    networks:
+      - trademaster-network
+    restart: "no"
+
+  kong:
+    image: kong/kong-gateway:3.7.1
+    user: "${KONG_USER:-kong}"
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+      KONG_CASSANDRA_CONTACT_POINTS: kong-database
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_PLUGINS: bundled
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+      - "8001:8001"
+      - "8444:8444"
+    depends_on:
+      kong-database:
+        condition: service_healthy
+      kong-migrations:
+        condition: service_completed_successfully
+      trading-service:
+        condition: service_healthy
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Prometheus for Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - trademaster-network
+    restart: unless-stopped
+
+volumes:
+  consul_data:
+  postgres_data:
+  redis_data:
+  kong_postgres_data:
+  prometheus_data:
+
+networks:
+  trademaster-network:
+    driver: bridge

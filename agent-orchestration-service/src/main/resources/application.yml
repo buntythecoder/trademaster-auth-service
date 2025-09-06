@@ -99,6 +99,27 @@ server:
   http2:
     enabled: true
 
+# Service Discovery Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+    health-check-url-path: /actuator/health
+  instance:
+    hostname: ${HOSTNAME:localhost}
+    instance-id: ${spring.application.name}:${server.port}
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+    health-check-url: http://${eureka.instance.hostname}:${server.port}/actuator/health
+    status-page-url: http://${eureka.instance.hostname}:${server.port}/actuator/info
+    metadata-map:
+      version: "@project.version@"
+      capabilities: "agent-management,task-orchestration,workflow-execution"
+      profile: ${spring.profiles.active:development}
+
 # Management Endpoints (Actuator)
 management:
   endpoints:
@@ -125,6 +146,57 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+  tracing:
+    sampling:
+      probability: 1.0
+
+# Distributed Tracing Configuration
+tracing:
+  enabled: true
+  zipkin:
+    endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+
+# Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      tradingService:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+      portfolioService:
+        register-health-indicator: true
+        sliding-window-size: 15
+        minimum-number-of-calls: 8
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 45s
+        permitted-number-of-calls-in-half-open-state: 5
+        slow-call-rate-threshold: 40
+        slow-call-duration-threshold: 5s
+      marketDataService:
+        register-health-indicator: true
+        sliding-window-type: TIME_BASED
+        sliding-window-size: 60
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 40
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 5
+        slow-call-rate-threshold: 30
+        slow-call-duration-threshold: 1s
+      notificationService:
+        register-health-indicator: true
+        sliding-window-size: 20
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 70
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        slow-call-rate-threshold: 60
+        slow-call-duration-threshold: 3s
 
 # Logging Configuration
 logging:

@@ -1,0 +1,241 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'java'
+    id 'application'
+    id 'jacoco'
+    id 'org.sonarqube' version '4.4.1.3373'
+    id 'com.github.ben-manes.versions' version '0.51.0'
+    id 'org.springframework.boot.aot' version '3.5.3'
+    id 'org.graalvm.buildtools.native' version '0.10.4'
+}
+
+group = 'com.trademaster'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+application {
+    mainClass = 'com.trademaster.mlinfra.MLInfrastructurePlatformApplication'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+    all {
+        exclude group: 'org.springframework', module: 'spring-webflux'
+        exclude group: 'io.projectreactor'
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-webflux'
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+    maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+    maven { url 'https://mvnrepository.com/artifact' }
+}
+
+dependencies {
+    // Spring Boot 3.5.3 with Virtual Threads - MANDATORY
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    
+    // Database and Persistence
+    implementation 'org.postgresql:postgresql:42.7.4'
+    implementation 'com.zaxxer:HikariCP:6.2.1'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    
+    // ML and Data Science Libraries
+    implementation 'org.mlflow:mlflow-client:2.17.0'
+    implementation 'org.apache.kafka:kafka-clients:3.8.0'
+    implementation 'org.apache.kafka:kafka-streams:3.8.0'
+    implementation 'org.springframework.kafka:spring-kafka:3.3.0'
+    implementation 'org.apache.commons:commons-math3:3.6.1'
+    implementation 'org.apache.spark:spark-core_2.13:3.5.3'
+    implementation 'org.apache.spark:spark-sql_2.13:3.5.3'
+    implementation 'org.apache.spark:spark-mllib_2.13:3.5.3'
+    
+    // HTTP Clients (NO WebClient - Virtual Threads Only)
+    implementation 'com.squareup.okhttp3:okhttp:5.0.0-alpha.14'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.4.1'
+    
+    // MinIO for S3-compatible object storage
+    implementation 'io.minio:minio:8.5.13'
+    
+    // Monitoring and Metrics
+    implementation 'io.micrometer:micrometer-registry-prometheus:1.14.2'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel:1.4.2'
+    implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
+    
+    // ML Model Serving and Kubernetes
+    implementation 'io.fabric8:kubernetes-client:7.0.1'
+    implementation 'io.kubernetes:client-java:21.0.1'
+    
+    // JSON Processing and Serialization
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2'
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2'
+    
+    // Security and Authentication
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    implementation 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    implementation 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    implementation 'org.springframework.security:spring-security-oauth2-resource-server:6.4.2'
+    implementation 'org.springframework.security:spring-security-oauth2-jose:6.4.2'
+    
+    // Configuration and Properties
+    implementation 'org.springframework.boot:spring-boot-configuration-processor'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+    
+    // Lombok for boilerplate reduction - Let Spring Boot BOM manage version
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    
+    // Feature Store and Data Pipeline
+    implementation 'redis.clients:jedis:5.2.0'
+    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+    
+    // Testing Dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
+    testImplementation 'org.testcontainers:postgresql:1.20.4'
+    testImplementation 'org.testcontainers:kafka:1.20.4'
+    testImplementation 'org.testcontainers:redis:2.0.1'
+    testImplementation 'org.awaitility:awaitility:4.2.2'
+    testImplementation 'org.mockito:mockito-core:5.14.2'
+    testImplementation 'org.assertj:assertj-core:3.26.3'
+}
+
+// Java 24 Virtual Threads Configuration - MANDATORY per TradeMaster Standards
+tasks.named('compileJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('compileTestJava') {
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.named('test') {
+    jvmArgs += ['--enable-preview']
+    useJUnitPlatform()
+    
+    systemProperty 'spring.profiles.active', 'test'
+    systemProperty 'spring.threads.virtual.enabled', 'true'
+    
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+    
+    finalizedBy jacocoTestReport
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['--enable-preview']
+    systemProperty 'spring.threads.virtual.enabled', 'true'
+}
+
+bootRun {
+    jvmArgs += ['--enable-preview']
+    systemProperty 'spring.profiles.active', project.findProperty('profile') ?: 'dev'
+    systemProperty 'spring.threads.virtual.enabled', 'true'
+}
+
+jar {
+    enabled = false
+}
+
+bootJar {
+    archiveClassifier = ''
+    manifest {
+        attributes(
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version,
+            'Built-By': System.getProperty('user.name'),
+            'Built-Date': new Date(),
+            'Built-JDK': System.getProperty('java.version'),
+            'Built-Gradle': gradle.gradleVersion
+        )
+    }
+}
+
+// Code Quality and Analysis
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        csv.required = false
+        html.destination file("${buildDir}/jacocoHtml")
+    }
+    
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/config/**',
+                '**/dto/**',
+                '**/entity/**',
+                '**/*Application**'
+            ])
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.8
+            }
+        }
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
+// Docker and Container Support
+task buildImage(type: Exec) {
+    dependsOn bootJar
+    commandLine 'docker', 'build', '-t', "${project.group}/${project.name}:${project.version}", '.'
+}
+
+task pushImage(type: Exec) {
+    dependsOn buildImage
+    commandLine 'docker', 'push', "${project.group}/${project.name}:${project.version}"
+}
+
+// Performance Benchmarking
+task performanceTest(type: Test) {
+    jvmArgs += ['--enable-preview']
+    systemProperty 'spring.profiles.active', 'performance'
+    systemProperty 'spring.threads.virtual.enabled', 'true'
+    
+    include '**/performance/**'
+    
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// Code Style and Standards
+processResources {
+    // Resources are processed as-is without templating
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}

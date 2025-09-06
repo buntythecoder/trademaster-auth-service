@@ -220,8 +220,8 @@ public class PortfolioAgent implements AgentOSComponent {
                     .map(operation -> scope.fork(operation::get))
                     .toList();
                 
-                // Join with timeout and handle failures
-                scope.join(timeout);
+                // Join and handle failures
+                scope.join();
                 scope.throwIfFailed();
                 
                 // Collect results

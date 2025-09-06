@@ -1,100 +1,151 @@
 package com.trademaster.notification.service;
 
-import com.trademaster.notification.model.NotificationRequest;
+import com.trademaster.notification.dto.NotificationRequest;
+import com.trademaster.notification.constant.NotificationConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Rate Limiting Service for Notifications
  * 
- * Implements rate limiting using sliding window approach to prevent notification spam
- * and comply with external service rate limits.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Functional Programming - Rule #3
+ * MANDATORY: Pattern Matching - Rule #14
+ * MANDATORY: Constants Usage - Rule #17
  */
 @Service
 @Slf4j
 public class RateLimitService {
     
-    // Rate limits per notification type (per minute)
-    private static final int EMAIL_RATE_LIMIT = 60;
-    private static final int SMS_RATE_LIMIT = 10; 
-    private static final int PUSH_RATE_LIMIT = 100;
-    private static final int IN_APP_RATE_LIMIT = 200;
-    
-    // Sliding window counters
+    // Sliding window counters using atomic operations
     private final ConcurrentHashMap<String, AtomicInteger> windowCounts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LocalDateTime> windowStarts = new ConcurrentHashMap<>();
     
     /**
-     * Check if a notification request is allowed under current rate limits
+     * Check if notification type and count is allowed under rate limits
+     * 
+     * MANDATORY: Functional Programming - Rule #3
+     * MANDATORY: Pattern Matching - Rule #14
      */
-    public boolean isAllowed(NotificationRequest request) {
-        String rateLimitKey = getRateLimitKey(request);
-        int limit = getRateLimitForType(request.getType());
+    public boolean isAllowed(String notificationType, int count) {
+        String rateLimitKey = notificationType + ":global";
+        int limit = getRateLimitForType(notificationType);
         
-        return checkRateLimit(rateLimitKey, limit);
+        return checkRateLimit(rateLimitKey, limit, count);
     }
     
     /**
-     * Record a notification attempt (regardless of success/failure)
+     * Check if individual notification request is allowed
+     */
+    public boolean isAllowed(NotificationRequest request) {
+        String rateLimitKey = createRateLimitKey(request);
+        int limit = getRateLimitForNotificationType(request.type());
+        
+        return checkRateLimit(rateLimitKey, limit, 1);
+    }
+    
+    /**
+     * Record notification attempt
      */
     public void recordAttempt(NotificationRequest request) {
-        String rateLimitKey = getRateLimitKey(request);
+        String rateLimitKey = createRateLimitKey(request);
         incrementCounter(rateLimitKey);
     }
     
-    private String getRateLimitKey(NotificationRequest request) {
-        // Rate limit by type and recipient to prevent spam to specific users
-        return request.getType().name() + ":" + request.getRecipient();
-    }
-    
-    private int getRateLimitForType(NotificationRequest.NotificationType type) {
-        return switch (type) {
-            case EMAIL -> EMAIL_RATE_LIMIT;
-            case SMS -> SMS_RATE_LIMIT;
-            case PUSH -> PUSH_RATE_LIMIT;
-            case IN_APP -> IN_APP_RATE_LIMIT;
+    /**
+     * Get rate limit using pattern matching
+     * 
+     * MANDATORY: Pattern Matching - Rule #14
+     * MANDATORY: Constants Usage - Rule #17
+     */
+    private int getRateLimitForType(String type) {
+        return switch (type.toLowerCase()) {
+            case "email" -> NotificationConstants.EMAIL_RATE_LIMIT_PER_HOUR;
+            case "sms" -> NotificationConstants.SMS_RATE_LIMIT_PER_HOUR;
+            case "push" -> NotificationConstants.PUSH_RATE_LIMIT_PER_HOUR;
+            default -> 100; // Conservative default
         };
     }
     
-    private boolean checkRateLimit(String key, int limit) {
+    /**
+     * Get rate limit for notification type enum
+     * 
+     * MANDATORY: Pattern Matching - Rule #14
+     */
+    private int getRateLimitForNotificationType(NotificationRequest.NotificationType type) {
+        return switch (type) {
+            case EMAIL -> NotificationConstants.EMAIL_RATE_LIMIT_PER_HOUR;
+            case SMS -> NotificationConstants.SMS_RATE_LIMIT_PER_HOUR;
+            case PUSH -> NotificationConstants.PUSH_RATE_LIMIT_PER_HOUR;
+            case IN_APP -> 1000; // High limit for in-app notifications
+        };
+    }
+    
+    private String createRateLimitKey(NotificationRequest request) {
+        // Rate limit by type and recipient to prevent spam
+        return request.type().name() + ":" + request.recipient();
+    }
+    
+    private boolean checkRateLimit(String key, int limit, int requestedCount) {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime windowStart = windowStarts.get(key);
         
-        // Initialize or reset window if more than a minute has passed
-        if (windowStart == null || windowStart.isBefore(now.minusMinutes(1))) {
-            windowStarts.put(key, now);
-            windowCounts.put(key, new AtomicInteger(0));
-            return true;
-        }
+        return Optional.ofNullable(windowStarts.get(key))
+            .filter(windowStart -> windowStart.isAfter(now.minusHours(1)))
+            .map(windowStart -> checkExistingWindow(key, limit, requestedCount))
+            .orElseGet(() -> initializeNewWindow(key, limit, requestedCount, now));
+    }
+    
+    private boolean checkExistingWindow(String key, int limit, int requestedCount) {
+        return Optional.ofNullable(windowCounts.get(key))
+            .map(AtomicInteger::get)
+            .map(currentCount -> 
+                Optional.of(currentCount + requestedCount)
+                    .filter(totalCount -> totalCount <= limit)
+                    .map(totalCount -> {
+                        incrementCounter(key, requestedCount);
+                        return true;
+                    })
+                    .orElseGet(() -> {
+                        log.warn("Rate limit exceeded for key: {} (current: {}, requested: {}, limit: {})",
+                                key, currentCount, requestedCount, limit);
+                        return false;
+                    })
+            )
+            .orElse(false);
+    }
+    
+    private boolean initializeNewWindow(String key, int limit, int requestedCount, LocalDateTime now) {
+        windowStarts.put(key, now);
+        windowCounts.put(key, new AtomicInteger(0));
         
-        // Check current count against limit
-        AtomicInteger currentCount = windowCounts.get(key);
-        int count = currentCount != null ? currentCount.get() : 0;
-        
-        if (count >= limit) {
-            log.warn("Rate limit exceeded for key: {} (current: {}, limit: {})", key, count, limit);
-            return false;
-        }
-        
-        return true;
+        return Optional.of(requestedCount)
+            .filter(count -> count <= limit)
+            .map(count -> {
+                incrementCounter(key, requestedCount);
+                return true;
+            })
+            .orElse(false);
     }
     
     private void incrementCounter(String key) {
-        windowCounts.computeIfAbsent(key, k -> new AtomicInteger(0)).incrementAndGet();
+        incrementCounter(key, 1);
+    }
+    
+    private void incrementCounter(String key, int count) {
+        windowCounts.computeIfAbsent(key, k -> new AtomicInteger(0)).addAndGet(count);
     }
     
     /**
-     * Clean up old rate limit entries (should be called periodically)
+     * Clean up old rate limit entries
+     * 
+     * MANDATORY: Memory Management - Performance Rule #22
      */
     public void cleanup() {
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(2);
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(2);
         
         windowStarts.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
         
@@ -105,6 +156,6 @@ public class RateLimitService {
             }
         });
         
-        log.debug("Cleaned up rate limit entries older than 2 minutes");
+        log.debug("Cleaned up rate limit entries older than 2 hours");
     }
 }

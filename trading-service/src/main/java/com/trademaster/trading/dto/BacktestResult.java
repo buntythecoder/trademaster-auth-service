@@ -8,6 +8,8 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -402,26 +404,26 @@ public class BacktestResult {
      * Get backtest summary
      */
     public Map<String, Object> getBacktestSummary() {
-        return Map.of(
-            "backtestId", backtestId != null ? backtestId : "N/A",
-            "strategyName", strategyName != null ? strategyName : "Unknown",
-            "period", startDate + " to " + endDate,
-            "totalReturn", performance != null && performance.getTotalReturn() != null ? 
-                         performance.getTotalReturn() : BigDecimal.ZERO,
-            "annualizedReturn", performance != null && performance.getAnnualizedReturn() != null ? 
-                              performance.getAnnualizedReturn() : BigDecimal.ZERO,
-            "sharpeRatio", performance != null && performance.getSharpeRatio() != null ? 
-                         performance.getSharpeRatio() : BigDecimal.ZERO,
-            "maxDrawdown", performance != null && performance.getMaxDrawdown() != null ? 
-                         performance.getMaxDrawdown() : BigDecimal.ZERO,
-            "totalTrades", tradingStats != null && tradingStats.getTotalTrades() != null ? 
-                         tradingStats.getTotalTrades() : 0,
-            "winRate", tradingStats != null && tradingStats.getWinRate() != null ? 
-                      tradingStats.getWinRate() : BigDecimal.ZERO,
-            "rating", getStrategyRating(),
-            "outperformed", outperformedBenchmark(),
-            "completedAt", completedAt != null ? completedAt : Instant.EPOCH
-        );
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("backtestId", backtestId != null ? backtestId : "N/A");
+        summary.put("strategyName", strategyName != null ? strategyName : "Unknown");
+        summary.put("period", startDate + " to " + endDate);
+        summary.put("totalReturn", performance != null && performance.getTotalReturn() != null ? 
+                   performance.getTotalReturn() : BigDecimal.ZERO);
+        summary.put("annualizedReturn", performance != null && performance.getAnnualizedReturn() != null ? 
+                   performance.getAnnualizedReturn() : BigDecimal.ZERO);
+        summary.put("sharpeRatio", performance != null && performance.getSharpeRatio() != null ? 
+                   performance.getSharpeRatio() : BigDecimal.ZERO);
+        summary.put("maxDrawdown", performance != null && performance.getMaxDrawdown() != null ? 
+                   performance.getMaxDrawdown() : BigDecimal.ZERO);
+        summary.put("totalTrades", tradingStats != null && tradingStats.getTotalTrades() != null ? 
+                   tradingStats.getTotalTrades() : 0);
+        summary.put("winRate", tradingStats != null && tradingStats.getWinRate() != null ? 
+                   tradingStats.getWinRate() : BigDecimal.ZERO);
+        summary.put("rating", getStrategyRating());
+        summary.put("outperformed", outperformedBenchmark());
+        summary.put("completedAt", completedAt != null ? completedAt : Instant.EPOCH);
+        return Collections.unmodifiableMap(summary);
     }
     
     /**

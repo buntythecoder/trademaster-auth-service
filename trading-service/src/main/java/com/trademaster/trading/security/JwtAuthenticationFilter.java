@@ -1,5 +1,6 @@
 package com.trademaster.trading.security;
 
+import com.trademaster.trading.config.JwtConfigurationProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.JwtException;
@@ -9,7 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -42,8 +42,7 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     
-    @Value("${jwt.secret}")
-    private String jwtSecret;
+    private final JwtConfigurationProperties jwtConfig;
     
     @Override
     protected void doFilterInternal(HttpServletRequest request, 
@@ -83,13 +82,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     
     private void validateAndSetAuthentication(String token) {
         try {
-            SecretKeySpec key = new SecretKeySpec(jwtSecret.getBytes(), "HmacSHA256");
+            SecretKeySpec key = new SecretKeySpec(jwtConfig.secret().getBytes(), "HmacSHA256");
             
-            Claims claims = Jwts.parserBuilder()
-                .setSigningKey(key)
+            Claims claims = Jwts.parser()
+                .verifyWith(key)
                 .build()
                 .parseClaimsJws(token)
-                .getBody();
+                .getPayload();
             
             String userId = claims.getSubject();
             String username = claims.get("username", String.class);

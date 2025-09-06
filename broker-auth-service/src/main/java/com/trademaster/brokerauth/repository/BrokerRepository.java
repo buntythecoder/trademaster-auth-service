@@ -11,80 +11,45 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Broker Repository
+ * Broker Repository - Data access layer for broker entities
  * 
- * Data access layer for Broker entities.
- * Provides queries for broker configuration and availability.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Spring Data JPA with performance optimization - Rule #1
+ * MANDATORY: Custom queries for complex operations - Rule #22
  */
 @Repository
 public interface BrokerRepository extends JpaRepository<Broker, Long> {
     
     /**
      * Find broker by type
+     * MANDATORY: Indexed query for performance - Rule #22
      */
     Optional<Broker> findByBrokerType(BrokerType brokerType);
     
     /**
-     * Find all enabled brokers
+     * Find active brokers only
+     * MANDATORY: Business logic optimization - Rule #22
      */
-    @Query("SELECT b FROM Broker b WHERE b.isEnabled = true ORDER BY b.displayName")
-    List<Broker> findAllEnabled();
+    @Query("SELECT b FROM Broker b WHERE b.isActive = true ORDER BY b.name")
+    List<Broker> findAllActiveBrokers();
     
     /**
-     * Find all available brokers (enabled and not in maintenance)
+     * Find broker by type and active status
+     * MANDATORY: Composite filtering for performance - Rule #22
      */
-    @Query("SELECT b FROM Broker b WHERE b.isEnabled = true AND b.isMaintenance = false ORDER BY b.displayName")
-    List<Broker> findAllAvailable();
+    Optional<Broker> findByBrokerTypeAndIsActive(BrokerType brokerType, Boolean isActive);
     
     /**
-     * Find brokers in maintenance mode
+     * Check if broker type is supported and active
+     * MANDATORY: Validation query for authentication flow - Rule #22
      */
-    @Query("SELECT b FROM Broker b WHERE b.isMaintenance = true ORDER BY b.displayName")
-    List<Broker> findAllInMaintenance();
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END " +
+           "FROM Broker b WHERE b.brokerType = :brokerType AND b.isActive = true")
+    boolean existsByBrokerTypeAndIsActive(@Param("brokerType") BrokerType brokerType);
     
     /**
-     * Check if broker is available
+     * Get broker rate limits for specific broker
+     * MANDATORY: Performance optimization for rate limiting - Rule #22
      */
-    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM Broker b " +
-           "WHERE b.brokerType = :brokerType AND b.isEnabled = true AND b.isMaintenance = false")
-    boolean isBrokerAvailable(@Param("brokerType") BrokerType brokerType);
-    
-    /**
-     * Find brokers supporting real-time data
-     */
-    @Query("SELECT b FROM Broker b WHERE b.isEnabled = true AND b.isMaintenance = false " +
-           "AND b.brokerType IN ('ZERODHA', 'UPSTOX') ORDER BY b.displayName")
-    List<Broker> findRealTimeDataBrokers();
-    
-    /**
-     * Find brokers by session validity range
-     */
-    @Query("SELECT b FROM Broker b WHERE b.isEnabled = true " +
-           "AND b.sessionValiditySeconds BETWEEN :minSeconds AND :maxSeconds " +
-           "ORDER BY b.sessionValiditySeconds DESC")
-    List<Broker> findBySessionValidityRange(@Param("minSeconds") Long minSeconds, 
-                                           @Param("maxSeconds") Long maxSeconds);
-    
-    /**
-     * Update maintenance mode for broker
-     */
-    @Query("UPDATE Broker b SET b.isMaintenance = :maintenance, b.maintenanceMessage = :message " +
-           "WHERE b.brokerType = :brokerType")
-    int updateMaintenanceMode(@Param("brokerType") BrokerType brokerType, 
-                             @Param("maintenance") boolean maintenance, 
-                             @Param("message") String message);
-    
-    /**
-     * Update rate limits for broker
-     */
-    @Query("UPDATE Broker b SET b.rateLimitPerSecond = :perSecond, " +
-           "b.rateLimitPerMinute = :perMinute, b.rateLimitPerDay = :perDay " +
-           "WHERE b.brokerType = :brokerType")
-    int updateRateLimits(@Param("brokerType") BrokerType brokerType, 
-                        @Param("perSecond") Integer perSecond,
-                        @Param("perMinute") Integer perMinute,
-                        @Param("perDay") Integer perDay);
+    @Query("SELECT b.rateLimits FROM Broker b WHERE b.brokerType = :brokerType AND b.isActive = true")
+    Optional<java.util.Map<String, Integer>> findRateLimitsByBrokerType(@Param("brokerType") BrokerType brokerType);
 }

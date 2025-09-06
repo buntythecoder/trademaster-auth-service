@@ -1,0 +1,258 @@
+# TradeMaster Spring Cloud Config Server Configuration
+server:
+  port: 8888
+  servlet:
+    context-path: /config
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,text/css
+  http2:
+    enabled: true
+  error:
+    include-message: always
+    include-binding-errors: always
+
+spring:
+  application:
+    name: config-server
+  
+  # Disable JPA autoconfiguration since we don't need a database for file-based config
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+  
+  # Spring Cloud Config Server Configuration
+  cloud:
+    # Disable compatibility verifier for Spring Boot 3.5.3
+    compatibility-verifier:
+      enabled: false
+    config:
+      server:
+        # Primary Git repository for configuration files
+        git:
+          uri: https://github.com/trademaster/config-repo.git
+          # For local development, you can use file:// URL
+          # uri: file://${user.home}/trademaster-config
+          clone-on-start: true
+          delete-untracked-branches: true
+          refresh-rate: 30
+          timeout: 10
+          force-pull: true
+          default-label: main
+          search-paths:
+            - '{application}'
+            - '{application}/{profile}'
+            - 'common'
+            - 'shared/{application}'
+        # Health monitoring for config server
+        health:
+          repositories:
+            trademaster:
+              label: main
+              name: trademaster
+              profiles: dev,test,prod
+        # Encryption configuration (optional but recommended)
+        encrypt:
+          enabled: true
+        # Optional: Vault backend for sensitive configurations
+        vault:
+          enabled: false
+          host: vault
+          port: 8200
+          scheme: http
+          backend: secret
+          default-key: trademaster
+          profile-separator: '/'
+  
+  # Database configuration (optional for JDBC backend)
+  datasource:
+    url: jdbc:postgresql://postgres:5432/trademaster_config
+    username: ${CONFIG_DB_USER:trademaster}
+    password: ${CONFIG_DB_PASSWORD:trademaster123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      connection-timeout: 20000
+      validation-timeout: 5000
+      leak-detection-threshold: 60000
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: false
+        jdbc:
+          batch_size: 20
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+  
+  # Security configuration
+  security:
+    user:
+      name: ${CONFIG_SERVER_USER:config-admin}
+      password: ${CONFIG_SERVER_PASSWORD:config-secret-2024}
+      roles: ADMIN
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID:}
+            client-secret: ${GITHUB_CLIENT_SECRET:}
+
+# Eureka Service Discovery
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+    instance-info-replication-interval-seconds: 30
+    registry-fetch-interval-seconds: 30
+  instance:
+    hostname: config-server
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+    metadata-map:
+      configPath: /config
+      management.context-path: /actuator
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,configprops,env,refresh,beans,mappings,startup
+      base-path: /actuator
+      cors:
+        allowed-origins: "*"
+        allowed-methods: GET,POST
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  health:
+    defaults:
+      enabled: true
+    diskspace:
+      enabled: true
+      threshold: 1GB
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        descriptions: true
+        step: 30s
+    distribution:
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+        spring.data.repository.invocations: 0.5, 0.95, 0.99
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 10ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s
+  tracing:
+    sampling:
+      probability: 1.0
+    zipkin:
+      endpoint: http://zipkin:9411/api/v2/spans
+
+# Logging Configuration
+logging:
+  level:
+    org.springframework.cloud.config: INFO
+    org.springframework.security: INFO
+    com.trademaster: DEBUG
+    org.eclipse.jgit: WARN
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+  file:
+    name: /var/log/trademaster/config-server.log
+    max-size: 100MB
+    max-history: 30
+    total-size-cap: 1GB
+
+# Application Info
+info:
+  app:
+    name: '@project.name@'
+    description: '@project.description@'
+    version: '@project.version@'
+    java:
+      version: '@java.version@'
+  build:
+    artifact: '@project.artifactId@'
+    group: '@project.groupId@'
+    version: '@project.version@'
+    time: '@maven.build.timestamp@'
+
+# Configuration Refresh Settings
+config:
+  refresh:
+    enabled: true
+    rate: 30s
+  retry:
+    initial-interval: 1000
+    max-interval: 10000
+    max-attempts: 6
+    multiplier: 1.1
+
+# Profile-specific configurations
+---
+spring:
+  config:
+    activate:
+      on-profile: development
+  cloud:
+    config:
+      server:
+        git:
+          # For development, use local filesystem (absolute path)
+          uri: file:///${user.dir}/../../config-repo
+          clone-on-start: true
+          force-pull: false  # Disable for local filesystem
+logging:
+  level:
+    root: INFO
+    com.trademaster: DEBUG
+    org.springframework.cloud.config: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: production
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/trademaster/config-repo.git
+          default-label: main
+          username: ${GIT_USERNAME:}
+          password: ${GIT_PASSWORD:}
+        encrypt:
+          enabled: true
+          key: ${CONFIG_ENCRYPT_KEY:trademaster-config-key-2024}
+logging:
+  level:
+    root: WARN
+    com.trademaster: INFO
+    org.springframework.cloud.config: INFO

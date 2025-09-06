@@ -1,6 +1,14 @@
 package com.trademaster.notification.service;
 
-import com.trademaster.notification.model.NotificationRequest;
+import com.trademaster.notification.dto.NotificationRequest;
+import com.trademaster.notification.dto.NotificationResponse;
+import com.trademaster.notification.constant.NotificationConstants;
+import com.trademaster.notification.common.Result;
+import com.trademaster.notification.entity.NotificationHistory.NotificationStatus;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.decorators.Decorators;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.timelimiter.TimeLimiter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,9 +26,18 @@ import org.thymeleaf.context.Context;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.util.Map;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
+/**
+ * Email Notification Service
+ * 
+ * MANDATORY: Virtual Threads - Rule #12
+ * MANDATORY: Functional Programming - Rule #3
+ * MANDATORY: Error Handling - Rule #11
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -29,161 +46,225 @@ public class EmailNotificationService {
     
     private final JavaMailSender emailSender;
     private final TemplateEngine templateEngine;
-    private final ObjectMapper objectMapper;
+    private final NotificationHistoryService historyService;
+    private final CircuitBreaker emailCircuitBreaker;
+    private final Retry emailRetry;
+    private final TimeLimiter emailTimeLimiter;
     
-    @Value("${notification.email.default-sender}")
+    private static final java.util.concurrent.ScheduledExecutorService scheduler = 
+        java.util.concurrent.Executors.newScheduledThreadPool(2);
+    
+    @Value("${notification.email.default-sender:noreply@trademaster.com}")
     private String defaultSender;
     
-    @Value("${notification.email.templates-path}")
-    private String templatesPath;
-    
-    @Retryable(
-        retryFor = {MailException.class, MessagingException.class},
-        maxAttempts = 3,
-        backoff = @Backoff(delay = 5000, multiplier = 2)
-    )
-    public void sendEmail(NotificationRequest request) throws MessagingException {
-        log.info("Sending email notification to: {}, subject: {}", 
-                request.getEmailRecipient(), request.getSubject());
+    /**
+     * Send email notification asynchronously with virtual threads and circuit breaker
+     * 
+     * MANDATORY: Virtual Threads - Rule #12
+     * MANDATORY: Circuit Breaker - Rule #24
+     * MANDATORY: CompletableFuture - Rule #11
+     */
+    public CompletableFuture<NotificationResponse> sendEmail(NotificationRequest request) {
+        String correlationId = UUID.randomUUID().toString();
         
+        return historyService.createNotificationHistory(request, correlationId)
+            .thenCompose(historyResult -> historyResult.match(
+                history -> sendEmailWithResilience(request, history.getNotificationId())
+                    .thenCompose(response -> updateHistoryAfterSend(response, history.getNotificationId())),
+                error -> CompletableFuture.completedFuture(NotificationResponse.failure("HISTORY_ERROR", error))
+            ));
+    }
+    
+    /**
+     * Send email with circuit breaker, retry, and timeout protection
+     * 
+     * MANDATORY: Resilience Patterns - Rule #24
+     * MANDATORY: Virtual Threads - Rule #12
+     */
+    private CompletableFuture<NotificationResponse> sendEmailWithResilience(NotificationRequest request, String notificationId) {
+        // Create resilient email sending function with enterprise-grade decorator pattern
         try {
-            if (request.getTemplateName() != null && !request.getTemplateName().isEmpty()) {
-                sendTemplatedEmail(request);
-            } else {
-                sendSimpleEmail(request);
-            }
-            log.info("Email sent successfully to: {}", request.getEmailRecipient());
+            // Use Resilience4j Decorators with proper chaining order
+            var decoratedSupplier = Decorators.ofSupplier(() -> performEmailSend(request, notificationId))
+                .withCircuitBreaker(emailCircuitBreaker)
+                .withRetry(emailRetry)
+                .decorate();
+            
+            // Apply TimeLimiter with CompletionStage
+            return emailTimeLimiter.executeCompletionStage(
+                scheduler,
+                () -> CompletableFuture.supplyAsync(decoratedSupplier, Executors.newVirtualThreadPerTaskExecutor())
+            ).toCompletableFuture()
+                .exceptionally(throwable -> {
+                    log.error("Email sending failed: notificationId={}, error={}", 
+                             notificationId, throwable.getMessage());
+                    return NotificationResponse.failure(notificationId, 
+                        "Email service unavailable: " + throwable.getMessage());
+                });
+                
         } catch (Exception e) {
-            log.error("Failed to send email to: {}, error: {}", 
-                     request.getEmailRecipient(), e.getMessage(), e);
-            throw e;
+            log.error("Email sending setup failed: notificationId={}, error={}", 
+                     notificationId, e.getMessage());
+            return CompletableFuture.completedFuture(
+                NotificationResponse.failure(notificationId, 
+                    "Email service unavailable: " + e.getMessage()));
         }
     }
     
-    private void sendSimpleEmail(NotificationRequest request) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(defaultSender);
-        message.setTo(request.getEmailRecipient());
-        message.setSubject(request.getSubject());
-        message.setText(request.getContent());
+    /**
+     * Perform email sending with pattern matching
+     * 
+     * MANDATORY: Pattern Matching - Rule #14
+     * MANDATORY: Functional Programming - Rule #3
+     */
+    private NotificationResponse performEmailSend(NotificationRequest request, String notificationId) {
+        log.info("Sending email notification to: {}, subject: {}, ID: {}", 
+                request.emailRecipient(), request.subject(), notificationId);
         
-        emailSender.send(message);
+        return switch (determineEmailType(request)) {
+            case TEMPLATED -> sendTemplatedEmail(request, notificationId);
+            case SIMPLE -> sendSimpleEmail(request, notificationId);
+            case INVALID -> NotificationResponse.failure(notificationId, 
+                "Invalid email configuration");
+        };
     }
     
-    private void sendTemplatedEmail(NotificationRequest request) throws MessagingException {
-        MimeMessage mimeMessage = emailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-        
-        helper.setFrom(defaultSender);
-        helper.setTo(request.getEmailRecipient());
-        helper.setSubject(request.getSubject());
-        
-        // Process template with variables
-        String htmlContent = processTemplate(request.getTemplateName(), request.getTemplateVariables());
-        helper.setText(htmlContent, true);
-        
-        emailSender.send(mimeMessage);
+    private EmailType determineEmailType(NotificationRequest request) {
+        return Optional.ofNullable(request.emailRecipient())
+            .filter(email -> !email.isEmpty())
+            .map(email -> Optional.ofNullable(request.templateName())
+                .filter(template -> !template.isEmpty())
+                .map(template -> EmailType.TEMPLATED)
+                .orElse(EmailType.SIMPLE))
+            .orElse(EmailType.INVALID);
     }
     
-    private String processTemplate(String templateName, String variablesJson) {
-        try {
+    private NotificationResponse sendSimpleEmail(NotificationRequest request, String notificationId) {
+        return Result.tryExecute(() -> {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(defaultSender);
+            message.setTo(request.emailRecipient());
+            message.setSubject(request.subject());
+            message.setText(request.content());
+            
+            emailSender.send(message);
+            log.info("Simple email sent successfully to: {}", request.emailRecipient());
+            
+            return NotificationResponse.success(notificationId, "EMAIL_" + System.currentTimeMillis());
+        }).match(
+            response -> response,
+            exception -> {
+                log.error("Failed to send simple email to: {}, error: {}", 
+                         request.emailRecipient(), exception.getMessage());
+                return NotificationResponse.failure(notificationId, exception.getMessage());
+            }
+        );
+    }
+    
+    private NotificationResponse sendTemplatedEmail(NotificationRequest request, String notificationId) {
+        return Result.tryExecuteChecked(() -> {
+            MimeMessage mimeMessage = emailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+            
+            helper.setFrom(defaultSender);
+            helper.setTo(request.emailRecipient());
+            helper.setSubject(request.subject());
+            
+            String htmlContent = processTemplate(request.templateName(), request.templateVariables());
+            helper.setText(htmlContent, true);
+            
+            emailSender.send(mimeMessage);
+            log.info("Templated email sent successfully to: {}", request.emailRecipient());
+            
+            return NotificationResponse.success(notificationId, "EMAIL_TEMPLATE_" + System.currentTimeMillis());
+        }).match(
+            response -> response,
+            exception -> {
+                log.error("Failed to send templated email to: {}, error: {}", 
+                         request.emailRecipient(), exception.getMessage());
+                return NotificationResponse.failure(notificationId, exception.getMessage());
+            }
+        );
+    }
+    
+    private String processTemplate(String templateName, Map<String, Object> variables) {
+        return Result.tryExecute(() -> {
             Context context = new Context();
             
-            if (variablesJson != null && !variablesJson.isEmpty()) {
-                Map<String, Object> variables = objectMapper.readValue(
-                    variablesJson, new TypeReference<Map<String, Object>>() {}
-                );
+            if (variables != null && !variables.isEmpty()) {
                 context.setVariables(variables);
             }
             
             return templateEngine.process(templateName, context);
-        } catch (Exception e) {
-            log.error("Failed to process email template: {}, error: {}", templateName, e.getMessage());
-            throw new RuntimeException("Template processing failed", e);
-        }
+        }).match(
+            content -> content,
+            exception -> {
+                log.error("Failed to process email template: {}, error: {}", templateName, exception.getMessage());
+                throw new RuntimeException("Template processing failed: " + exception.getMessage(), exception);
+            }
+        );
     }
     
-    // Pre-built email templates for common scenarios
-    public NotificationRequest createWelcomeEmail(String email, String firstName, String lastName) {
-        return NotificationRequest.builder()
-            .type(NotificationRequest.NotificationType.EMAIL)
-            .emailRecipient(email)
-            .recipient(email)
-            .subject("Welcome to TradeMaster - Your Trading Journey Begins!")
-            .templateName("welcome")
-            .templateVariables(createTemplateVariables(Map.of(
+    private NotificationResponse handleEmailResult(NotificationResponse result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Email notification error", throwable);
+            return NotificationResponse.failure("EMAIL_ERROR", throwable.getMessage());
+        }
+        return result;
+    }
+    
+    // Factory methods for common email types
+    public static NotificationRequest createWelcomeEmail(String email, String firstName, String lastName) {
+        return NotificationRequest.templated(
+            NotificationRequest.NotificationType.EMAIL,
+            email,
+            NotificationConstants.WELCOME_EMAIL_TEMPLATE,
+            Map.of(
                 "firstName", firstName,
                 "lastName", lastName,
                 "dashboardUrl", "https://app.trademaster.com/dashboard"
-            )))
-            .priority(NotificationRequest.Priority.MEDIUM)
-            .referenceType("USER_REGISTRATION")
-            .build();
+            )
+        );
     }
     
-    public NotificationRequest createKycApprovalEmail(String email, String firstName) {
-        return NotificationRequest.builder()
-            .type(NotificationRequest.NotificationType.EMAIL)
-            .emailRecipient(email)
-            .recipient(email)
-            .subject("KYC Verification Approved - Start Trading Now!")
-            .templateName("kyc-approved")
-            .templateVariables(createTemplateVariables(Map.of(
+    public static NotificationRequest createKycApprovalEmail(String email, String firstName) {
+        return NotificationRequest.templated(
+            NotificationRequest.NotificationType.EMAIL,
+            email,
+            NotificationConstants.KYC_APPROVAL_TEMPLATE,
+            Map.of(
                 "firstName", firstName,
                 "tradingUrl", "https://app.trademaster.com/trading"
-            )))
-            .priority(NotificationRequest.Priority.HIGH)
-            .referenceType("KYC_APPROVAL")
-            .build();
+            )
+        );
     }
     
-    public NotificationRequest createTradeExecutionEmail(String email, String firstName, 
-                                                        String symbol, String action, 
-                                                        String quantity, String price) {
-        return NotificationRequest.builder()
-            .type(NotificationRequest.NotificationType.EMAIL)
-            .emailRecipient(email)
-            .recipient(email)
-            .subject("Trade Executed: " + action + " " + quantity + " " + symbol)
-            .templateName("trade-execution")
-            .templateVariables(createTemplateVariables(Map.of(
-                "firstName", firstName,
-                "symbol", symbol,
-                "action", action,
-                "quantity", quantity,
-                "price", price,
-                "portfolioUrl", "https://app.trademaster.com/portfolio"
-            )))
-            .priority(NotificationRequest.Priority.HIGH)
-            .referenceType("TRADE_EXECUTION")
-            .build();
-    }
-    
-    public NotificationRequest createSecurityAlertEmail(String email, String firstName, 
-                                                       String alertType, String details) {
-        return NotificationRequest.builder()
-            .type(NotificationRequest.NotificationType.EMAIL)
-            .emailRecipient(email)
-            .recipient(email)
-            .subject("Security Alert: " + alertType)
-            .templateName("security-alert")
-            .templateVariables(createTemplateVariables(Map.of(
-                "firstName", firstName,
-                "alertType", alertType,
-                "details", details,
-                "securityUrl", "https://app.trademaster.com/security"
-            )))
-            .priority(NotificationRequest.Priority.URGENT)
-            .referenceType("SECURITY_ALERT")
-            .build();
-    }
-    
-    private String createTemplateVariables(Map<String, Object> variables) {
-        try {
-            return objectMapper.writeValueAsString(variables);
-        } catch (Exception e) {
-            log.error("Failed to serialize template variables", e);
-            return "{}";
+    /**
+     * Update notification history after send attempt
+     */
+    private CompletableFuture<NotificationResponse> updateHistoryAfterSend(
+            NotificationResponse response, 
+            String notificationId) {
+        
+        if (response.success()) {
+            return historyService.updateNotificationStatus(
+                    notificationId, 
+                    NotificationStatus.SENT, 
+                    response.deliveryId(), 
+                    "system")
+                .thenApply(historyResult -> response);
+        } else {
+            return historyService.markNotificationFailed(
+                    notificationId, 
+                    response.message(), 
+                    "system")
+                .thenApply(historyResult -> response);
         }
+    }
+    
+    private enum EmailType {
+        SIMPLE,
+        TEMPLATED,
+        INVALID
     }
 }

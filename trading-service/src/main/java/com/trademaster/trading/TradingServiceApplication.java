@@ -1,5 +1,6 @@
 package com.trademaster.trading;
 
+import com.trademaster.trading.config.JwtConfigurationProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -12,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 
 /**
  * Trading Service Application
@@ -42,7 +44,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
  * @since 2025-08-21
  */
 @SpringBootApplication
-@EnableConfigurationProperties
+@EnableConfigurationProperties(JwtConfigurationProperties.class)
 @EnableCaching
 @EnableJpaRepositories
 @EnableJpaAuditing
@@ -52,6 +54,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 @EnableTransactionManagement
 @EnableWebSocket
 @EnableMethodSecurity(prePostEnabled = true, securedEnabled = true)
+@EnableFeignClients
 public class TradingServiceApplication {
 
     public static void main(String[] args) {

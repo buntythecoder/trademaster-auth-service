@@ -50,7 +50,7 @@ public class PortfolioMCPController {
     @PostMapping("/trackPositions")
     @MCPMethod("trackPositions")
     @PreAuthorize("hasRole('AGENT') or hasRole('TRADING_SYSTEM')")
-    public ResponseEntity<MCPResponse<String>> trackPositions(
+    public ResponseEntity<MCPResponse> trackPositions(
             @MCPParam("accountId") @RequestParam String accountId,
             @MCPParam("symbols") @RequestParam List<String> symbols,
             @MCPParam("requestId") @RequestParam(required = false) Long requestId) {
@@ -62,23 +62,22 @@ public class PortfolioMCPController {
             CompletableFuture<String> result = portfolioAgent.trackPositions(accountId, symbols);
             String trackingResult = result.join();
             
-            return ResponseEntity.ok(MCPResponse.<String>builder()
-                .success(true)
-                .data(trackingResult)
-                .message("Position tracking initiated successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(requestId)
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/trackPositions")
+                .data(Map.of(
+                    "success", true,
+                    "data", trackingResult,
+                    "message", "Position tracking initiated successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "requestId", requestId,
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to track positions", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<String>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/trackPositions")
                 .error("Position tracking failed: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(requestId)
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId() + "-" + requestId)
                 .build());
         }
     }
@@ -90,7 +89,7 @@ public class PortfolioMCPController {
     @PostMapping("/calculatePerformanceMetrics")
     @MCPMethod("calculatePerformanceMetrics")
     @PreAuthorize("hasRole('AGENT') or hasRole('ANALYTICS_SYSTEM')")
-    public ResponseEntity<MCPResponse<String>> calculatePerformanceMetrics(
+    public ResponseEntity<MCPResponse> calculatePerformanceMetrics(
             @MCPParam("performanceRequest") @RequestBody @Validated PerformanceAnalyticsRequest request) {
         
         log.info("MCP: Received performance metrics calculation request for account: {}", 
@@ -104,23 +103,22 @@ public class PortfolioMCPController {
             );
             String analyticsResult = result.join();
             
-            return ResponseEntity.ok(MCPResponse.<String>builder()
-                .success(true)
-                .data(analyticsResult)
-                .message("Performance metrics calculated successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/calculatePerformanceMetrics")
+                .data(Map.of(
+                    "success", true,
+                    "data", analyticsResult,
+                    "message", "Performance metrics calculated successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "requestId", request.getRequestId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to calculate performance metrics", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<String>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/calculatePerformanceMetrics")
                 .error("Performance metrics calculation failed: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId() + "-" + request.getRequestId())
                 .build());
         }
     }
@@ -132,7 +130,7 @@ public class PortfolioMCPController {
     @PostMapping("/assessPortfolioRisk")
     @MCPMethod("assessPortfolioRisk")
     @PreAuthorize("hasRole('AGENT') or hasRole('RISK_SYSTEM')")
-    public ResponseEntity<MCPResponse<String>> assessPortfolioRisk(
+    public ResponseEntity<MCPResponse> assessPortfolioRisk(
             @MCPParam("riskRequest") @RequestBody @Validated RiskAssessmentRequest request) {
         
         log.info("MCP: Received risk assessment request for account: {} type: {}", 
@@ -145,23 +143,22 @@ public class PortfolioMCPController {
             );
             String riskResult = result.join();
             
-            return ResponseEntity.ok(MCPResponse.<String>builder()
-                .success(true)
-                .data(riskResult)
-                .message("Risk assessment completed successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/assessPortfolioRisk")
+                .data(Map.of(
+                    "success", true,
+                    "data", riskResult,
+                    "message", "Risk assessment completed successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "requestId", request.getRequestId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to assess portfolio risk", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<String>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/assessPortfolioRisk")
                 .error("Risk assessment failed: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId() + "-" + request.getRequestId())
                 .build());
         }
     }
@@ -173,7 +170,7 @@ public class PortfolioMCPController {
     @PostMapping("/optimizeAssetAllocation")
     @MCPMethod("optimizeAssetAllocation")
     @PreAuthorize("hasRole('AGENT') or hasRole('PORTFOLIO_SYSTEM')")
-    public ResponseEntity<MCPResponse<String>> optimizeAssetAllocation(
+    public ResponseEntity<MCPResponse> optimizeAssetAllocation(
             @MCPParam("allocationRequest") @RequestBody @Validated AssetAllocationRequest request) {
         
         log.info("MCP: Received asset allocation optimization request for account: {} strategy: {}", 
@@ -187,23 +184,22 @@ public class PortfolioMCPController {
             );
             String allocationResult = result.join();
             
-            return ResponseEntity.ok(MCPResponse.<String>builder()
-                .success(true)
-                .data(allocationResult)
-                .message("Asset allocation optimization completed successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/optimizeAssetAllocation")
+                .data(Map.of(
+                    "success", true,
+                    "data", allocationResult,
+                    "message", "Asset allocation optimization completed successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "requestId", request.getRequestId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to optimize asset allocation", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<String>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/optimizeAssetAllocation")
                 .error("Asset allocation optimization failed: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId() + "-" + request.getRequestId())
                 .build());
         }
     }
@@ -215,7 +211,7 @@ public class PortfolioMCPController {
     @PostMapping("/generatePortfolioReport")
     @MCPMethod("generatePortfolioReport")
     @PreAuthorize("hasRole('AGENT') or hasRole('REPORTING_SYSTEM')")
-    public ResponseEntity<MCPResponse<String>> generatePortfolioReport(
+    public ResponseEntity<MCPResponse> generatePortfolioReport(
             @MCPParam("reportRequest") @RequestBody @Validated PortfolioReportRequest request) {
         
         log.info("MCP: Received portfolio report generation request for account: {} type: {}", 
@@ -230,23 +226,22 @@ public class PortfolioMCPController {
             );
             String reportResult = result.join();
             
-            return ResponseEntity.ok(MCPResponse.<String>builder()
-                .success(true)
-                .data(reportResult)
-                .message("Portfolio report generated successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/generatePortfolioReport")
+                .data(Map.of(
+                    "success", true,
+                    "data", reportResult,
+                    "message", "Portfolio report generated successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "requestId", request.getRequestId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to generate portfolio report", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<String>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/generatePortfolioReport")
                 .error("Portfolio report generation failed: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .requestId(request.getRequestId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId() + "-" + request.getRequestId())
                 .build());
         }
     }
@@ -258,7 +253,7 @@ public class PortfolioMCPController {
     @GetMapping("/capabilities")
     @MCPMethod("getCapabilities")
     @PreAuthorize("hasRole('AGENT') or hasRole('ORCHESTRATION_SERVICE')")
-    public ResponseEntity<MCPResponse<AgentCapabilitiesResponse>> getCapabilities() {
+    public ResponseEntity<MCPResponse> getCapabilities() {
         
         log.info("MCP: Received capabilities request");
         
@@ -271,21 +266,21 @@ public class PortfolioMCPController {
                 .performanceSummary(capabilityRegistry.getPerformanceSummary())
                 .build();
                 
-            return ResponseEntity.ok(MCPResponse.<AgentCapabilitiesResponse>builder()
-                .success(true)
-                .data(capabilities)
-                .message("Agent capabilities retrieved successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/getCapabilities")
+                .data(Map.of(
+                    "success", true,
+                    "data", capabilities,
+                    "message", "Agent capabilities retrieved successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to get capabilities", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<AgentCapabilitiesResponse>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/getCapabilities")
                 .error("Failed to get capabilities: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId())
                 .build());
         }
     }
@@ -297,7 +292,7 @@ public class PortfolioMCPController {
     @GetMapping("/health")
     @MCPMethod("getHealth")
     @PreAuthorize("hasRole('AGENT') or hasRole('ORCHESTRATION_SERVICE')")
-    public ResponseEntity<MCPResponse<AgentHealthResponse>> getHealth() {
+    public ResponseEntity<MCPResponse> getHealth() {
         
         log.debug("MCP: Received health check request");
         
@@ -310,21 +305,21 @@ public class PortfolioMCPController {
                 .lastUpdate(System.currentTimeMillis())
                 .build();
                 
-            return ResponseEntity.ok(MCPResponse.<AgentHealthResponse>builder()
-                .success(true)
-                .data(health)
-                .message("Agent health retrieved successfully")
-                .agentId(portfolioAgent.getAgentId())
-                .processingTimeMs(System.currentTimeMillis())
+            return ResponseEntity.ok(MCPResponse.builder("mcp/portfolio/getHealth")
+                .data(Map.of(
+                    "success", true,
+                    "data", health,
+                    "message", "Agent health retrieved successfully",
+                    "agentId", portfolioAgent.getAgentId(),
+                    "processingTimeMs", System.currentTimeMillis()
+                ))
                 .build());
                 
         } catch (Exception e) {
             log.error("MCP: Failed to get health", e);
-            return ResponseEntity.badRequest().body(MCPResponse.<AgentHealthResponse>builder()
-                .success(false)
+            return ResponseEntity.badRequest().body(MCPResponse.builder("mcp/portfolio/getHealth")
                 .error("Failed to get health: " + e.getMessage())
-                .agentId(portfolioAgent.getAgentId())
-                .processingTimeMs(System.currentTimeMillis())
+                .correlationId(portfolioAgent.getAgentId())
                 .build());
         }
     }
@@ -368,17 +363,6 @@ class PortfolioReportRequest {
     private LocalDate endDate;
 }
 
-@lombok.Builder
-@lombok.Data
-class MCPResponse<T> {
-    private boolean success;
-    private T data;
-    private String error;
-    private String message;
-    private String agentId;
-    private Long requestId;
-    private Long processingTimeMs;
-}
 
 @lombok.Builder
 @lombok.Data

@@ -18,7 +18,8 @@ import java.util.UUID;
     @Index(name = "idx_user_documents_uploaded_at", columnList = "uploaded_at")
 })
 @EntityListeners(AuditingEntityListener.class)
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -97,5 +98,72 @@ public class UserDocument {
         }
         
         return String.format("%.1f %s", size, units[unitIndex]);
+    }
+    
+    // Helper methods for controller compatibility
+    public UUID getUserId() {
+        return userProfile != null ? userProfile.getUserId() : null;
+    }
+    
+    public String getContentType() {
+        return mimeType;
+    }
+    
+    public String getStoragePath() {
+        return filePath;
+    }
+    
+    public String getDescription() {
+        return verificationRemarks;
+    }
+    
+    public String getVerifierNotes() {
+        return verificationRemarks;
+    }
+    
+    public java.time.LocalDateTime getUploadTimestamp() {
+        return uploadedAt != null ? java.time.LocalDateTime.ofInstant(uploadedAt, java.time.ZoneOffset.UTC) : null;
+    }
+    
+    public java.time.LocalDateTime getVerificationTimestamp() {
+        return verifiedAt != null ? java.time.LocalDateTime.ofInstant(verifiedAt, java.time.ZoneOffset.UTC) : null;
+    }
+    
+    public Integer getVersion() {
+        return 1; // Default version
+    }
+    
+    public java.time.LocalDateTime getCreatedAt() {
+        return getUploadTimestamp();
+    }
+    
+    public java.time.LocalDateTime getUpdatedAt() {
+        return getVerificationTimestamp() != null ? getVerificationTimestamp() : getUploadTimestamp();
+    }
+    
+    // Helper method for verification status update (service compatibility)
+    public UserDocument withVerificationStatus(VerificationStatus status, String remarks) {
+        this.verificationStatus = status;
+        this.verificationRemarks = remarks;
+        if (status == VerificationStatus.VERIFIED || status == VerificationStatus.REJECTED) {
+            this.verifiedAt = java.time.Instant.now();
+        }
+        return this;
+    }
+    
+    // Builder pattern support for service compatibility
+    public UserDocumentBuilder toBuilder() {
+        return UserDocument.builder()
+            .id(this.id)
+            .userProfile(this.userProfile)
+            .documentType(this.documentType)
+            .fileName(this.fileName)
+            .filePath(this.filePath)
+            .fileSize(this.fileSize)
+            .mimeType(this.mimeType)
+            .verificationStatus(this.verificationStatus)
+            .verificationRemarks(this.verificationRemarks)
+            .uploadedAt(this.uploadedAt)
+            .verifiedAt(this.verifiedAt);
     }
 }

@@ -1,5 +1,7 @@
 package com.trademaster.agentos.domain.entity;
 
+import lombok.Getter;
+
 /**
  * Agent Capability Enumeration
  * 
@@ -14,6 +16,7 @@ public enum AgentCapability {
     MARKET_SCREENING("Market Screening", "Screen and filter securities based on criteria"),
     PRICE_PREDICTION("Price Prediction", "Predict future price movements using models"),
     PATTERN_RECOGNITION("Pattern Recognition", "Identify chart patterns and formations"),
+    REAL_TIME_ANALYSIS("Real-time Analysis", "Perform real-time market analysis"),
     
     // Portfolio Management Capabilities
     PORTFOLIO_OPTIMIZATION("Portfolio Optimization", "Optimize asset allocation for risk/return"),
@@ -96,7 +99,8 @@ public enum AgentCapability {
     public CapabilityCategory getCategory() {
         return switch (this) {
             case TECHNICAL_ANALYSIS, FUNDAMENTAL_ANALYSIS, SENTIMENT_ANALYSIS, 
-                 MARKET_SCREENING, PRICE_PREDICTION, PATTERN_RECOGNITION -> CapabilityCategory.MARKET_ANALYSIS;
+                 MARKET_SCREENING, PRICE_PREDICTION, PATTERN_RECOGNITION, 
+                 REAL_TIME_ANALYSIS -> CapabilityCategory.MARKET_ANALYSIS;
                  
             case PORTFOLIO_OPTIMIZATION, ASSET_ALLOCATION, RISK_ASSESSMENT, 
                  PERFORMANCE_ANALYSIS, REBALANCING, DIVERSIFICATION_ANALYSIS -> CapabilityCategory.PORTFOLIO_MANAGEMENT;
@@ -165,6 +169,7 @@ public enum AgentCapability {
     /**
      * Capability categories for grouping and organization
      */
+    @Getter
     public enum CapabilityCategory {
         MARKET_ANALYSIS("Market Analysis", "Capabilities related to market research and analysis"),
         PORTFOLIO_MANAGEMENT("Portfolio Management", "Capabilities for portfolio optimization and management"),
@@ -184,12 +189,5 @@ public enum AgentCapability {
             this.description = description;
         }
 
-        public String getDisplayName() {
-            return displayName;
-        }
-
-        public String getDescription() {
-            return description;
-        }
     }
 }

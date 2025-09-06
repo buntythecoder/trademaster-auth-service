@@ -37,7 +37,6 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class UserProfileAgentOSConfig implements ApplicationRunner {
     
-    private final UserProfileAgent userProfileAgent;
     private final UserProfileCapabilityRegistry capabilityRegistry;
     
     private volatile boolean agentRegistered = false;
@@ -49,123 +48,52 @@ public class UserProfileAgentOSConfig implements ApplicationRunner {
      */
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        log.info("Initializing User Profile Agent for AgentOS integration...");
+        log.info("Initializing User Profile Service for AgentOS integration...");
         
         try {
             // Initialize capability registry with user profile capabilities
             capabilityRegistry.initializeCapabilities();
             
-            // Register agent with AgentOS orchestrator
-            registerWithAgentOS();
-            
-            // Perform initial health check
-            performInitialHealthCheck();
-            
-            log.info("User Profile Agent successfully initialized and registered with AgentOS");
-            
-        } catch (Exception e) {
-            log.error("Failed to initialize User Profile Agent", e);
-            throw new RuntimeException("User Profile Agent initialization failed", e);
-        }
-    }
-    
-    /**
-     * Register agent with the AgentOS orchestration service
-     */
-    private void registerWithAgentOS() {
-        try {
-            log.info("Registering User Profile Agent with AgentOS orchestrator...");
-            
-            // Set registration callback
-            userProfileAgent.onRegistration();
-            
-            var agentId = userProfileAgent.getAgentId();
-            var agentType = userProfileAgent.getAgentType();
-            var capabilities = userProfileAgent.getCapabilities();
-            var healthScore = userProfileAgent.getHealthScore();
-            
-            log.info("Agent Registration Details:");
-            log.info("  Agent ID: {}", agentId);
-            log.info("  Agent Type: {}", agentType);
-            log.info("  Capabilities: {}", capabilities);
-            log.info("  Initial Health Score: {}", healthScore);
-            
             agentRegistered = true;
             registrationTime = LocalDateTime.now();
             
-            log.info("User Profile Agent registered successfully with AgentOS");
+            log.info("User Profile Service successfully initialized");
             
         } catch (Exception e) {
-            log.error("Failed to register User Profile Agent with AgentOS", e);
-            agentRegistered = false;
-            throw new RuntimeException("Agent registration failed", e);
+            log.error("Failed to initialize User Profile Service", e);
+            throw new RuntimeException("User Profile Service initialization failed", e);
         }
     }
     
-    /**
-     * Perform initial health check after registration
-     */
-    private void performInitialHealthCheck() {
-        try {
-            log.info("Performing initial health check for User Profile Agent...");
-            
-            userProfileAgent.performHealthCheck();
-            
-            var healthScore = userProfileAgent.getHealthScore();
-            var performanceSummary = capabilityRegistry.getPerformanceSummary();
-            
-            log.info("Initial Health Check Results:");
-            log.info("  Overall Health Score: {}", healthScore);
-            log.info("  Capability Performance Summary: {}", performanceSummary);
-            
-            lastHealthCheck = LocalDateTime.now();
-            
-            log.info("Initial health check completed successfully");
-            
-        } catch (Exception e) {
-            log.error("Initial health check failed for User Profile Agent", e);
-            // Don't throw exception - allow agent to start but log the issue
-        }
-    }
     
     /**
      * Periodic health check and metrics reporting
-     * Runs every 30 seconds to monitor agent health
+     * Runs every 30 seconds to monitor service health
      */
     @Scheduled(fixedRate = 30000, initialDelay = 30000)
     public void performPeriodicHealthCheck() {
         
         if (!agentRegistered) {
-            log.warn("Skipping health check - agent not registered with AgentOS");
             return;
         }
         
         try {
-            log.debug("Performing periodic health check for User Profile Agent...");
-            
-            // Perform agent health check
-            userProfileAgent.performHealthCheck();
-            
-            var healthScore = userProfileAgent.getHealthScore();
+            var overallHealth = capabilityRegistry.calculateOverallHealthScore();
             var timeSinceRegistration = Duration.between(registrationTime, LocalDateTime.now());
             
             // Log health status
-            if (healthScore >= 0.8) {
-                log.debug("User Profile Agent health check: HEALTHY (Score: {})", healthScore);
-            } else if (healthScore >= 0.5) {
-                log.warn("User Profile Agent health check: DEGRADED (Score: {})", healthScore);
+            if (overallHealth >= 0.8) {
+                log.debug("User Profile Service health check: HEALTHY (Score: {})", overallHealth);
+            } else if (overallHealth >= 0.5) {
+                log.warn("User Profile Service health check: DEGRADED (Score: {})", overallHealth);
             } else {
-                log.error("User Profile Agent health check: UNHEALTHY (Score: {})", healthScore);
+                log.error("User Profile Service health check: UNHEALTHY (Score: {})", overallHealth);
             }
-            
-            // Log uptime information
-            log.debug("User Profile Agent uptime: {} minutes", timeSinceRegistration.toMinutes());
             
             lastHealthCheck = LocalDateTime.now();
             
         } catch (Exception e) {
-            log.error("Periodic health check failed for User Profile Agent", e);
-            // Continue operation despite health check failure
+            log.error("Periodic health check failed for User Profile Service", e);
         }
     }
     
@@ -280,24 +208,20 @@ public class UserProfileAgentOSConfig implements ApplicationRunner {
     }
     
     /**
-     * Clean shutdown and deregistration
+     * Clean shutdown
      */
     @EventListener
     public void handleContextClosed(ContextClosedEvent event) {
-        log.info("User Profile Agent shutting down - deregistering from AgentOS...");
+        log.info("User Profile Service shutting down...");
         
         try {
             if (agentRegistered) {
-                // Notify orchestrator of shutdown
-                userProfileAgent.onDeregistration();
-                
                 var uptime = Duration.between(registrationTime, LocalDateTime.now());
-                log.info("User Profile Agent deregistered successfully - Uptime: {} minutes", 
-                        uptime.toMinutes());
+                log.info("User Profile Service shutdown - Uptime: {} minutes", uptime.toMinutes());
             }
             
         } catch (Exception e) {
-            log.error("Error during User Profile Agent deregistration", e);
+            log.error("Error during User Profile Service shutdown", e);
         }
     }
     
@@ -334,10 +258,10 @@ public class UserProfileAgentOSConfig implements ApplicationRunner {
      * Reset capability metrics
      */
     public void resetCapabilityMetrics() {
-        log.info("Resetting all capability metrics for User Profile Agent...");
+        log.info("Resetting all capability metrics for User Profile Service...");
         
         try {
-            userProfileAgent.getCapabilities().forEach(capability -> {
+            capabilityRegistry.getCapabilities().forEach(capability -> {
                 capabilityRegistry.resetCapabilityMetrics(capability);
                 log.info("Reset metrics for capability: {}", capability);
             });

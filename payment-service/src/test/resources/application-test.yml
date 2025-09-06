@@ -1,0 +1,111 @@
+# Test Configuration for Payment Service
+# Optimized for unit testing and integration testing
+
+server:
+  port: 0  # Random port for tests
+
+spring:
+  application:
+    name: payment-service-test
+    
+  # In-memory database for tests
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    
+  # JPA test configuration
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+    open-in-view: false
+    
+  # Disable Liquibase for tests
+  liquibase:
+    enabled: false
+    
+  # Test Kafka (embedded)
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: payment-service-test
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      
+  # Test mail configuration (mock)
+  mail:
+    host: localhost
+    port: 1025
+    username: test
+    password: test
+    
+  # Test Redis (embedded)
+  redis:
+    host: localhost
+    port: 6370  # Different port for tests
+    timeout: 1000ms
+
+# Test Payment Gateway Configuration
+payment:
+  razorpay:
+    key-id: test_key_id
+    key-secret: test_key_secret
+    webhook-secret: test_webhook_secret
+  stripe:
+    public-key: pk_test_123
+    secret-key: sk_test_456
+    webhook-secret: whsec_test_789
+
+# Test Resilience Configuration (faster timeouts for tests)
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 2s  # Faster for tests
+        permitted-number-of-calls-in-half-open-state: 2
+        sliding-window-type: count_based
+        sliding-window-size: 5
+        minimum-number-of-calls: 3
+        wait-duration-in-open-state: 5s   # Faster for tests
+        automatic-transition-from-open-to-half-open-enabled: true
+        
+  retry:
+    configs:
+      default:
+        max-attempts: 2  # Fewer retries in tests
+        wait-duration: 100ms
+        
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 3s  # Faster timeout for tests
+
+# Test logging configuration
+logging:
+  level:
+    com.trademaster: DEBUG
+    org.springframework.kafka: WARN
+    org.springframework.mail: WARN
+    org.hibernate: WARN
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %logger{36} - %msg%n"
+
+# Test actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

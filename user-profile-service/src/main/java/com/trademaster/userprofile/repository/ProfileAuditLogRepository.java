@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.InetAddress;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -70,7 +71,7 @@ public interface ProfileAuditLogRepository extends JpaRepository<ProfileAuditLog
            "ORDER BY pal.createdAt DESC")
     List<ProfileAuditLog> findRecentActivity(
         @Param("userProfileId") UUID userProfileId, 
-        @Param("since") Instant since
+        @Param("since") LocalDateTime since
     );
     
     /**
@@ -115,7 +116,7 @@ public interface ProfileAuditLogRepository extends JpaRepository<ProfileAuditLog
            "HAVING COUNT(DISTINCT pal.ipAddress) > :threshold")
     List<ProfileAuditLog> findSuspiciousActivity(
         @Param("userProfileId") UUID userProfileId,
-        @Param("since") Instant since,
+        @Param("since") LocalDateTime since,
         @Param("threshold") int threshold
     );
     
@@ -177,7 +178,7 @@ public interface ProfileAuditLogRepository extends JpaRepository<ProfileAuditLog
            "HAVING COUNT(pal) > :threshold " +
            "ORDER BY COUNT(pal) DESC")
     List<Object[]> findSuspiciousIpActivity(
-        @Param("since") Instant since,
+        @Param("since") LocalDateTime since,
         @Param("threshold") long threshold
     );
     

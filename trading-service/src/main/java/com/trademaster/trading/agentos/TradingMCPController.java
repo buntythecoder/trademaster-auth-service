@@ -1,5 +1,9 @@
 package com.trademaster.trading.agentos;
 
+import com.trademaster.trading.dto.OrderRequest;
+import com.trademaster.trading.model.OrderSide;
+import com.trademaster.trading.model.OrderType;
+import com.trademaster.trading.model.TimeInForce;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -56,16 +60,19 @@ public class TradingMCPController {
                 request.getSymbol(), request.getQuantity());
         
         try {
-            OrderRequest orderRequest = OrderRequest.builder()
-                .requestId(request.getRequestId())
-                .symbol(request.getSymbol())
-                .side(request.getSide())
-                .quantity(request.getQuantity())
-                .price(request.getPrice())
-                .orderType(request.getOrderType())
-                .timeInForce(request.getTimeInForce())
-                .userId(request.getUserId())
-                .build();
+            OrderRequest orderRequest = new OrderRequest(
+                request.getSymbol(),
+                "NSE", // Default exchange
+                OrderType.valueOf(request.getOrderType()),
+                OrderSide.valueOf(request.getSide()),
+                request.getQuantity().intValue(),
+                request.getPrice(),
+                null, // stop price
+                TimeInForce.valueOf(request.getTimeInForce()),
+                null, // expiry date
+                null, // broker name
+                request.getRequestId() != null ? request.getRequestId().toString() : null
+            );
                 
             CompletableFuture<String> result = tradingAgent.executeOrder(orderRequest);
             String executionResult = result.join();
@@ -104,13 +111,19 @@ public class TradingMCPController {
         log.info("MCP: Received risk assessment request for symbol: {}", request.getSymbol());
         
         try {
-            OrderRequest orderRequest = OrderRequest.builder()
-                .symbol(request.getSymbol())
-                .quantity(request.getQuantity())
-                .price(request.getPrice())
-                .side(request.getSide())
-                .userId(request.getUserId())
-                .build();
+            OrderRequest orderRequest = new OrderRequest(
+                request.getSymbol(),
+                "NSE", // Default exchange
+                OrderType.MARKET, // Default for risk assessment
+                OrderSide.valueOf(request.getSide()),
+                request.getQuantity().intValue(),
+                request.getPrice(),
+                null, // stop price
+                TimeInForce.DAY,
+                null, // expiry date
+                null, // broker name
+                null // client order ref
+            );
                 
             CompletableFuture<String> result = tradingAgent.performRiskAssessment(orderRequest);
             String assessmentResult = result.join();
@@ -151,13 +164,19 @@ public class TradingMCPController {
                 request.getSymbol(), availableBrokers.size());
         
         try {
-            OrderRequest orderRequest = OrderRequest.builder()
-                .symbol(request.getSymbol())
-                .quantity(request.getQuantity())
-                .price(request.getPrice())
-                .side(request.getSide())
-                .orderType(request.getOrderType())
-                .build();
+            OrderRequest orderRequest = new OrderRequest(
+                request.getSymbol(),
+                "NSE", // Default exchange
+                OrderType.valueOf(request.getOrderType()),
+                OrderSide.valueOf(request.getSide()),
+                request.getQuantity().intValue(),
+                request.getPrice(),
+                null, // stop price
+                TimeInForce.DAY,
+                null, // expiry date
+                null, // broker name
+                null // client order ref
+            );
                 
             CompletableFuture<String> result = tradingAgent.routeToOptimalBroker(orderRequest, availableBrokers);
             String routingResult = result.join();
@@ -237,12 +256,19 @@ public class TradingMCPController {
                 request.getUserId(), request.getSymbol());
         
         try {
-            OrderRequest orderRequest = OrderRequest.builder()
-                .symbol(request.getSymbol())
-                .quantity(request.getQuantity())
-                .side(request.getSide())
-                .userId(request.getUserId())
-                .build();
+            OrderRequest orderRequest = new OrderRequest(
+                request.getSymbol(),
+                "NSE", // Default exchange
+                OrderType.MARKET, // Default for compliance check
+                OrderSide.valueOf(request.getSide()),
+                request.getQuantity().intValue(),
+                null, // limit price
+                null, // stop price
+                TimeInForce.DAY,
+                null, // expiry date
+                null, // broker name
+                null // client order ref
+            );
                 
             CompletableFuture<String> result = tradingAgent.performComplianceCheck(orderRequest, request.getUserId());
             String complianceResult = result.join();

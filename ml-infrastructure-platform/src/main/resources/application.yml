@@ -1,0 +1,509 @@
+# ML Infrastructure Platform Configuration
+# Production-Grade MLOps Platform Configuration
+
+spring:
+  application:
+    name: ml-infrastructure-platform
+  
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  
+  # Virtual Threads Configuration (Java 24)
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
+  
+  # Database Configuration
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ml_platform}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 20000
+      validation-timeout: 5000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        show_sql: false
+        jdbc:
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+        connection:
+          provider_disables_autocommit: true
+    open-in-view: false
+  
+  # Flyway Configuration
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    clean-disabled: true
+  
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
+    consumer:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      group-id: ml-platform-consumer
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.trademaster.mlinfra"
+        session.timeout.ms: 30000
+        heartbeat.interval.ms: 3000
+        max.poll.interval.ms: 300000
+        fetch.min.bytes: 1
+        fetch.max.wait.ms: 500
+  
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000  # 1 hour
+      cache-null-values: false
+      key-prefix: "ml-platform:"
+      use-key-prefix: true
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      write-durations-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+      adjust-dates-to-context-time-zone: false
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: ${SERVER_CONTEXT_PATH:}
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: text/html,text/xml,text/plain,text/css,application/javascript,application/json,application/xml
+  http2:
+    enabled: true
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: on_param
+  forward-headers-strategy: native
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      show-components: always
+      probes:
+        enabled: true
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        step: 60s
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        method.timed: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active}
+      version: ${application.version:unknown}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+    os:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster: ${LOGGING_LEVEL_TRADEMASTER:INFO}
+    org.springframework.kafka: WARN
+    org.springframework.security: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    io.micrometer: INFO
+    org.mlflow: INFO
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:%5p}) %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:%wEx}"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: ${LOGGING_FILE_NAME:logs/ml-platform.log}
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      total-size-cap: 1GB
+      max-history: 30
+      clean-history-on-start: true
+
+# Custom ML Platform Configuration
+ml:
+  infrastructure:
+    minio:
+      endpoint: ${ML_INFRASTRUCTURE_MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${ML_INFRASTRUCTURE_MINIO_ACCESS_KEY:minioadmin}
+      secret-key: ${ML_INFRASTRUCTURE_MINIO_SECRET_KEY:minioadmin}
+      bucket: ${ML_INFRASTRUCTURE_MINIO_BUCKET:ml-platform}
+      region: ${ML_INFRASTRUCTURE_MINIO_REGION:us-east-1}
+      path-style: true
+    
+    monitoring:
+      prometheus:
+        endpoint: ${ML_MONITORING_PROMETHEUS_ENDPOINT:http://localhost:9090}
+        scrape-interval: 15
+        labels:
+          service: ml-infrastructure
+          team: ml-team
+      logging:
+        level: INFO
+        pattern: "%d{HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+        structured: true
+        exclude-classes:
+          - org.apache.kafka
+          - org.springframework.kafka
+      tracing:
+        enabled: true
+        endpoint: ${ML_TRACING_ENDPOINT:http://localhost:14268/api/traces}
+        sampling-rate: 0.1
+      enabled: true
+    
+    performance:
+      inference:
+        timeout: 5s
+        max-concurrent-requests: 1000
+        batch-size: 32
+        latency-target: 50ms
+      training:
+        max-parallel-jobs: 5
+        job-timeout: 24h
+        default-framework: pytorch
+        resource-limits:
+          cpu: "4"
+          memory: "8Gi"
+          gpu: "1"
+      caching:
+        feature-ttl: 1h
+        model-ttl: 7d
+        experiment-ttl: 30d
+        max-cache-size: 10000
+      resources:
+        cpu-limit: "2"
+        memory-limit: "4Gi"
+        gpu-limit: "1"
+        storage-limit: "10Gi"
+    
+    security:
+      authentication:
+        jwt-secret: ${ML_SECURITY_JWT_SECRET:ml-platform-secret-key-change-in-production}
+        jwt-expiration: 24h
+        issuer: ml-infrastructure-platform
+        require-authentication: true
+      authorization:
+        enable-rbac: true
+        admin-roles:
+          - ADMIN
+          - ML_ENGINEER
+        user-roles:
+          - USER
+          - VIEWER
+        resource-permissions:
+          experiments:
+            - READ
+            - WRITE
+          models:
+            - READ
+            - DEPLOY
+          features:
+            - READ
+            - WRITE
+      encryption:
+        algorithm: AES-256-GCM
+        key-size: "256"
+        encrypt-at-rest: true
+        encrypt-in-transit: true
+      audit:
+        enabled: true
+        audited-operations:
+          - MODEL_DEPLOY
+          - EXPERIMENT_CREATE
+          - FEATURE_CREATE
+          - USER_LOGIN
+        retention-period: 365d
+        log-level: INFO
+  
+  mlflow:
+    tracking-uri: ${ML_MLFLOW_TRACKING_URI:http://localhost:5000}
+    registry-uri: ${ML_MLFLOW_REGISTRY_URI:http://localhost:5000}
+    artifact-uri: ${ML_MLFLOW_ARTIFACT_URI:s3://ml-platform/mlflow-artifacts}
+    
+    experiment:
+      default-experiment-name: default-experiment
+      max-runs-per-experiment: 1000
+      run-timeout: 24h
+      auto-log-metrics: true
+      auto-log-params: true
+      auto-log-artifacts: true
+      default-tags:
+        environment: ${spring.profiles.active}
+        team: ml-team
+        project: trademaster
+    
+    model-registry:
+      default-model-name: default-model
+      staging-stage: Staging
+      production-stage: Production
+      archived-stage: Archived
+      require-approval: true
+      approval-timeout: 7d
+      max-model-versions: 10
+    
+    auth:
+      enabled: false
+      username: ${ML_MLFLOW_USERNAME:mlflow}
+      password: ${ML_MLFLOW_PASSWORD:mlflow}
+      token-uri: http://localhost:5000/api/2.0/mlflow/users/get-token
+      token-expiration: 24h
+    
+    storage:
+      backend: s3
+      backend-uri: s3://ml-platform/mlflow
+      artifact-root: s3://ml-platform/mlflow-artifacts
+      max-artifact-size-mb: 500
+      artifact-ttl: 30d
+      s3-config:
+        AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:minioadmin}
+        AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:minioadmin}
+        MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL:http://localhost:9000}
+  
+  feature-store:
+    redis:
+      host: ${ML_FEATURE_STORE_REDIS_HOST:localhost}
+      port: ${ML_FEATURE_STORE_REDIS_PORT:6379}
+      password: ${ML_FEATURE_STORE_REDIS_PASSWORD:}
+      database: ${ML_FEATURE_STORE_REDIS_DATABASE:0}
+      timeout: 5s
+      max-connections: 100
+      ssl: false
+    
+    postgres:
+      url: ${ML_FEATURE_STORE_POSTGRES_URL:jdbc:postgresql://localhost:5432/ml_platform}
+      username: ${ML_FEATURE_STORE_POSTGRES_USERNAME:postgres}
+      password: ${ML_FEATURE_STORE_POSTGRES_PASSWORD:postgres}
+      schema: feature_store
+      max-pool-size: 20
+      connection-timeout: 10s
+      ssl: false
+    
+    features:
+      default-ttl: 24h
+      max-feature-groups: 100
+      max-features-per-group: 1000
+      enable-versioning: true
+      enable-lineage: true
+      validation:
+        enabled: true
+        validation-timeout: 10s
+        validation-rules:
+          - not_null
+          - range_check
+          - type_check
+          - pattern_match
+        max-validation-errors: 10
+      supported-data-types:
+        - string
+        - integer
+        - float
+        - boolean
+        - timestamp
+        - array
+        - json
+    
+    monitoring:
+      enable-data-drift: true
+      enable-data-quality: true
+      monitoring-interval: 15m
+      drift:
+        threshold: 0.05
+        method: ks_test
+        reference-window: 7d
+        comparison-window: 1d
+        monitored-features: []
+      quality:
+        min-samples: 1000
+        missing-value-threshold: 0.1
+        outlier-threshold: 0.05
+        quality-metrics:
+          - completeness
+          - uniqueness
+          - validity
+          - consistency
+          - timeliness
+
+# Application Info
+info:
+  app:
+    name: ${spring.application.name}
+    description: Production-Grade ML Infrastructure Platform for TradeMaster
+    version: 1.0.0
+    encoding: UTF-8
+    java:
+      version: ${java.version}
+  build:
+    artifact: ${project.artifactId:ml-infrastructure-platform}
+    name: ${project.name:ML Infrastructure Platform}
+    time: ${project.build.time:unknown}
+    version: ${project.version:1.0.0}
+  git:
+    branch: ${git.branch:unknown}
+    commit:
+      id: ${git.commit.id.abbrev:unknown}
+      time: ${git.commit.time:unknown}
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ml_platform_dev
+    username: postgres
+    password: postgres
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        show_sql: true
+        format_sql: true
+  
+  kafka:
+    bootstrap-servers: localhost:9092
+  
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+logging:
+  level:
+    com.trademaster: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+---
+# Test Profile
+spring:
+  config:
+    activate:
+      on-profile: test
+  
+  datasource:
+    url: jdbc:h2:mem:testdb
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers}
+  
+  data:
+    redis:
+      host: localhost
+      port: 6370  # Different port for tests
+
+logging:
+  level:
+    com.trademaster: DEBUG
+    org.springframework: WARN
+    org.hibernate: WARN
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+  
+  jpa:
+    properties:
+      hibernate:
+        show_sql: false
+        format_sql: false
+
+logging:
+  level:
+    com.trademaster: INFO
+    org.springframework: INFO
+    org.hibernate: WARN
+    root: WARN
+  file:
+    name: /var/log/ml-platform/application.log

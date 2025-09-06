@@ -1,26 +1,23 @@
 package com.trademaster.brokerauth.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.trademaster.brokerauth.config.CorrelationConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 /**
  * Structured Logging Service
  * 
- * Provides structured JSON logging for ELK stack integration.
- * Includes correlation tracking and standardized log formats.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Structured logging with correlation IDs - Rule #15
+ * MANDATORY: Virtual Threads for async logging - Rule #12
+ * MANDATORY: Functional patterns - Rule #3
  */
 @Service
 @RequiredArgsConstructor
@@ -30,231 +27,312 @@ public class StructuredLoggingService {
     private final ObjectMapper objectMapper;
     
     /**
-     * Log authentication event
+     * Log business event with structured format
+     * 
+     * MANDATORY: Structured logging - Rule #15
+     * MANDATORY: Virtual Threads - Rule #12
      */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logAuthEvent(String eventType, String brokerType, 
-                                               Long userId, boolean success, 
-                                               Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("AUTH_EVENT", eventType);
-                logData.put("brokerType", brokerType);
-                logData.put("userId", userId);
-                logData.put("success", success);
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
-                }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                
-                if (success) {
-                    log.info("AUTH_EVENT: {}", jsonLog);
-                } else {
-                    log.warn("AUTH_EVENT: {}", jsonLog);
-                }
-                
-            } catch (Exception e) {
-                log.error("Failed to log authentication event", e);
-            }
-        });
-    }
-    
-    /**
-     * Log session event
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSessionEvent(String eventType, String sessionId, 
-                                                  String brokerType, Long userId,
-                                                  Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("SESSION_EVENT", eventType);
-                logData.put("sessionId", sessionId);
-                logData.put("brokerType", brokerType);
-                logData.put("userId", userId);
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
-                }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                log.info("SESSION_EVENT: {}", jsonLog);
-                
-            } catch (Exception e) {
-                log.error("Failed to log session event", e);
-            }
-        });
-    }
-    
-    /**
-     * Log rate limit event
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logRateLimitEvent(String eventType, String brokerType, 
-                                                    Long userId, boolean exceeded,
-                                                    Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("RATE_LIMIT_EVENT", eventType);
-                logData.put("brokerType", brokerType);
-                logData.put("userId", userId);
-                logData.put("exceeded", exceeded);
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
-                }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                
-                if (exceeded) {
-                    log.warn("RATE_LIMIT_EVENT: {}", jsonLog);
-                } else {
-                    log.debug("RATE_LIMIT_EVENT: {}", jsonLog);
-                }
-                
-            } catch (Exception e) {
-                log.error("Failed to log rate limit event", e);
-            }
-        });
-    }
-    
-    /**
-     * Log error with full context
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logError(String eventType, String errorMessage, 
-                                           String errorCategory, Throwable throwable,
-                                           Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("ERROR_EVENT", eventType);
-                logData.put("errorMessage", errorMessage);
-                logData.put("errorCategory", errorCategory);
-                
-                if (throwable != null) {
-                    logData.put("exceptionType", throwable.getClass().getSimpleName());
-                    logData.put("stackTrace", getStackTraceString(throwable));
-                }
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
-                }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                log.error("ERROR_EVENT: {}", jsonLog);
-                
-            } catch (Exception e) {
-                log.error("Failed to log error event", e);
-            }
-        });
-    }
-    
-    /**
-     * Log security incident
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSecurityIncident(String incidentType, String severity,
-                                                      String userId, String clientIp,
-                                                      String userAgent, Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("SECURITY_INCIDENT", incidentType);
-                logData.put("severity", severity);
-                logData.put("affectedUserId", userId);
-                logData.put("clientIp", clientIp);
-                logData.put("userAgent", userAgent);
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
-                }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                log.warn("SECURITY_INCIDENT: {}", jsonLog);
-                
-            } catch (Exception e) {
-                log.error("Failed to log security incident", e);
-            }
-        });
+    public CompletableFuture<Void> logBusinessEvent(
+            String eventType, String userId, String brokerType, 
+            String action, String status, Map<String, Object> details) {
+        
+        return CompletableFuture
+            .runAsync(() -> performBusinessEventLogging(eventType, userId, brokerType,
+                     action, status, details),
+                     Executors.newVirtualThreadPerTaskExecutor());
     }
     
     /**
      * Log performance metrics
+     * 
+     * MANDATORY: Performance monitoring - Rule #22
      */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logPerformanceMetrics(String operationType, long durationMs,
-                                                         boolean success, Map<String, Object> additionalData) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> logData = createBaseLogData("PERFORMANCE_METRICS", operationType);
-                logData.put("durationMs", durationMs);
-                logData.put("success", success);
-                
-                if (additionalData != null) {
-                    logData.putAll(additionalData);
+    public CompletableFuture<Void> logPerformanceMetric(
+            String operation, long executionTimeMs, boolean success,
+            Map<String, Object> metrics) {
+        
+        return CompletableFuture
+            .runAsync(() -> performPerformanceLogging(operation, executionTimeMs, 
+                     success, metrics),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log error event with context
+     * 
+     * MANDATORY: Error tracking - Rule #11
+     */
+    public CompletableFuture<Void> logError(
+            String operation, String errorType, String errorMessage,
+            Throwable throwable, Map<String, Object> context) {
+        
+        return CompletableFuture
+            .runAsync(() -> performErrorLogging(operation, errorType, errorMessage,
+                     throwable, context),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log integration event (API calls, database operations)
+     * 
+     * MANDATORY: Integration monitoring - Rule #22
+     */
+    public CompletableFuture<Void> logIntegrationEvent(
+            String integrationType, String endpoint, String method,
+            int statusCode, long responseTimeMs, Map<String, Object> details) {
+        
+        return CompletableFuture
+            .runAsync(() -> performIntegrationLogging(integrationType, endpoint,
+                     method, statusCode, responseTimeMs, details),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Create correlation context for request tracking
+     * 
+     * MANDATORY: Correlation tracking - Rule #15
+     */
+    public String createCorrelationContext(String userId, String operation) {
+        String correlationId = UUID.randomUUID().toString();
+        
+        MDC.put("correlationId", correlationId);
+        MDC.put("userId", sanitizeUserId(userId));
+        MDC.put("operation", operation);
+        MDC.put("timestamp", LocalDateTime.now().toString());
+        
+        return correlationId;
+    }
+    
+    /**
+     * Clear correlation context
+     * 
+     * MANDATORY: Context cleanup - Rule #15
+     */
+    public void clearCorrelationContext() {
+        MDC.clear();
+    }
+    
+    /**
+     * Execute operation with correlation context
+     * 
+     * MANDATORY: Contextual execution - Rule #15
+     */
+    public <T> CompletableFuture<T> executeWithCorrelation(
+            String userId, String operation, java.util.function.Supplier<T> supplier) {
+        
+        return CompletableFuture
+            .supplyAsync(() -> {
+                String correlationId = createCorrelationContext(userId, operation);
+                try {
+                    T result = supplier.get();
+                    logBusinessEvent("OPERATION_SUCCESS", userId, null, operation, 
+                        "SUCCESS", Map.of("correlationId", correlationId));
+                    return result;
+                } catch (Exception e) {
+                    logError(operation, e.getClass().getSimpleName(), e.getMessage(), 
+                        e, Map.of("correlationId", correlationId));
+                    throw e;
+                } finally {
+                    clearCorrelationContext();
                 }
-                
-                String jsonLog = objectMapper.writeValueAsString(logData);
-                log.info("PERFORMANCE_METRICS: {}", jsonLog);
-                
-            } catch (Exception e) {
-                log.error("Failed to log performance metrics", e);
+            }, Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    private void performBusinessEventLogging(
+            String eventType, String userId, String brokerType,
+            String action, String status, Map<String, Object> details) {
+        
+        try {
+            Map<String, Object> logEntry = Map.of(
+                "type", "BUSINESS_EVENT",
+                "eventType", eventType,
+                "timestamp", LocalDateTime.now().toString(),
+                "correlationId", MDC.get("correlationId"),
+                "userId", sanitizeUserId(userId),
+                "brokerType", brokerType != null ? brokerType : "N/A",
+                "action", action,
+                "status", status,
+                "details", sanitizeLogDetails(details)
+            );
+            
+            String logJson = objectMapper.writeValueAsString(logEntry);
+            
+            switch (status.toUpperCase()) {
+                case "SUCCESS" -> log.info("BUSINESS_EVENT: {}", logJson);
+                case "FAILURE" -> log.warn("BUSINESS_EVENT: {}", logJson);
+                case "ERROR" -> log.error("BUSINESS_EVENT: {}", logJson);
+                default -> log.info("BUSINESS_EVENT: {}", logJson);
             }
-        });
+            
+        } catch (Exception e) {
+            log.error("Failed to log business event: {} action: {}", eventType, action, e);
+        }
     }
     
-    /**
-     * Create base log data with correlation information
-     */
-    private Map<String, Object> createBaseLogData(String logType, String eventType) {
-        Map<String, Object> logData = new HashMap<>();
+    private void performPerformanceLogging(
+            String operation, long executionTimeMs, boolean success,
+            Map<String, Object> metrics) {
         
-        // Add correlation information
-        logData.put("logType", logType);
-        logData.put("eventType", eventType);
-        logData.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        logData.put("service", "broker-auth-service");
-        logData.put("version", "1.0.0");
-        
-        // Add correlation context if available
-        String correlationId = CorrelationConfig.CorrelationContext.getCorrelationId();
-        if (correlationId != null) {
-            logData.put("correlationId", correlationId);
+        try {
+            Map<String, Object> logEntry = Map.of(
+                "type", "PERFORMANCE_METRIC",
+                "timestamp", LocalDateTime.now().toString(),
+                "correlationId", MDC.get("correlationId"),
+                "operation", operation,
+                "executionTimeMs", executionTimeMs,
+                "success", success,
+                "metrics", sanitizeLogDetails(metrics)
+            );
+            
+            String logJson = objectMapper.writeValueAsString(logEntry);
+            
+            // Log as warning if execution time is too high or operation failed
+            if (executionTimeMs > 5000 || !success) {
+                log.warn("PERFORMANCE_METRIC: {}", logJson);
+            } else {
+                log.info("PERFORMANCE_METRIC: {}", logJson);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to log performance metric for operation: {}", operation, e);
         }
-        
-        String requestId = CorrelationConfig.CorrelationContext.getRequestId();
-        if (requestId != null) {
-            logData.put("requestId", requestId);
-        }
-        
-        String userId = CorrelationConfig.CorrelationContext.getUserId();
-        if (userId != null) {
-            logData.put("contextUserId", userId);
-        }
-        
-        return logData;
     }
     
-    /**
-     * Extract stack trace as string
-     */
-    private String getStackTraceString(Throwable throwable) {
-        if (throwable == null) {
-            return null;
+    private void performErrorLogging(
+            String operation, String errorType, String errorMessage,
+            Throwable throwable, Map<String, Object> context) {
+        
+        try {
+            Map<String, Object> logEntry = Map.of(
+                "type", "ERROR_EVENT",
+                "timestamp", LocalDateTime.now().toString(),
+                "correlationId", MDC.get("correlationId"),
+                "operation", operation,
+                "errorType", errorType,
+                "errorMessage", sanitizeErrorMessage(errorMessage),
+                "stackTrace", throwable != null ? sanitizeStackTrace(throwable) : "N/A",
+                "context", sanitizeLogDetails(context)
+            );
+            
+            String logJson = objectMapper.writeValueAsString(logEntry);
+            log.error("ERROR_EVENT: {}", logJson);
+            
+        } catch (Exception e) {
+            log.error("Failed to log error event for operation: {}", operation, e);
+        }
+    }
+    
+    private void performIntegrationLogging(
+            String integrationType, String endpoint, String method,
+            int statusCode, long responseTimeMs, Map<String, Object> details) {
+        
+        try {
+            Map<String, Object> logEntry = Map.of(
+                "type", "INTEGRATION_EVENT",
+                "timestamp", LocalDateTime.now().toString(),
+                "correlationId", MDC.get("correlationId"),
+                "integrationType", integrationType,
+                "endpoint", sanitizeEndpoint(endpoint),
+                "method", method,
+                "statusCode", statusCode,
+                "responseTimeMs", responseTimeMs,
+                "details", sanitizeLogDetails(details)
+            );
+            
+            String logJson = objectMapper.writeValueAsString(logEntry);
+            
+            // Log level based on status code and response time
+            if (statusCode >= 500 || responseTimeMs > 5000) {
+                log.error("INTEGRATION_EVENT: {}", logJson);
+            } else if (statusCode >= 400 || responseTimeMs > 2000) {
+                log.warn("INTEGRATION_EVENT: {}", logJson);
+            } else {
+                log.info("INTEGRATION_EVENT: {}", logJson);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to log integration event: {} endpoint: {}", 
+                integrationType, endpoint, e);
+        }
+    }
+    
+    // Sanitization methods to prevent sensitive data leakage
+    
+    private String sanitizeUserId(String userId) {
+        if (userId == null) return "anonymous";
+        return userId.length() > 50 ? userId.substring(0, 50) + "..." : userId;
+    }
+    
+    private Map<String, Object> sanitizeLogDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        
+        return details.entrySet().stream()
+            .filter(entry -> !isSensitiveField(entry.getKey()))
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> sanitizeValue(entry.getValue())
+            ));
+    }
+    
+    private String sanitizeErrorMessage(String errorMessage) {
+        if (errorMessage == null) return "Unknown error";
+        
+        // Remove potentially sensitive information from error messages
+        String sanitized = errorMessage
+            .replaceAll("(?i)(password|secret|token|key)=[^\\s]+", "$1=***")
+            .replaceAll("(?i)(authorization|bearer)\\s+[^\\s]+", "$1 ***");
+        
+        return sanitized.length() > 500 ? sanitized.substring(0, 500) + "..." : sanitized;
+    }
+    
+    private String sanitizeStackTrace(Throwable throwable) {
+        if (throwable == null) return "No stack trace";
+        
+        // Get only the first few lines of stack trace
+        String stackTrace = java.util.Arrays.stream(throwable.getStackTrace())
+            .limit(5)
+            .map(StackTraceElement::toString)
+            .collect(java.util.stream.Collectors.joining("\n"));
+        
+        return sanitizeErrorMessage(stackTrace);
+    }
+    
+    private String sanitizeEndpoint(String endpoint) {
+        if (endpoint == null) return "unknown";
+        
+        // Remove query parameters that might contain sensitive data
+        int queryIndex = endpoint.indexOf('?');
+        if (queryIndex != -1) {
+            return endpoint.substring(0, queryIndex) + "?[parameters]";
         }
         
-        java.io.StringWriter sw = new java.io.StringWriter();
-        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-        throwable.printStackTrace(pw);
+        return endpoint;
+    }
+    
+    private Object sanitizeValue(Object value) {
+        if (value == null) return null;
         
-        String stackTrace = sw.toString();
-        
-        // Limit stack trace length to prevent log explosion
-        if (stackTrace.length() > 5000) {
-            stackTrace = stackTrace.substring(0, 5000) + "... (truncated)";
+        if (value instanceof String) {
+            String str = (String) value;
+            return str.length() > 200 ? str.substring(0, 200) + "..." : str;
         }
         
-        return stackTrace;
+        return value;
+    }
+    
+    private boolean isSensitiveField(String fieldName) {
+        if (fieldName == null) return false;
+        
+        String lower = fieldName.toLowerCase();
+        return lower.contains("password") || 
+               lower.contains("secret") || 
+               lower.contains("token") || 
+               lower.contains("key") ||
+               lower.contains("credential") ||
+               lower.contains("auth") ||
+               lower.contains("pin") ||
+               lower.contains("otp") ||
+               lower.contains("ssn") ||
+               lower.contains("social");
     }
 }

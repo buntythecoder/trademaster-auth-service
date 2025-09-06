@@ -49,7 +49,7 @@ public class AgentCommands {
                     .capabilities(agent.getCapabilities())
                     .maxConcurrentTasks(agent.getMaxConcurrentTasks())
                     .userId(agent.getUserId())
-                    .status(AgentStatus.STARTING)
+                    .status(AgentStatus.INITIALIZING)
                     .currentLoad(0)
                     .successRate(0.0)
                     .averageResponseTime(0L)
@@ -95,7 +95,7 @@ public class AgentCommands {
                     .orElseThrow(() -> new IllegalArgumentException("Agent not found: " + agentId));
                 
                 // ✅ STATE TRANSITION: Update status to stopping
-                agent.setStatus(AgentStatus.STOPPING);
+                agent.setStatus(AgentStatus.SHUTDOWN);
                 agent.setUpdatedAt(Instant.now());
                 agentRepository.save(agent);
                 
@@ -136,7 +136,7 @@ public class AgentCommands {
                 agent.setUpdatedAt(Instant.now());
                 
                 // ✅ CONDITIONAL LOGIC: Recover from unresponsive state
-                if (agent.getStatus() == AgentStatus.UNRESPONSIVE) {
+                if (agent.getStatus() == AgentStatus.FAILED) {
                     agent.setStatus(AgentStatus.ACTIVE);
                     structuredLogger.logAgentCreated(
                         agent.getAgentId().toString(),
@@ -269,7 +269,7 @@ public class AgentCommands {
                 var staleAgents = agentRepository.findAgentsWithStaleHeartbeat(staleThreshold)
                     .stream()
                     .peek(agent -> {
-                        agent.setStatus(AgentStatus.UNRESPONSIVE);
+                        agent.setStatus(AgentStatus.FAILED);
                         agent.setUpdatedAt(Instant.now());
                         structuredLogger.logSecurityIncident(
                             "agent_unresponsive",
@@ -316,7 +316,7 @@ public class AgentCommands {
     // ✅ HELPER METHOD: Pure function for status determination
     private AgentStatus determineStatusFromLoad(Agent agent) {
         if (agent.getCurrentLoad() >= agent.getMaxConcurrentTasks()) {
-            return AgentStatus.BUSY;
+            return AgentStatus.OVERLOADED;
         } else if (agent.getCurrentLoad() > 0) {
             return AgentStatus.ACTIVE;
         } else {

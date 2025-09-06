@@ -60,6 +60,18 @@ public class UsageTracking {
      */
     @Column(name = "feature_name", nullable = false, length = 50)
     private String featureName;
+    
+    /**
+     * Feature name (alias for compatibility) - using 'feature' instead of 'featureName'
+     */
+    @Transient
+    public String getFeature() {
+        return this.featureName;
+    }
+    
+    public void setFeature(String feature) {
+        this.featureName = feature;
+    }
 
     /**
      * Current usage count in this period
@@ -85,12 +97,58 @@ public class UsageTracking {
      */
     @Column(name = "period_end", nullable = false)
     private LocalDateTime periodEnd;
+    
+    /**
+     * Billing period aliases for compatibility
+     */
+    @Transient
+    public LocalDateTime getBillingPeriodStart() {
+        return this.periodStart;
+    }
+    
+    public void setBillingPeriodStart(LocalDateTime billingPeriodStart) {
+        this.periodStart = billingPeriodStart;
+    }
+    
+    @Transient
+    public LocalDateTime getBillingPeriodEnd() {
+        return this.periodEnd;
+    }
+    
+    public void setBillingPeriodEnd(LocalDateTime billingPeriodEnd) {
+        this.periodEnd = billingPeriodEnd;
+    }
 
     /**
      * When usage counter resets (daily, monthly, etc.)
      */
     @Column(name = "reset_date", nullable = false)
     private LocalDateTime resetDate;
+    
+    /**
+     * Last reset date alias for compatibility
+     */
+    @Transient
+    public LocalDateTime getLastResetDate() {
+        return this.resetDate;
+    }
+    
+    public void setLastResetDate(LocalDateTime lastResetDate) {
+        this.resetDate = lastResetDate;
+    }
+    
+    /**
+     * Last used date alias for compatibility
+     */
+    @Transient
+    public LocalDateTime getLastUsedDate() {
+        return this.getUpdatedAt();
+    }
+    
+    public void setLastUsedDate(LocalDateTime lastUsedDate) {
+        // For now, we'll use updatedAt as proxy for lastUsedDate
+        this.setUpdatedAt(lastUsedDate);
+    }
 
     /**
      * Reset frequency in days (1 for daily, 30 for monthly, etc.)

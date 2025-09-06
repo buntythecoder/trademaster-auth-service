@@ -183,6 +183,20 @@ public enum SubscriptionTier {
     }
     
     /**
+     * Get usage limit for a specific feature
+     */
+    public Long getUsageLimit(String feature) {
+        return switch (feature.toLowerCase()) {
+            case "watchlists" -> Long.valueOf(getLimits().getMaxWatchlists());
+            case "alerts" -> Long.valueOf(getLimits().getMaxAlerts());
+            case "api_calls" -> Long.valueOf(getLimits().getApiCallsPerDay());
+            case "portfolios" -> Long.valueOf(getLimits().getMaxPortfolios());
+            case "ai_analysis" -> Long.valueOf(getLimits().getAiAnalysisPerMonth());
+            default -> 0L;
+        };
+    }
+    
+    /**
      * Check if this tier can be upgraded to another tier
      */
     public boolean canUpgradeTo(SubscriptionTier targetTier) {

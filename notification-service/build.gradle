@@ -52,9 +52,21 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    implementation 'org.springframework.cloud:spring-cloud-starter-config'
+    implementation 'org.springframework.cloud:spring-cloud-starter-loadbalancer'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    
+    // OpenAPI Documentation
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+    
+    // Database Migrations
+    implementation 'org.liquibase:liquibase-core'
     
     // Database
     runtimeOnly 'org.postgresql:postgresql'
@@ -69,8 +81,18 @@ dependencies {
     // JSON Processing
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     
-    // Monitoring
+    // Circuit Breaker & Resilience
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-all:2.2.0'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+    
+    // Monitoring & Logging
     implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+    implementation 'ch.qos.logback:logback-classic'
+    implementation 'ch.qos.logback:logback-core'
     
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

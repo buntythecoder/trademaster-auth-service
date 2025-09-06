@@ -126,6 +126,7 @@ const timezones = [
 
 export const UserPreferences: React.FC = () => {
   const { user } = useAuthStore();
+  const isAdmin = user?.role === 'ADMIN';
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('display');
@@ -203,7 +204,7 @@ export const UserPreferences: React.FC = () => {
   const sections = [
     { id: 'display', label: 'Display & Language', icon: Monitor },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'trading', label: 'Trading Preferences', icon: DollarSign },
+    ...(isAdmin ? [] : [{ id: 'trading', label: 'Trading Preferences', icon: DollarSign }]),
     { id: 'privacy', label: 'Privacy & Security', icon: Shield }
   ];
 
@@ -711,7 +712,7 @@ export const UserPreferences: React.FC = () => {
       <div className="min-h-[600px]">
         {activeSection === 'display' && renderDisplaySection()}
         {activeSection === 'notifications' && renderNotificationsSection()}
-        {activeSection === 'trading' && renderTradingSection()}
+        {activeSection === 'trading' && !isAdmin && renderTradingSection()}
         {activeSection === 'privacy' && renderPrivacySection()}
       </div>
 

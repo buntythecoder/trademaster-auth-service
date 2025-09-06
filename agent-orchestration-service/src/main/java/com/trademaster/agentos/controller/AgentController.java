@@ -5,6 +5,7 @@ import com.trademaster.agentos.domain.entity.AgentStatus;
 import com.trademaster.agentos.domain.entity.AgentType;
 import com.trademaster.agentos.service.AgentService;
 import com.trademaster.agentos.service.AgentOrchestrationService;
+import com.trademaster.agentos.service.IAgentHealthService.AgentHealthSummary;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -189,10 +190,10 @@ public class AgentController {
      * Get system health summary
      */
     @GetMapping("/health/summary")
-    public ResponseEntity<AgentService.AgentHealthSummary> getSystemHealthSummary() {
+    public ResponseEntity<AgentHealthSummary> getSystemHealthSummary() {
         log.debug("REST: Getting system health summary");
         
-        AgentService.AgentHealthSummary healthSummary = agentService.getSystemHealthSummary();
+        AgentHealthSummary healthSummary = agentService.getSystemHealthSummary();
         return ResponseEntity.ok(healthSummary);
     }
 

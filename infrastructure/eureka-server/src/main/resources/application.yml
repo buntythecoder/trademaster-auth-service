@@ -1,0 +1,69 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: trademaster-eureka-server
+  
+  # Security Configuration
+  security:
+    user:
+      name: ${EUREKA_USERNAME:admin}
+      password: ${EUREKA_PASSWORD:admin}
+
+# Eureka Server Configuration
+eureka:
+  instance:
+    hostname: ${HOSTNAME:localhost}
+    prefer-ip-address: false
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+  server:
+    enable-self-preservation: false
+    eviction-interval-timer-in-ms: 10000
+    renewal-percent-threshold: 0.49
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging
+logging:
+  level:
+    com.netflix.eureka: INFO
+    com.netflix.discovery: INFO
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+
+eureka:
+  instance:
+    hostname: ${EUREKA_HOST:eureka-server}
+  server:
+    enable-self-preservation: true
+    eviction-interval-timer-in-ms: 30000
+    renewal-percent-threshold: 0.85
+
+logging:
+  level:
+    root: WARN
+    com.trademaster.eureka: INFO

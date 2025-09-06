@@ -481,6 +481,121 @@ export const DocumentUploadManager: React.FC = () => {
         })}
       </div>
 
+      {/* Preview Document Modal */}
+      {previewDocument && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-700/50 flex-shrink-0">
+              <div>
+                <h2 className="text-xl font-bold text-white">{previewDocument.name}</h2>
+                <p className="text-slate-400 text-sm">{previewDocument.category} • {formatFileSize(previewDocument.size)}</p>
+              </div>
+              <button
+                onClick={() => setPreviewDocument(null)}
+                className="p-2 hover:bg-slate-700/50 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex items-center justify-center h-full min-h-[400px] bg-slate-900/50 rounded-xl">
+                {previewDocument.metadata.mimeType.startsWith('image/') ? (
+                  <div className="text-center">
+                    <Image className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                    <p className="text-slate-300 mb-2">Image Preview</p>
+                    <p className="text-slate-400 text-sm">
+                      {previewDocument.metadata.dimensions ? 
+                        `${previewDocument.metadata.dimensions.width} × ${previewDocument.metadata.dimensions.height} pixels` : 
+                        'Image file'}
+                    </p>
+                  </div>
+                ) : previewDocument.metadata.mimeType === 'application/pdf' ? (
+                  <div className="text-center">
+                    <FileText className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                    <p className="text-slate-300 mb-2">PDF Document</p>
+                    <p className="text-slate-400 text-sm">
+                      {previewDocument.metadata.pages ? `${previewDocument.metadata.pages} pages` : 'PDF file'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <FileText className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                    <p className="text-slate-300 mb-2">Document Preview</p>
+                    <p className="text-slate-400 text-sm">File type: {previewDocument.metadata.mimeType}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Document Info */}
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-slate-300 mb-3">Document Details</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Type:</span>
+                      <span className="text-white">{previewDocument.category}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Size:</span>
+                      <span className="text-white">{formatFileSize(previewDocument.size)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Uploaded:</span>
+                      <span className="text-white">{previewDocument.uploadDate.toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Status:</span>
+                      <StatusBadge status={previewDocument.status} size="sm" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-slate-300 mb-3">File Information</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Format:</span>
+                      <span className="text-white">{previewDocument.metadata.mimeType.split('/')[1].toUpperCase()}</span>
+                    </div>
+                    {previewDocument.metadata.checksum && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Checksum:</span>
+                        <span className="text-white font-mono text-xs">{previewDocument.metadata.checksum.substring(0, 16)}...</span>
+                      </div>
+                    )}
+                    {previewDocument.rejectionReason && (
+                      <div>
+                        <span className="text-slate-400">Rejection Reason:</span>
+                        <p className="text-red-400 text-sm mt-1">{previewDocument.rejectionReason}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end space-x-3 p-6 border-t border-slate-700/50 flex-shrink-0">
+              {previewDocument.url && (
+                <button className="px-4 py-2 rounded-xl bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors font-medium flex items-center space-x-2">
+                  <Download className="w-4 h-4" />
+                  <span>Download</span>
+                </button>
+              )}
+              <button
+                onClick={() => setPreviewDocument(null)}
+                className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       <ConfirmationModal
         isOpen={deleteConfirm !== null}

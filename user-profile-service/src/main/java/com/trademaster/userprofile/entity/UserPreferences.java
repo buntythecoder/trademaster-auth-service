@@ -146,6 +146,17 @@ public class UserPreferences {
     @Column(name = "allow_analytics", nullable = false)
     @Builder.Default
     private Boolean allowAnalytics = true;
+    
+    /**
+     * Security preferences
+     */
+    @Column(name = "two_factor_enabled", nullable = false)
+    @Builder.Default
+    private Boolean twoFactorEnabled = false;
+    
+    @Column(name = "session_timeout", nullable = false)
+    @Builder.Default
+    private Integer sessionTimeout = 3600; // 1 hour default
 
     /**
      * Advanced preferences stored as JSON
@@ -195,6 +206,19 @@ public class UserPreferences {
     public boolean hasTradingNotificationsEnabled() {
         return tradingAlerts || priceAlerts;
     }
+    
+    // Methods expected by UserPreferencesService
+    public boolean hasAnyNotifications() {
+        return emailNotifications || smsNotifications || pushNotifications;
+    }
+    
+    public boolean hasAnyAlerts() {
+        return tradingAlerts || priceAlerts;
+    }
+    
+    public boolean isHighSecurityMode() {
+        return twoFactorEnabled && sessionTimeout != null && sessionTimeout <= 1800; // 30 minutes
+    }
 
     // Method to get advanced preference with default
     public String getAdvancedPreference(String key, String defaultValue) {
@@ -210,5 +234,90 @@ public class UserPreferences {
             advancedPreferences = new java.util.HashMap<>();
         }
         advancedPreferences.put(key, value);
+    }
+    
+    // Helper methods for functional updates (controller compatibility)
+    public UserPreferences withTheme(String newTheme) {
+        this.theme = newTheme;
+        return this;
+    }
+    
+    public UserPreferences withLanguage(String newLanguage) {
+        this.language = newLanguage;
+        return this;
+    }
+    
+    public UserPreferences withTimezone(String newTimezone) {
+        this.timezone = newTimezone;
+        return this;
+    }
+    
+    public UserPreferences withCurrency(String newCurrency) {
+        this.currency = newCurrency;
+        return this;
+    }
+    
+    public UserPreferences withEmailNotifications(Boolean enabled) {
+        this.emailNotifications = enabled;
+        return this;
+    }
+    
+    public UserPreferences withTradingAlerts(Boolean enabled) {
+        this.tradingAlerts = enabled;
+        return this;
+    }
+    
+    public UserPreferences withDashboardLayout(String newLayout) {
+        this.dashboardLayout = newLayout;
+        return this;
+    }
+    
+    public UserPreferences withChartType(String newChartType) {
+        this.chartType = newChartType;
+        return this;
+    }
+    
+    public UserPreferences withDefaultTimeFrame(String timeFrame) {
+        this.defaultTimeFrame = timeFrame;
+        return this;
+    }
+    
+    public UserPreferences withSmsNotifications(Boolean enabled) {
+        this.smsNotifications = enabled;
+        return this;
+    }
+    
+    public UserPreferences withPushNotifications(Boolean enabled) {
+        this.pushNotifications = enabled;
+        return this;
+    }
+    
+    public UserPreferences withPriceAlerts(Boolean enabled) {
+        this.priceAlerts = enabled;
+        return this;
+    }
+    
+    public UserPreferences withTwoFactorEnabled(Boolean enabled) {
+        this.twoFactorEnabled = enabled;
+        return this;
+    }
+    
+    public UserPreferences withSessionTimeout(Integer timeout) {
+        this.sessionTimeout = timeout;
+        return this;
+    }
+    
+    // Compound update methods expected by UserPreferencesService
+    public UserPreferences withNotificationSettings(Boolean email, Boolean sms, Boolean push) {
+        if (email != null) this.emailNotifications = email;
+        if (sms != null) this.smsNotifications = sms;
+        if (push != null) this.pushNotifications = push;
+        return this;
+    }
+    
+    public UserPreferences withSecuritySettings(Boolean twoFactorEnabled, Integer sessionTimeout) {
+        if (twoFactorEnabled != null) this.twoFactorEnabled = twoFactorEnabled;
+        if (sessionTimeout != null) this.sessionTimeout = sessionTimeout;
+        return this;
     }
 }

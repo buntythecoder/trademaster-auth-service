@@ -1,7 +1,6 @@
 package com.trademaster.trading.service;
 
 import com.trademaster.trading.dto.PositionSnapshot;
-import com.trademaster.trading.dto.PositionAnalytics;
 import com.trademaster.trading.dto.PositionAdjustment;
 import com.trademaster.trading.dto.PositionRisk;
 import com.trademaster.trading.entity.Position;
@@ -143,15 +142,6 @@ public interface PositionManagementService {
      */
     CompletableFuture<PositionSnapshot> getPositionSnapshot(Long userId, String symbol);
     
-    /**
-     * Get position analytics and metrics
-     * 
-     * @param userId The user ID
-     * @param symbol Trading symbol
-     * @param lookbackDays Historical analysis period
-     * @return CompletableFuture<PositionAnalytics> position analytics
-     */
-    CompletableFuture<PositionAnalytics> getPositionAnalytics(Long userId, String symbol, Integer lookbackDays);
     
     /**
      * Calculate position risk metrics

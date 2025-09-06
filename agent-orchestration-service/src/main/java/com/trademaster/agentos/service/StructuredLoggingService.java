@@ -273,6 +273,34 @@ public class StructuredLoggingService {
         );
     }
     
+    // ✅ GENERIC LOGGING METHODS
+    
+    public void logInfo(String operation, Map<String, Object> context) {
+        applicationLog.info("Operation completed",
+            StructuredArguments.kv("operation", operation),
+            StructuredArguments.kv("status", "success"),
+            StructuredArguments.kv("timestamp", Instant.now()),
+            StructuredArguments.kv("context", context)
+        );
+    }
+    
+    public void logDebug(String operation, Map<String, Object> context) {
+        applicationLog.debug("Operation debug",
+            StructuredArguments.kv("operation", operation),
+            StructuredArguments.kv("timestamp", Instant.now()),
+            StructuredArguments.kv("context", context)
+        );
+    }
+    
+    public void logWarning(String operation, Map<String, Object> context) {
+        applicationLog.warn("Operation warning",
+            StructuredArguments.kv("operation", operation),
+            StructuredArguments.kv("status", "warning"),
+            StructuredArguments.kv("timestamp", Instant.now()),
+            StructuredArguments.kv("context", context)
+        );
+    }
+    
     // UTILITY METHODS
     
     /**

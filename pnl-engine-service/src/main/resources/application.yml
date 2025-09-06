@@ -1,0 +1,386 @@
+# TradeMaster P&L Engine Service Configuration
+# MANDATORY: Java 24 + Virtual Threads + Spring Boot 3.5.3
+# MANDATORY: Production-ready configuration with zero placeholders
+
+spring:
+  application:
+    name: pnl-engine-service
+    
+  # Database Configuration - PostgreSQL with HikariCP
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trademaster_pnl}
+    username: ${DATABASE_USERNAME:trademaster}
+    password: ${DATABASE_PASSWORD:trademaster123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: PnLEngineHikariCP
+      maximum-pool-size: ${DATABASE_POOL_SIZE:25}
+      minimum-idle: ${DATABASE_MIN_IDLE:5}
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      leak-detection-threshold: 60000
+      connection-test-query: SELECT 1
+      auto-commit: false
+      
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate # Never create/update schema in production
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.SnakeCasePhysicalNamingStrategy
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false # Disable in production for performance
+        show_sql: false
+        generate_statistics: false
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 50
+        cache:
+          use_second_level_cache: true
+          region.factory_class: org.hibernate.cache.jcache.internal.JCacheRegionFactory
+          
+  # Flyway Migration
+  flyway:
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    locations: classpath:db/migration
+    schemas: public
+    
+  # Redis Configuration for P&L Caching
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:2}
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 25
+        max-idle: 10
+        min-idle: 2
+        max-wait: -1ms
+        
+  # Cache Configuration for P&L Results
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000 # 5 minutes default TTL
+      cache-null-values: false
+      use-key-prefix: true
+      key-prefix: "pnl:"
+      
+  # Security Configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8080/auth}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8080/auth/.well-known/jwks.json}
+          
+  # Virtual Threads Configuration - MANDATORY
+  threads:
+    virtual:
+      enabled: true
+      
+  # Task Execution Configuration for Virtual Threads
+  task:
+    execution:
+      pool:
+        core-size: 10
+        max-size: 500
+        queue-capacity: 2000
+        keep-alive: 60s
+        thread-name-prefix: pnl-engine-task-
+        allow-core-thread-timeout: true
+        
+  # WebSocket Configuration for Real-time P&L Streams
+  websocket:
+    allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:3000,https://trademaster.app}
+    message-size-limit: ${WEBSOCKET_MESSAGE_SIZE:8192}
+    send-time-limit: ${WEBSOCKET_SEND_TIMEOUT:10000}
+    
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8086}
+  servlet:
+    context-path: /pnl-engine
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: on_param # For debugging, disable in production
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches,pnldashboard
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: "pnlHealth,db,redis,broker-integration"
+        liveness:
+          include: "ping,diskSpace,virtual-threads"
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    enable:
+      all: true
+    export:
+      prometheus:
+        enabled: true
+        step: 30s
+        descriptions: true
+        pushgateway:
+          enabled: false
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        pnl.calculations: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms
+        pnl.calculations: 5ms,25ms,50ms,100ms,200ms
+    tags:
+      application: pnl-engine-service
+      environment: ${SPRING_PROFILES_ACTIVE:development}
+  health:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    custom:
+      enabled: true
+      
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      multi-broker-service:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+      market-data-service:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 100
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 15s
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 60
+        slow-call-duration-threshold: 3s
+        permitted-number-of-calls-in-half-open-state: 10
+      portfolio-service:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+      default:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 50
+        ring-buffer-size-in-half-open-state: 10
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 60
+        slow-call-rate-threshold: 70
+        slow-call-duration-threshold: 5s
+        permitted-number-of-calls-in-half-open-state: 5
+        
+  # Rate Limiter Configuration for P&L Calculations
+  ratelimiter:
+    instances:
+      pnl-calculations:
+        limit-for-period: 1000 # 1000 calculations per minute per user
+        limit-refresh-period: 60s
+        timeout-duration: 1s
+        register-health-indicator: true
+      bulk-calculations:
+        limit-for-period: 100 # 100 bulk operations per minute per user
+        limit-refresh-period: 60s
+        timeout-duration: 5s
+        register-health-indicator: true
+      default:
+        limit-for-period: 500 # 500 calls per minute default
+        limit-refresh-period: 60s
+        timeout-duration: 1s
+        register-health-indicator: true
+        
+  # Retry Configuration
+  retry:
+    instances:
+      broker-api:
+        max-attempts: 3
+        wait-duration: 2s
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+        ignore-exceptions:
+          - com.trademaster.pnlengine.exception.PnLCalculationException
+          
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-super-secret-jwt-signing-key-min-256-bits}
+  expiration: 86400 # 24 hours in seconds
+  
+# Service Integration Configuration
+services:
+  multi-broker:
+    base-url: ${MULTI_BROKER_SERVICE_URL:http://localhost:8084/multi-broker}
+    timeout:
+      connection: 5000ms
+      read: 10000ms
+    retry:
+      max-attempts: 3
+      delay: 1000ms
+  market-data:
+    base-url: ${MARKET_DATA_SERVICE_URL:http://localhost:8081/market-data}
+    timeout:
+      connection: 3000ms
+      read: 5000ms
+    retry:
+      max-attempts: 5
+      delay: 500ms
+  portfolio:
+    base-url: ${PORTFOLIO_SERVICE_URL:http://localhost:8085/portfolio}
+    timeout:
+      connection: 5000ms
+      read: 10000ms
+    retry:
+      max-attempts: 3
+      delay: 1000ms
+  notification:
+    base-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8087/notification}
+    timeout:
+      connection: 3000ms
+      read: 5000ms
+    retry:
+      max-attempts: 2
+      delay: 1000ms
+      
+# P&L Engine Configuration
+pnl:
+  engine:
+    # Performance Configuration
+    performance:
+      portfolio-valuation-timeout-ms: 50
+      position-calculation-timeout-ms: 5
+      tax-lot-processing-timeout-ms: 25
+      bulk-calculation-timeout-ms: 100
+      concurrent-calculation-limit: 1000
+      
+    # Calculation Configuration
+    calculation:
+      default-cost-basis-method: WEIGHTED_AVERAGE
+      precision-decimal-places: 4
+      rounding-mode: HALF_UP
+      enable-tax-optimization: true
+      enable-wash-sale-rules: true
+      
+    # Caching Configuration
+    cache:
+      portfolio-valuation-ttl: 300 # 5 minutes
+      position-pnl-ttl: 60 # 1 minute
+      tax-lots-ttl: 3600 # 1 hour
+      market-data-ttl: 30 # 30 seconds
+      enable-distributed-cache: true
+      
+    # Real-time Updates Configuration
+    realtime:
+      enable-websocket-streaming: true
+      price-update-batch-size: 100
+      price-update-interval-ms: 1000
+      portfolio-update-interval-ms: 5000
+      enable-push-notifications: true
+      
+    # Risk Configuration
+    risk:
+      enable-position-limits: true
+      enable-portfolio-limits: true
+      max-portfolio-concentration: 0.25 # 25%
+      max-single-position-size: 0.10 # 10%
+      enable-var-calculations: true
+      var-confidence-level: 0.95 # 95%
+      
+    # Compliance Configuration
+    compliance:
+      enable-audit-logging: true
+      enable-regulatory-reporting: true
+      audit-retention-days: 2557 # 7 years
+      supported-jurisdictions:
+        - INDIA
+        - UNITED_STATES
+        - EUROPEAN_UNION
+        
+    # AgentOS Integration
+    agentos:
+      enabled: true
+      agent-id: pnl-engine-agent
+      capabilities:
+        - PORTFOLIO_PNL_CALCULATION
+        - POSITION_LEVEL_ANALYTICS
+        - PERFORMANCE_ATTRIBUTION
+        - TAX_OPTIMIZATION
+        - RISK_ANALYTICS
+        - REAL_TIME_STREAMING
+      health-check-interval: 30000
+      mcp-protocol-version: "1.0"
+      
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.pnlengine: ${LOG_LEVEL:INFO}
+    org.springframework.security: WARN
+    org.springframework.cache: WARN
+    org.hibernate.SQL: ERROR
+    org.hibernate.type: ERROR
+    io.github.resilience4j: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+  file:
+    name: ${LOG_FILE:/var/log/trademaster/pnl-engine-service.log}
+    max-size: 100MB
+    max-history: 30
+    
+# OpenAPI Documentation
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+  info:
+    title: TradeMaster P&L Engine Service API
+    description: Enterprise-grade multi-broker P&L calculation engine with real-time streaming and comprehensive analytics
+    version: 2.0.0
+    contact:
+      name: TradeMaster Development Team
+      email: dev@trademaster.app
+  servers:
+    - url: http://localhost:8086/pnl-engine
+      description: Development Server
+    - url: https://api.trademaster.app/pnl-engine
+      description: Production Server

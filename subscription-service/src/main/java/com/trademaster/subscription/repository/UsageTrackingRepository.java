@@ -215,4 +215,32 @@ public interface UsageTrackingRepository extends JpaRepository<UsageTracking, UU
     Optional<Boolean> canUseFeature(@Param("userId") UUID userId,
                                    @Param("featureName") String featureName,
                                    @Param("currentDate") LocalDateTime currentDate);
+                                   
+    /**
+     * Find usage by subscription ID and feature name
+     */
+    @Query("SELECT ut FROM UsageTracking ut WHERE ut.subscriptionId = :subscriptionId AND ut.feature = :featureName " +
+           "AND ut.billingPeriodStart <= :currentDate AND ut.billingPeriodEnd > :currentDate")
+    Optional<UsageTracking> findBySubscriptionIdAndFeature(@Param("subscriptionId") UUID subscriptionId,
+                                                          @Param("featureName") String featureName,
+                                                          @Param("currentDate") LocalDateTime currentDate);
+                                                          
+    /**
+     * Find usage by subscription ID and feature name (simplified without date check)
+     */
+    @Query("SELECT ut FROM UsageTracking ut WHERE ut.subscriptionId = :subscriptionId AND ut.feature = :featureName")
+    Optional<UsageTracking> findBySubscriptionIdAndFeature(@Param("subscriptionId") UUID subscriptionId,
+                                                          @Param("featureName") String featureName);
+                                                          
+    /**
+     * Find all usage records by subscription ID
+     */
+    @Query("SELECT ut FROM UsageTracking ut WHERE ut.subscriptionId = :subscriptionId")
+    List<UsageTracking> findBySubscriptionId(@Param("subscriptionId") UUID subscriptionId);
+    
+    /**
+     * Find all usage records by user ID
+     */
+    @Query("SELECT ut FROM UsageTracking ut WHERE ut.userId = :userId")
+    List<UsageTracking> findByUserId(@Param("userId") UUID userId);
 }

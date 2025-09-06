@@ -8,11 +8,21 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * User Profile Repository with Advanced JSONB Query Support
+ * 
+ * MANDATORY: Immutability & Records Usage - Rule #9
+ * MANDATORY: Functional Programming First - Rule #3
+ * MANDATORY: Pattern Matching Excellence - Rule #14
+ * 
+ * @author TradeMaster Development Team
+ * @version 2.0.0
+ */
 @Repository
 public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> {
     
@@ -48,10 +58,10 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
     List<UserProfile> findByEmailAddress(@Param("email") String email);
     
     /**
-     * Find profiles by KYC status
+     * Find profiles by KYC status using corrected field name
      */
     @Query("SELECT up FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.kycInfo, '$.kycStatus') = :status")
+           "JSON_EXTRACT(up.kycInformation, '$.kycStatus') = :status")
     Page<UserProfile> findByKycStatus(@Param("status") String status, Pageable pageable);
     
     /**
@@ -60,8 +70,8 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
     @Query("SELECT up FROM UserProfile up WHERE " +
            "up.createdAt BETWEEN :startDate AND :endDate")
     Page<UserProfile> findByCreatedAtBetween(
-        @Param("startDate") Instant startDate, 
-        @Param("endDate") Instant endDate, 
+        @Param("startDate") LocalDateTime startDate, 
+        @Param("endDate") LocalDateTime endDate, 
         Pageable pageable
     );
     
@@ -77,30 +87,30 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
      * Find profiles by risk level
      */
     @Query("SELECT up FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.tradingPreferences, '$.riskProfile.riskLevel') = :riskLevel")
+           "JSON_EXTRACT(up.tradingPreferences, '$.riskLevel') = :riskLevel")
     List<UserProfile> findByRiskLevel(@Param("riskLevel") String riskLevel);
     
     /**
      * Count profiles by KYC status
      */
     @Query("SELECT COUNT(up) FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.kycInfo, '$.kycStatus') = :status")
+           "JSON_EXTRACT(up.kycInformation, '$.kycStatus') = :status")
     long countByKycStatus(@Param("status") String status);
     
     /**
      * Find profiles that need KYC renewal (approaching expiry)
      */
     @Query("SELECT up FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.kycInfo, '$.kycStatus') = 'VERIFIED' AND " +
+           "JSON_EXTRACT(up.kycInformation, '$.kycStatus') = 'VERIFIED' AND " +
            "up.updatedAt < :cutoffDate")
-    List<UserProfile> findProfilesNeedingKycRenewal(@Param("cutoffDate") Instant cutoffDate);
+    List<UserProfile> findProfilesNeedingKycRenewal(@Param("cutoffDate") LocalDateTime cutoffDate);
     
     /**
      * Find recently updated profiles
      */
     @Query("SELECT up FROM UserProfile up WHERE " +
            "up.updatedAt > :since ORDER BY up.updatedAt DESC")
-    List<UserProfile> findRecentlyUpdatedProfiles(@Param("since") Instant since);
+    List<UserProfile> findRecentlyUpdatedProfiles(@Param("since") LocalDateTime since);
     
     /**
      * Search profiles by name (first name or last name)
@@ -114,7 +124,7 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
      * Find profiles with incomplete KYC
      */
     @Query("SELECT up FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.kycInfo, '$.kycStatus') IN ('NOT_STARTED', 'IN_PROGRESS', 'PENDING')")
+           "JSON_EXTRACT(up.kycInformation, '$.kycStatus') IN ('NOT_STARTED', 'IN_PROGRESS', 'PENDING')")
     List<UserProfile> findProfilesWithIncompleteKyc();
     
     /**
@@ -141,7 +151,7 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
      * Count verified profiles
      */
     @Query("SELECT COUNT(up) FROM UserProfile up WHERE " +
-           "JSON_EXTRACT(up.kycInfo, '$.kycStatus') = 'VERIFIED'")
+           "JSON_EXTRACT(up.kycInformation, '$.kycStatus') = 'VERIFIED'")
     long countVerifiedProfiles();
     
     /**
@@ -149,8 +159,8 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
      */
     @Query("SELECT " +
            "COUNT(up) as total, " +
-           "SUM(CASE WHEN JSON_EXTRACT(up.kycInfo, '$.kycStatus') = 'VERIFIED' THEN 1 ELSE 0 END) as verified, " +
-           "SUM(CASE WHEN JSON_EXTRACT(up.kycInfo, '$.kycStatus') IN ('IN_PROGRESS', 'PENDING') THEN 1 ELSE 0 END) as pending " +
+           "SUM(CASE WHEN JSON_EXTRACT(up.kycInformation, '$.kycStatus') = 'VERIFIED' THEN 1 ELSE 0 END) as verified, " +
+           "SUM(CASE WHEN JSON_EXTRACT(up.kycInformation, '$.kycStatus') IN ('IN_PROGRESS', 'PENDING') THEN 1 ELSE 0 END) as pending " +
            "FROM UserProfile up")
     Object[] getProfileStatistics();
 }

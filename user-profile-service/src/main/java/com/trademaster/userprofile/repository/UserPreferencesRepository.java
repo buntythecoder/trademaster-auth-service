@@ -6,11 +6,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Repository for UserPreferences operations
+ * User Preferences Repository with Query Support
+ * 
+ * MANDATORY: Immutability & Records Usage - Rule #9
+ * MANDATORY: Functional Programming First - Rule #3
+ * MANDATORY: Pattern Matching Excellence - Rule #14
+ * 
+ * @author TradeMaster Development Team
+ * @version 2.0.0
  */
 @Repository
 public interface UserPreferencesRepository extends JpaRepository<UserPreferences, UUID> {
@@ -20,12 +28,6 @@ public interface UserPreferencesRepository extends JpaRepository<UserPreferences
      */
     @Query("SELECT up FROM UserPreferences up WHERE up.userProfile.id = :userProfileId")
     Optional<UserPreferences> findByUserProfileId(@Param("userProfileId") UUID userProfileId);
-
-    /**
-     * Find preferences by user email
-     */
-    @Query("SELECT up FROM UserPreferences up WHERE up.userProfile.email = :email")
-    Optional<UserPreferences> findByUserEmail(@Param("email") String email);
 
     /**
      * Check if preferences exist for user profile
@@ -42,17 +44,34 @@ public interface UserPreferencesRepository extends JpaRepository<UserPreferences
      * Find all preferences with specific theme
      */
     @Query("SELECT up FROM UserPreferences up WHERE up.theme = :theme")
-    java.util.List<UserPreferences> findByTheme(@Param("theme") String theme);
+    List<UserPreferences> findByTheme(@Param("theme") String theme);
 
     /**
      * Find all preferences with notifications enabled
      */
     @Query("SELECT up FROM UserPreferences up WHERE up.emailNotifications = true OR up.smsNotifications = true OR up.pushNotifications = true")
-    java.util.List<UserPreferences> findWithNotificationsEnabled();
+    List<UserPreferences> findWithNotificationsEnabled();
 
     /**
      * Find all preferences with trading alerts enabled
      */
     @Query("SELECT up FROM UserPreferences up WHERE up.tradingAlerts = true OR up.priceAlerts = true")
-    java.util.List<UserPreferences> findWithTradingAlertsEnabled();
+    List<UserPreferences> findWithTradingAlertsEnabled();
+    
+    /**
+     * Find preferences by language
+     */
+    List<UserPreferences> findByLanguage(String language);
+    
+    /**
+     * Find preferences with two-factor authentication enabled
+     */
+    @Query("SELECT up FROM UserPreferences up WHERE up.twoFactorEnabled = true")
+    List<UserPreferences> findWithTwoFactorEnabled();
+    
+    /**
+     * Find preferences with short session timeout (high security users)
+     */
+    @Query("SELECT up FROM UserPreferences up WHERE up.sessionTimeout <= :timeout")
+    List<UserPreferences> findWithShortSessionTimeout(@Param("timeout") Integer timeout);
 }

@@ -1,0 +1,122 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.3'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.trademaster.config'
+version = '1.0.0'
+description = 'TradeMaster Spring Cloud Config Server - Centralized Configuration Management'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+}
+
+ext {
+    set('springCloudVersion', '2024.0.0')
+}
+
+dependencies {
+    // Spring Cloud Config Server
+    implementation 'org.springframework.cloud:spring-cloud-config-server'
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    
+    // Monitoring & Metrics
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.micrometer:micrometer-tracing-bridge-brave'
+    implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
+    
+    // Git Backend Support
+    implementation 'org.eclipse.jgit:org.eclipse.jgit'
+    
+    // Vault Backend Support (Optional - commented out for now)
+    // implementation 'org.springframework.cloud:spring-cloud-config-server-vault'
+    
+    // Database Backend Support (Optional)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.postgresql:postgresql'
+    
+    // Development Dependencies
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    
+    // Testing Dependencies  
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        mavenBom 'org.testcontainers:testcontainers-bom:1.19.3'
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    jvmArgs = [
+        '--enable-preview',
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED'
+    ]
+}
+
+tasks.named('bootJar') {
+    archiveClassifier = 'boot'
+    layered {
+        enabled = true
+    }
+}
+
+tasks.named('jar') {
+    archiveClassifier = ''
+}
+
+// Java compilation configuration
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += [
+        '--enable-preview',
+        '-parameters',
+        '-Xlint:all,-processing,-serial',
+        '-Werror'
+    ]
+}
+
+// Spring Boot configuration
+springBoot {
+    buildInfo {
+        properties {
+            additional = [
+                'description': project.description,
+                'java.version': java.toolchain.languageVersion.get().toString(),
+                'spring.profiles.active': 'default'
+            ]
+        }
+    }
+}

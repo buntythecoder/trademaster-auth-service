@@ -121,7 +121,7 @@ security:
 spring:
   datasource:
     # Database password will be retrieved from Vault if available
-    password: ${vault.secret.database-password:${DATABASE_PASSWORD:trademaster_password}}
+    password: ${vault.secret.database-password:${DATABASE_PASSWORD:}}
     username: ${DATABASE_USERNAME:trademaster_user}
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/trademaster_broker_auth}
     driver-class-name: org.postgresql.Driver

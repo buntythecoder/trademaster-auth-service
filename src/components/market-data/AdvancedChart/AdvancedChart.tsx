@@ -1,1 +1,677 @@
-// Advanced Chart Component with TradingView-style Features\n// FRONT-003: Real-time Market Data Enhancement\n\nimport React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'\nimport { motion, AnimatePresence } from 'framer-motion'\nimport {\n  BarChart3,\n  CandlestickChart,\n  LineChart,\n  TrendingUp,\n  TrendingDown,\n  Maximize2,\n  Minimize2,\n  Settings,\n  Plus,\n  Minus,\n  RotateCcw,\n  Download,\n  Share2,\n  Palette,\n  Grid3X3,\n  Zap,\n  Target\n} from 'lucide-react'\nimport { CandlestickData, TechnicalIndicator } from '../../../services/enhancedWebSocketService'\n\nexport interface ChartData {\n  timestamp: Date\n  open: number\n  high: number\n  low: number\n  close: number\n  volume: number\n}\n\nexport interface DrawingTool {\n  type: 'line' | 'rectangle' | 'circle' | 'arrow' | 'fibonacci'\n  points: { x: number; y: number; price: number; time: Date }[]\n  color: string\n  id: string\n}\n\nexport interface ChartIndicator extends TechnicalIndicator {\n  visible: boolean\n  settings: Record<string, any>\n}\n\ninterface AdvancedChartProps {\n  symbol: string\n  data: ChartData[]\n  chartType?: 'candlestick' | 'line' | 'area' | 'ohlc'\n  timeframe?: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w'\n  indicators?: ChartIndicator[]\n  showVolume?: boolean\n  showGrid?: boolean\n  theme?: 'dark' | 'light'\n  height?: number\n  fullscreen?: boolean\n  onFullscreenToggle?: () => void\n  className?: string\n}\n\nconst timeframeLabels = {\n  '1m': '1 Minute',\n  '5m': '5 Minutes',\n  '15m': '15 Minutes',\n  '30m': '30 Minutes',\n  '1h': '1 Hour',\n  '4h': '4 Hours',\n  '1d': '1 Day',\n  '1w': '1 Week'\n}\n\nconst chartTypeIcons = {\n  candlestick: CandlestickChart,\n  line: LineChart,\n  area: BarChart3,\n  ohlc: BarChart3\n}\n\nconst ToolbarButton: React.FC<{\n  icon: React.ReactNode\n  label: string\n  active?: boolean\n  onClick: () => void\n  className?: string\n}> = ({ icon, label, active, onClick, className = '' }) => (\n  <motion.button\n    whileHover={{ scale: 1.05 }}\n    whileTap={{ scale: 0.95 }}\n    onClick={onClick}\n    className={`\n      flex items-center justify-center p-2 rounded-lg transition-all duration-200\n      ${active \n        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50' \n        : 'bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-600/50'\n      }\n      ${className}\n    `}\n    title={label}\n  >\n    {icon}\n  </motion.button>\n)\n\nconst TimeframeSelector: React.FC<{\n  current: string\n  onChange: (timeframe: string) => void\n}> = ({ current, onChange }) => {\n  const timeframes = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']\n  \n  return (\n    <div className=\"flex items-center space-x-1 bg-slate-800/50 rounded-lg p-1\">\n      {timeframes.map(tf => (\n        <button\n          key={tf}\n          onClick={() => onChange(tf)}\n          className={`\n            px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200\n            ${current === tf \n              ? 'bg-purple-500 text-white shadow-lg' \n              : 'text-slate-400 hover:text-white hover:bg-slate-700/50'\n            }\n          `}\n        >\n          {tf.replace('m', 'M').replace('h', 'H').replace('d', 'D').replace('w', 'W')}\n        </button>\n      ))}\n    </div>\n  )\n}\n\nconst ChartTypeSelector: React.FC<{\n  current: string\n  onChange: (type: string) => void\n}> = ({ current, onChange }) => {\n  const types = [\n    { key: 'candlestick', label: 'Candlestick', icon: CandlestickChart },\n    { key: 'line', label: 'Line', icon: LineChart },\n    { key: 'area', label: 'Area', icon: BarChart3 },\n    { key: 'ohlc', label: 'OHLC', icon: BarChart3 }\n  ]\n  \n  return (\n    <div className=\"flex items-center space-x-1\">\n      {types.map(({ key, label, icon: Icon }) => (\n        <ToolbarButton\n          key={key}\n          icon={<Icon className=\"w-4 h-4\" />}\n          label={label}\n          active={current === key}\n          onClick={() => onChange(key)}\n        />\n      ))}\n    </div>\n  )\n}\n\nconst IndicatorPanel: React.FC<{\n  indicators: ChartIndicator[]\n  onToggleIndicator: (name: string) => void\n  onAddIndicator: () => void\n}> = ({ indicators, onToggleIndicator, onAddIndicator }) => {\n  return (\n    <div className=\"bg-slate-800/30 rounded-lg p-3\">\n      <div className=\"flex items-center justify-between mb-3\">\n        <h4 className=\"text-sm font-medium text-white\">Technical Indicators</h4>\n        <button\n          onClick={onAddIndicator}\n          className=\"p-1 rounded text-slate-400 hover:text-white transition-colors\"\n          title=\"Add Indicator\"\n        >\n          <Plus className=\"w-4 h-4\" />\n        </button>\n      </div>\n      \n      <div className=\"space-y-2\">\n        {indicators.map(indicator => (\n          <div key={indicator.name} className=\"flex items-center justify-between\">\n            <div className=\"flex items-center space-x-2\">\n              <div \n                className=\"w-3 h-3 rounded-full\" \n                style={{ backgroundColor: indicator.color }}\n              />\n              <span className=\"text-sm text-slate-300\">{indicator.name}</span>\n              <span className={`text-xs px-1.5 py-0.5 rounded ${\n                indicator.signal === 'BUY' ? 'bg-green-500/20 text-green-400' :\n                indicator.signal === 'SELL' ? 'bg-red-500/20 text-red-400' :\n                'bg-slate-500/20 text-slate-400'\n              }`}>\n                {indicator.signal}\n              </span>\n            </div>\n            \n            <div className=\"flex items-center space-x-2\">\n              <span className=\"text-sm font-mono text-white\">\n                {indicator.value.toFixed(2)}\n              </span>\n              <button\n                onClick={() => onToggleIndicator(indicator.name)}\n                className={`w-4 h-4 rounded border-2 transition-colors ${\n                  indicator.visible \n                    ? 'bg-purple-500 border-purple-500' \n                    : 'border-slate-500'\n                }`}\n              />\n            </div>\n          </div>\n        ))}\n      </div>\n    </div>\n  )\n}\n\nconst PriceInfo: React.FC<{\n  data: ChartData[]\n  currentIndex: number\n}> = ({ data, currentIndex }) => {\n  const current = data[currentIndex] || data[data.length - 1]\n  const previous = data[currentIndex - 1] || data[data.length - 2]\n  \n  if (!current) return null\n  \n  const change = previous ? current.close - previous.close : 0\n  const changePercent = previous ? (change / previous.close) * 100 : 0\n  const isPositive = change >= 0\n  \n  return (\n    <div className=\"bg-slate-800/30 rounded-lg p-3\">\n      <div className=\"grid grid-cols-2 gap-4 text-sm\">\n        <div>\n          <div className=\"text-slate-400\">Open</div>\n          <div className=\"font-mono text-white\">₹{current.open.toFixed(2)}</div>\n        </div>\n        <div>\n          <div className=\"text-slate-400\">High</div>\n          <div className=\"font-mono text-green-400\">₹{current.high.toFixed(2)}</div>\n        </div>\n        <div>\n          <div className=\"text-slate-400\">Low</div>\n          <div className=\"font-mono text-red-400\">₹{current.low.toFixed(2)}</div>\n        </div>\n        <div>\n          <div className=\"text-slate-400\">Close</div>\n          <div className={`font-mono font-semibold ${\n            isPositive ? 'text-green-400' : 'text-red-400'\n          }`}>\n            ₹{current.close.toFixed(2)}\n            <span className=\"text-xs ml-2\">\n              {isPositive ? '+' : ''}₹{change.toFixed(2)} ({changePercent.toFixed(2)}%)\n            </span>\n          </div>\n        </div>\n        <div className=\"col-span-2\">\n          <div className=\"text-slate-400\">Volume</div>\n          <div className=\"font-mono text-cyan-400\">\n            {(current.volume / 1000).toFixed(1)}K\n          </div>\n        </div>\n      </div>\n    </div>\n  )\n}\n\nconst ChartCanvas: React.FC<{\n  data: ChartData[]\n  chartType: string\n  indicators: ChartIndicator[]\n  showVolume: boolean\n  showGrid: boolean\n  width: number\n  height: number\n  onDataPointHover: (index: number) => void\n}> = ({ data, chartType, indicators, showVolume, showGrid, width, height, onDataPointHover }) => {\n  const canvasRef = useRef<HTMLCanvasElement>(null)\n  const [hoveredIndex, setHoveredIndex] = useState<number>(-1)\n  \n  // Calculate price range and scaling\n  const priceRange = useMemo(() => {\n    if (!data.length) return { min: 0, max: 100 }\n    \n    const prices = data.flatMap(d => [d.high, d.low, d.open, d.close])\n    const min = Math.min(...prices)\n    const max = Math.max(...prices)\n    const padding = (max - min) * 0.1\n    \n    return { \n      min: min - padding, \n      max: max + padding \n    }\n  }, [data])\n  \n  const volumeRange = useMemo(() => {\n    if (!data.length) return { min: 0, max: 100 }\n    \n    const volumes = data.map(d => d.volume)\n    return {\n      min: 0,\n      max: Math.max(...volumes) * 1.2\n    }\n  }, [data])\n  \n  // Convert price to Y coordinate\n  const priceToY = useCallback((price: number) => {\n    const chartHeight = showVolume ? height * 0.7 : height - 40\n    return 20 + (priceRange.max - price) / (priceRange.max - priceRange.min) * chartHeight\n  }, [priceRange, height, showVolume])\n  \n  // Convert volume to height\n  const volumeToHeight = useCallback((volume: number) => {\n    if (!showVolume) return 0\n    const volumeAreaHeight = height * 0.25\n    return (volume / volumeRange.max) * volumeAreaHeight\n  }, [volumeRange, height, showVolume])\n  \n  // Draw candlestick\n  const drawCandlestick = useCallback((ctx: CanvasRenderingContext2D, candle: ChartData, x: number, candleWidth: number) => {\n    const openY = priceToY(candle.open)\n    const closeY = priceToY(candle.close)\n    const highY = priceToY(candle.high)\n    const lowY = priceToY(candle.low)\n    \n    const isGreen = candle.close >= candle.open\n    const bodyColor = isGreen ? '#10b981' : '#ef4444'\n    const wickColor = isGreen ? '#059669' : '#dc2626'\n    \n    // Draw wick\n    ctx.strokeStyle = wickColor\n    ctx.lineWidth = 1\n    ctx.beginPath()\n    ctx.moveTo(x + candleWidth / 2, highY)\n    ctx.lineTo(x + candleWidth / 2, lowY)\n    ctx.stroke()\n    \n    // Draw body\n    ctx.fillStyle = bodyColor\n    const bodyHeight = Math.abs(closeY - openY)\n    const bodyY = Math.min(openY, closeY)\n    \n    if (bodyHeight < 1) {\n      // Doji - draw line\n      ctx.fillRect(x, bodyY, candleWidth, 1)\n    } else {\n      ctx.fillRect(x + 1, bodyY, candleWidth - 2, bodyHeight)\n    }\n  }, [priceToY])\n  \n  // Draw line chart\n  const drawLineChart = useCallback((ctx: CanvasRenderingContext2D) => {\n    if (data.length < 2) return\n    \n    const candleWidth = (width - 40) / data.length\n    \n    ctx.strokeStyle = '#8b5cf6'\n    ctx.lineWidth = 2\n    ctx.beginPath()\n    \n    data.forEach((candle, index) => {\n      const x = 20 + index * candleWidth + candleWidth / 2\n      const y = priceToY(candle.close)\n      \n      if (index === 0) {\n        ctx.moveTo(x, y)\n      } else {\n        ctx.lineTo(x, y)\n      }\n    })\n    \n    ctx.stroke()\n    \n    // Draw area fill if area chart\n    if (chartType === 'area') {\n      ctx.lineTo(20 + (data.length - 1) * candleWidth + candleWidth / 2, priceToY(priceRange.min))\n      ctx.lineTo(20 + candleWidth / 2, priceToY(priceRange.min))\n      ctx.closePath()\n      \n      const gradient = ctx.createLinearGradient(0, 0, 0, height)\n      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)')\n      gradient.addColorStop(1, 'rgba(139, 92, 246, 0.05)')\n      \n      ctx.fillStyle = gradient\n      ctx.fill()\n    }\n  }, [data, width, priceToY, priceRange.min, chartType, height])\n  \n  // Draw volume bars\n  const drawVolume = useCallback((ctx: CanvasRenderingContext2D) => {\n    if (!showVolume) return\n    \n    const candleWidth = (width - 40) / data.length\n    const volumeStartY = height - (height * 0.25)\n    \n    data.forEach((candle, index) => {\n      const x = 20 + index * candleWidth\n      const volumeHeight = volumeToHeight(candle.volume)\n      \n      const isGreen = candle.close >= candle.open\n      ctx.fillStyle = isGreen ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'\n      \n      ctx.fillRect(x + 1, volumeStartY - volumeHeight, candleWidth - 2, volumeHeight)\n    })\n  }, [data, width, height, showVolume, volumeToHeight])\n  \n  // Draw grid\n  const drawGrid = useCallback((ctx: CanvasRenderingContext2D) => {\n    if (!showGrid) return\n    \n    ctx.strokeStyle = 'rgba(100, 116, 139, 0.2)'\n    ctx.lineWidth = 1\n    \n    const chartHeight = showVolume ? height * 0.7 : height - 40\n    \n    // Horizontal grid lines (price levels)\n    for (let i = 0; i <= 10; i++) {\n      const y = 20 + (chartHeight / 10) * i\n      ctx.beginPath()\n      ctx.moveTo(20, y)\n      ctx.lineTo(width - 20, y)\n      ctx.stroke()\n    }\n    \n    // Vertical grid lines (time)\n    const candleWidth = (width - 40) / data.length\n    const step = Math.max(1, Math.floor(data.length / 10))\n    \n    for (let i = 0; i < data.length; i += step) {\n      const x = 20 + i * candleWidth\n      ctx.beginPath()\n      ctx.moveTo(x, 20)\n      ctx.lineTo(x, height - 20)\n      ctx.stroke()\n    }\n  }, [showGrid, width, height, data.length, showVolume])\n  \n  // Draw indicators\n  const drawIndicators = useCallback((ctx: CanvasRenderingContext2D) => {\n    const visibleIndicators = indicators.filter(ind => ind.visible)\n    if (!visibleIndicators.length) return\n    \n    const candleWidth = (width - 40) / data.length\n    \n    visibleIndicators.forEach(indicator => {\n      ctx.strokeStyle = indicator.color\n      ctx.lineWidth = 1\n      ctx.beginPath()\n      \n      // Simple moving average visualization\n      if (indicator.name.includes('SMA') || indicator.name.includes('EMA')) {\n        data.forEach((_, index) => {\n          const x = 20 + index * candleWidth + candleWidth / 2\n          const y = priceToY(indicator.value) // Simplified - in real implementation, calculate for each point\n          \n          if (index === 0) {\n            ctx.moveTo(x, y)\n          } else {\n            ctx.lineTo(x, y)\n          }\n        })\n        ctx.stroke()\n      }\n    })\n  }, [indicators, data, width, priceToY])\n  \n  // Main draw function\n  const draw = useCallback(() => {\n    const canvas = canvasRef.current\n    if (!canvas || !data.length) return\n    \n    const ctx = canvas.getContext('2d')\n    if (!ctx) return\n    \n    // Clear canvas\n    ctx.clearRect(0, 0, width, height)\n    \n    // Set canvas size\n    canvas.width = width\n    canvas.height = height\n    \n    // Draw grid first\n    drawGrid(ctx)\n    \n    // Draw volume\n    drawVolume(ctx)\n    \n    const candleWidth = Math.max(1, (width - 40) / data.length - 1)\n    \n    if (chartType === 'candlestick' || chartType === 'ohlc') {\n      data.forEach((candle, index) => {\n        const x = 20 + index * (candleWidth + 1)\n        drawCandlestick(ctx, candle, x, candleWidth)\n      })\n    } else {\n      drawLineChart(ctx)\n    }\n    \n    // Draw indicators\n    drawIndicators(ctx)\n    \n    // Draw crosshair if hovering\n    if (hoveredIndex >= 0) {\n      const x = 20 + hoveredIndex * (candleWidth + 1) + candleWidth / 2\n      const candle = data[hoveredIndex]\n      const y = priceToY(candle.close)\n      \n      ctx.strokeStyle = 'rgba(139, 92, 246, 0.8)'\n      ctx.lineWidth = 1\n      ctx.setLineDash([5, 5])\n      \n      // Vertical line\n      ctx.beginPath()\n      ctx.moveTo(x, 20)\n      ctx.lineTo(x, height - 20)\n      ctx.stroke()\n      \n      // Horizontal line\n      ctx.beginPath()\n      ctx.moveTo(20, y)\n      ctx.lineTo(width - 20, y)\n      ctx.stroke()\n      \n      ctx.setLineDash([])\n    }\n  }, [data, width, height, chartType, drawGrid, drawVolume, drawCandlestick, drawLineChart, drawIndicators, hoveredIndex, priceToY])\n  \n  // Handle mouse move for crosshair\n  const handleMouseMove = useCallback((event: React.MouseEvent) => {\n    const canvas = canvasRef.current\n    if (!canvas || !data.length) return\n    \n    const rect = canvas.getBoundingClientRect()\n    const x = event.clientX - rect.left\n    const candleWidth = (width - 40) / data.length\n    const index = Math.floor((x - 20) / candleWidth)\n    \n    if (index >= 0 && index < data.length) {\n      setHoveredIndex(index)\n      onDataPointHover(index)\n    }\n  }, [data.length, width, onDataPointHover])\n  \n  const handleMouseLeave = useCallback(() => {\n    setHoveredIndex(-1)\n    onDataPointHover(data.length - 1)\n  }, [onDataPointHover, data.length])\n  \n  useEffect(() => {\n    draw()\n  }, [draw])\n  \n  return (\n    <canvas\n      ref={canvasRef}\n      width={width}\n      height={height}\n      onMouseMove={handleMouseMove}\n      onMouseLeave={handleMouseLeave}\n      className=\"cursor-crosshair\"\n      style={{ width, height }}\n    />\n  )\n}\n\nexport const AdvancedChart: React.FC<AdvancedChartProps> = ({\n  symbol,\n  data,\n  chartType = 'candlestick',\n  timeframe = '15m',\n  indicators = [],\n  showVolume = true,\n  showGrid = true,\n  theme = 'dark',\n  height = 500,\n  fullscreen = false,\n  onFullscreenToggle,\n  className = ''\n}) => {\n  const [currentChartType, setCurrentChartType] = useState(chartType)\n  const [currentTimeframe, setCurrentTimeframe] = useState(timeframe)\n  const [currentIndicators, setCurrentIndicators] = useState<ChartIndicator[]>(\n    indicators.map(ind => ({ ...ind, visible: true, settings: {} }))\n  )\n  const [showIndicatorPanel, setShowIndicatorPanel] = useState(false)\n  const [hoveredDataIndex, setHoveredDataIndex] = useState(data.length - 1)\n  const [chartSettings, setChartSettings] = useState({\n    showVolume,\n    showGrid,\n    theme\n  })\n  \n  const containerRef = useRef<HTMLDivElement>(null)\n  const [containerSize, setContainerSize] = useState({ width: 800, height })\n  \n  // Update container size\n  useEffect(() => {\n    const updateSize = () => {\n      if (containerRef.current) {\n        const { offsetWidth } = containerRef.current\n        setContainerSize({ width: offsetWidth - 32, height })\n      }\n    }\n    \n    updateSize()\n    window.addEventListener('resize', updateSize)\n    \n    return () => window.removeEventListener('resize', updateSize)\n  }, [height])\n  \n  // Handle indicator toggle\n  const handleToggleIndicator = useCallback((name: string) => {\n    setCurrentIndicators(prev => prev.map(ind => \n      ind.name === name ? { ...ind, visible: !ind.visible } : ind\n    ))\n  }, [])\n  \n  // Handle add indicator\n  const handleAddIndicator = useCallback(() => {\n    // In real implementation, this would open a modal to select indicators\n    console.log('Add indicator modal would open here')\n  }, [])\n  \n  const chartHeight = fullscreen ? containerSize.height - 120 : containerSize.height - 60\n  \n  return (\n    <motion.div\n      ref={containerRef}\n      className={`glass-card rounded-2xl overflow-hidden ${className} ${\n        fullscreen ? 'fixed inset-4 z-50' : ''\n      }`}\n      initial={{ opacity: 0, y: 20 }}\n      animate={{ opacity: 1, y: 0 }}\n      transition={{ duration: 0.6 }}\n    >\n      {/* Toolbar */}\n      <div className=\"flex items-center justify-between p-4 border-b border-slate-700/50\">\n        <div className=\"flex items-center space-x-4\">\n          <div className=\"flex items-center space-x-2\">\n            <BarChart3 className=\"w-5 h-5 text-purple-400\" />\n            <h3 className=\"text-lg font-bold text-white\">{symbol}</h3>\n            <span className=\"text-sm text-slate-400\">\n              {timeframeLabels[currentTimeframe]}\n            </span>\n          </div>\n          \n          <TimeframeSelector\n            current={currentTimeframe}\n            onChange={setCurrentTimeframe}\n          />\n        </div>\n        \n        <div className=\"flex items-center space-x-2\">\n          <ChartTypeSelector\n            current={currentChartType}\n            onChange={setCurrentChartType}\n          />\n          \n          <div className=\"flex items-center space-x-1\">\n            <ToolbarButton\n              icon={<Grid3X3 className=\"w-4 h-4\" />}\n              label=\"Toggle Grid\"\n              active={chartSettings.showGrid}\n              onClick={() => setChartSettings(prev => ({ ...prev, showGrid: !prev.showGrid }))}\n            />\n            \n            <ToolbarButton\n              icon={<BarChart3 className=\"w-4 h-4\" />}\n              label=\"Toggle Volume\"\n              active={chartSettings.showVolume}\n              onClick={() => setChartSettings(prev => ({ ...prev, showVolume: !prev.showVolume }))}\n            />\n            \n            <ToolbarButton\n              icon={<Target className=\"w-4 h-4\" />}\n              label=\"Indicators\"\n              active={showIndicatorPanel}\n              onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}\n            />\n            \n            <ToolbarButton\n              icon={<Download className=\"w-4 h-4\" />}\n              label=\"Export Chart\"\n              onClick={() => console.log('Export chart')}\n            />\n            \n            <ToolbarButton\n              icon={<Share2 className=\"w-4 h-4\" />}\n              label=\"Share Chart\"\n              onClick={() => console.log('Share chart')}\n            />\n            \n            {onFullscreenToggle && (\n              <ToolbarButton\n                icon={fullscreen ? <Minimize2 className=\"w-4 h-4\" /> : <Maximize2 className=\"w-4 h-4\" />}\n                label={fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}\n                onClick={onFullscreenToggle}\n              />\n            )}\n          </div>\n        </div>\n      </div>\n      \n      {/* Chart Content */}\n      <div className=\"flex\">\n        {/* Main Chart Area */}\n        <div className=\"flex-1 relative\">\n          {data.length > 0 ? (\n            <ChartCanvas\n              data={data}\n              chartType={currentChartType}\n              indicators={currentIndicators}\n              showVolume={chartSettings.showVolume}\n              showGrid={chartSettings.showGrid}\n              width={containerSize.width - (showIndicatorPanel ? 300 : 0)}\n              height={chartHeight}\n              onDataPointHover={setHoveredDataIndex}\n            />\n          ) : (\n            <div className=\"flex items-center justify-center h-full text-slate-400\">\n              <div className=\"text-center\">\n                <BarChart3 className=\"w-16 h-16 mx-auto mb-4 opacity-50\" />\n                <p>No chart data available</p>\n                <p className=\"text-sm\">Waiting for market data...</p>\n              </div>\n            </div>\n          )}\n        </div>\n        \n        {/* Indicator Panel */}\n        <AnimatePresence>\n          {showIndicatorPanel && (\n            <motion.div\n              className=\"w-80 border-l border-slate-700/50 p-4 space-y-4\"\n              initial={{ opacity: 0, x: 300 }}\n              animate={{ opacity: 1, x: 0 }}\n              exit={{ opacity: 0, x: 300 }}\n              transition={{ duration: 0.3 }}\n            >\n              <PriceInfo\n                data={data}\n                currentIndex={hoveredDataIndex}\n              />\n              \n              <IndicatorPanel\n                indicators={currentIndicators}\n                onToggleIndicator={handleToggleIndicator}\n                onAddIndicator={handleAddIndicator}\n              />\n            </motion.div>\n          )}\n        </AnimatePresence>\n      </div>\n    </motion.div>\n  )\n}\n\nexport default AdvancedChart
+// Advanced Chart Component with TradingView-style Features
+// FRONT-003: Real-time Market Data Enhancement
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  BarChart3,
+  LineChart,
+  TrendingUp,
+  TrendingDown,
+  Maximize2,
+  Minimize2,
+  Settings,
+  Plus,
+  Minus,
+  RotateCcw,
+  Download,
+  Share2,
+  Palette,
+  Grid3X3,
+  Zap,
+  Target
+} from 'lucide-react'
+import { CandlestickData, TechnicalIndicator } from '../../../services/enhancedWebSocketService'
+
+export interface ChartData {
+  timestamp: Date
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface DrawingTool {
+  type: 'line' | 'rectangle' | 'circle' | 'arrow' | 'fibonacci'
+  points: { x: number; y: number; price: number; time: Date }[]
+  color: string
+  id: string
+}
+
+export interface ChartIndicator extends TechnicalIndicator {
+  visible: boolean
+  settings: Record<string, any>
+}
+
+interface AdvancedChartProps {
+  symbol: string
+  data: ChartData[]
+  chartType?: 'candlestick' | 'line' | 'area' | 'ohlc'
+  timeframe?: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | '1w'
+  indicators?: ChartIndicator[]
+  showVolume?: boolean
+  showGrid?: boolean
+  theme?: 'dark' | 'light'
+  height?: number
+  fullscreen?: boolean
+  onFullscreenToggle?: () => void
+  className?: string
+}
+
+const timeframeLabels = {
+  '1m': '1 Minute',
+  '5m': '5 Minutes',
+  '15m': '15 Minutes',
+  '30m': '30 Minutes',
+  '1h': '1 Hour',
+  '4h': '4 Hours',
+  '1d': '1 Day',
+  '1w': '1 Week'
+}
+
+const ToolbarButton: React.FC<{
+  icon: React.ReactNode
+  label: string
+  active?: boolean
+  onClick: () => void
+  className?: string
+}> = ({ icon, label, active, onClick, className = '' }) => (
+  <motion.button
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    onClick={onClick}
+    className={`
+      flex items-center justify-center p-2 rounded-lg transition-all duration-200
+      ${active 
+        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50' 
+        : 'bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-600/50'
+      }
+      ${className}
+    `}
+    title={label}
+  >
+    {icon}
+  </motion.button>
+)
+
+const TimeframeSelector: React.FC<{
+  current: string
+  onChange: (timeframe: string) => void
+}> = ({ current, onChange }) => {
+  const timeframes = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
+  
+  return (
+    <div className="flex items-center space-x-1 bg-slate-800/50 rounded-lg p-1">
+      {timeframes.map(tf => (
+        <button
+          key={tf}
+          onClick={() => onChange(tf)}
+          className={`
+            px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200
+            ${current === tf 
+              ? 'bg-purple-500 text-white shadow-lg' 
+              : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }
+          `}
+        >
+          {tf.replace('m', 'M').replace('h', 'H').replace('d', 'D').replace('w', 'W')}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const ChartTypeSelector: React.FC<{
+  current: string
+  onChange: (type: string) => void
+}> = ({ current, onChange }) => {
+  const types = [
+    { key: 'candlestick', label: 'Candlestick', icon: BarChart3 },
+    { key: 'line', label: 'Line', icon: LineChart },
+    { key: 'area', label: 'Area', icon: BarChart3 },
+    { key: 'ohlc', label: 'OHLC', icon: BarChart3 }
+  ]
+  
+  return (
+    <div className="flex items-center space-x-1">
+      {types.map(({ key, label, icon: Icon }) => (
+        <ToolbarButton
+          key={key}
+          icon={<Icon className="w-4 h-4" />}
+          label={label}
+          active={current === key}
+          onClick={() => onChange(key)}
+        />
+      ))}
+    </div>
+  )
+}
+
+const IndicatorPanel: React.FC<{
+  indicators: ChartIndicator[]
+  onToggleIndicator: (name: string) => void
+  onAddIndicator: () => void
+}> = ({ indicators, onToggleIndicator, onAddIndicator }) => {
+  return (
+    <div className="bg-slate-800/30 rounded-lg p-3">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-medium text-white">Technical Indicators</h4>
+        <button
+          onClick={onAddIndicator}
+          className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+          title="Add Indicator"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+      
+      <div className="space-y-2">
+        {indicators.map(indicator => (
+          <div key={indicator.name} className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: indicator.color }}
+              />
+              <span className="text-sm text-slate-300">{indicator.name}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded ${
+                indicator.signal === 'BUY' ? 'bg-green-500/20 text-green-400' :
+                indicator.signal === 'SELL' ? 'bg-red-500/20 text-red-400' :
+                'bg-slate-500/20 text-slate-400'
+              }`}>
+                {indicator.signal}
+              </span>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-mono text-white">
+                {indicator.value.toFixed(2)}
+              </span>
+              <button
+                onClick={() => onToggleIndicator(indicator.name)}
+                className={`w-4 h-4 rounded border-2 transition-colors ${
+                  indicator.visible 
+                    ? 'bg-purple-500 border-purple-500' 
+                    : 'border-slate-500'
+                }`}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const PriceInfo: React.FC<{
+  data: ChartData[]
+  currentIndex: number
+}> = ({ data, currentIndex }) => {
+  const current = data[currentIndex] || data[data.length - 1]
+  const previous = data[currentIndex - 1] || data[data.length - 2]
+  
+  if (!current) return null
+  
+  const change = previous ? current.close - previous.close : 0
+  const changePercent = previous ? (change / previous.close) * 100 : 0
+  const isPositive = change >= 0
+  
+  return (
+    <div className="bg-slate-800/30 rounded-lg p-3">
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <div className="text-slate-400">Open</div>
+          <div className="font-mono text-white">₹{current.open.toFixed(2)}</div>
+        </div>
+        <div>
+          <div className="text-slate-400">High</div>
+          <div className="font-mono text-green-400">₹{current.high.toFixed(2)}</div>
+        </div>
+        <div>
+          <div className="text-slate-400">Low</div>
+          <div className="font-mono text-red-400">₹{current.low.toFixed(2)}</div>
+        </div>
+        <div>
+          <div className="text-slate-400">Close</div>
+          <div className={`font-mono font-semibold ${
+            isPositive ? 'text-green-400' : 'text-red-400'
+          }`}>
+            ₹{current.close.toFixed(2)}
+            <span className="text-xs ml-2">
+              {isPositive ? '+' : ''}₹{change.toFixed(2)} ({changePercent.toFixed(2)}%)
+            </span>
+          </div>
+        </div>
+        <div className="col-span-2">
+          <div className="text-slate-400">Volume</div>
+          <div className="font-mono text-cyan-400">
+            {(current.volume / 1000).toFixed(1)}K
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const ChartCanvas: React.FC<{
+  data: ChartData[]
+  chartType: string
+  indicators: ChartIndicator[]
+  showVolume: boolean
+  showGrid: boolean
+  width: number
+  height: number
+  onDataPointHover: (index: number) => void
+}> = ({ data, chartType, indicators, showVolume, showGrid, width, height, onDataPointHover }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [hoveredIndex, setHoveredIndex] = useState<number>(-1)
+  
+  // Calculate price range and scaling
+  const priceRange = useMemo(() => {
+    if (!data.length) return { min: 0, max: 100 }
+    
+    const prices = data.flatMap(d => [d.high, d.low, d.open, d.close])
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    const padding = (max - min) * 0.1
+    
+    return { 
+      min: min - padding, 
+      max: max + padding 
+    }
+  }, [data])
+  
+  // Convert price to Y coordinate
+  const priceToY = useCallback((price: number) => {
+    const chartHeight = showVolume ? height * 0.7 : height - 40
+    return 20 + (priceRange.max - price) / (priceRange.max - priceRange.min) * chartHeight
+  }, [priceRange, height, showVolume])
+  
+  // Draw candlestick
+  const drawCandlestick = useCallback((ctx: CanvasRenderingContext2D, candle: ChartData, x: number, candleWidth: number) => {
+    const openY = priceToY(candle.open)
+    const closeY = priceToY(candle.close)
+    const highY = priceToY(candle.high)
+    const lowY = priceToY(candle.low)
+    
+    const isGreen = candle.close >= candle.open
+    const bodyColor = isGreen ? '#10b981' : '#ef4444'
+    const wickColor = isGreen ? '#059669' : '#dc2626'
+    
+    // Draw wick
+    ctx.strokeStyle = wickColor
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x + candleWidth / 2, highY)
+    ctx.lineTo(x + candleWidth / 2, lowY)
+    ctx.stroke()
+    
+    // Draw body
+    ctx.fillStyle = bodyColor
+    const bodyHeight = Math.abs(closeY - openY)
+    const bodyY = Math.min(openY, closeY)
+    
+    if (bodyHeight < 1) {
+      // Doji - draw line
+      ctx.fillRect(x, bodyY, candleWidth, 1)
+    } else {
+      ctx.fillRect(x + 1, bodyY, candleWidth - 2, bodyHeight)
+    }
+  }, [priceToY])
+  
+  // Draw line chart
+  const drawLineChart = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (data.length < 2) return
+    
+    const candleWidth = (width - 40) / data.length
+    
+    ctx.strokeStyle = '#8b5cf6'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    
+    data.forEach((candle, index) => {
+      const x = 20 + index * candleWidth + candleWidth / 2
+      const y = priceToY(candle.close)
+      
+      if (index === 0) {
+        ctx.moveTo(x, y)
+      } else {
+        ctx.lineTo(x, y)
+      }
+    })
+    
+    ctx.stroke()
+    
+    // Draw area fill if area chart
+    if (chartType === 'area') {
+      ctx.lineTo(20 + (data.length - 1) * candleWidth + candleWidth / 2, priceToY(priceRange.min))
+      ctx.lineTo(20 + candleWidth / 2, priceToY(priceRange.min))
+      ctx.closePath()
+      
+      const gradient = ctx.createLinearGradient(0, 0, 0, height)
+      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)')
+      gradient.addColorStop(1, 'rgba(139, 92, 246, 0.05)')
+      
+      ctx.fillStyle = gradient
+      ctx.fill()
+    }
+  }, [data, width, priceToY, priceRange.min, chartType, height])
+  
+  // Draw grid
+  const drawGrid = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!showGrid) return
+    
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.2)'
+    ctx.lineWidth = 1
+    
+    const chartHeight = showVolume ? height * 0.7 : height - 40
+    
+    // Horizontal grid lines (price levels)
+    for (let i = 0; i <= 10; i++) {
+      const y = 20 + (chartHeight / 10) * i
+      ctx.beginPath()
+      ctx.moveTo(20, y)
+      ctx.lineTo(width - 20, y)
+      ctx.stroke()
+    }
+    
+    // Vertical grid lines (time)
+    const candleWidth = (width - 40) / data.length
+    const step = Math.max(1, Math.floor(data.length / 10))
+    
+    for (let i = 0; i < data.length; i += step) {
+      const x = 20 + i * candleWidth
+      ctx.beginPath()
+      ctx.moveTo(x, 20)
+      ctx.lineTo(x, height - 20)
+      ctx.stroke()
+    }
+  }, [showGrid, width, height, data.length, showVolume])
+  
+  // Main draw function
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data.length) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height)
+    
+    // Set canvas size
+    canvas.width = width
+    canvas.height = height
+    
+    // Draw grid first
+    drawGrid(ctx)
+    
+    const candleWidth = Math.max(1, (width - 40) / data.length - 1)
+    
+    if (chartType === 'candlestick' || chartType === 'ohlc') {
+      data.forEach((candle, index) => {
+        const x = 20 + index * (candleWidth + 1)
+        drawCandlestick(ctx, candle, x, candleWidth)
+      })
+    } else {
+      drawLineChart(ctx)
+    }
+    
+    // Draw crosshair if hovering
+    if (hoveredIndex >= 0) {
+      const x = 20 + hoveredIndex * (candleWidth + 1) + candleWidth / 2
+      const candle = data[hoveredIndex]
+      const y = priceToY(candle.close)
+      
+      ctx.strokeStyle = 'rgba(139, 92, 246, 0.8)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([5, 5])
+      
+      // Vertical line
+      ctx.beginPath()
+      ctx.moveTo(x, 20)
+      ctx.lineTo(x, height - 20)
+      ctx.stroke()
+      
+      // Horizontal line
+      ctx.beginPath()
+      ctx.moveTo(20, y)
+      ctx.lineTo(width - 20, y)
+      ctx.stroke()
+      
+      ctx.setLineDash([])
+    }
+  }, [data, width, height, chartType, drawGrid, drawCandlestick, drawLineChart, hoveredIndex, priceToY])
+  
+  // Handle mouse move for crosshair
+  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    const canvas = canvasRef.current
+    if (!canvas || !data.length) return
+    
+    const rect = canvas.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const candleWidth = (width - 40) / data.length
+    const index = Math.floor((x - 20) / candleWidth)
+    
+    if (index >= 0 && index < data.length) {
+      setHoveredIndex(index)
+      onDataPointHover(index)
+    }
+  }, [data.length, width, onDataPointHover])
+  
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIndex(-1)
+    onDataPointHover(data.length - 1)
+  }, [onDataPointHover, data.length])
+  
+  useEffect(() => {
+    draw()
+  }, [draw])
+  
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      className="cursor-crosshair"
+      style={{ width, height }}
+    />
+  )
+}
+
+export const AdvancedChart: React.FC<AdvancedChartProps> = ({
+  symbol,
+  data,
+  chartType = 'candlestick',
+  timeframe = '15m',
+  indicators = [],
+  showVolume = true,
+  showGrid = true,
+  theme = 'dark',
+  height = 500,
+  fullscreen = false,
+  onFullscreenToggle,
+  className = ''
+}) => {
+  const [currentChartType, setCurrentChartType] = useState(chartType)
+  const [currentTimeframe, setCurrentTimeframe] = useState(timeframe)
+  const [currentIndicators, setCurrentIndicators] = useState<ChartIndicator[]>(
+    indicators.map(ind => ({ ...ind, visible: true, settings: {} }))
+  )
+  const [showIndicatorPanel, setShowIndicatorPanel] = useState(false)
+  const [hoveredDataIndex, setHoveredDataIndex] = useState(data.length - 1)
+  const [chartSettings, setChartSettings] = useState({
+    showVolume,
+    showGrid,
+    theme
+  })
+  
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [containerSize, setContainerSize] = useState({ width: 800, height })
+  
+  // Update container size
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const { offsetWidth } = containerRef.current
+        setContainerSize({ width: offsetWidth - 32, height })
+      }
+    }
+    
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    
+    return () => window.removeEventListener('resize', updateSize)
+  }, [height])
+  
+  // Handle indicator toggle
+  const handleToggleIndicator = useCallback((name: string) => {
+    setCurrentIndicators(prev => prev.map(ind => 
+      ind.name === name ? { ...ind, visible: !ind.visible } : ind
+    ))
+  }, [])
+  
+  // Handle add indicator
+  const handleAddIndicator = useCallback(() => {
+    // In real implementation, this would open a modal to select indicators
+    console.log('Add indicator modal would open here')
+  }, [])
+  
+  const chartHeight = fullscreen ? containerSize.height - 120 : containerSize.height - 60
+  
+  return (
+    <motion.div
+      ref={containerRef}
+      className={`glass-card rounded-2xl overflow-hidden ${className} ${
+        fullscreen ? 'fixed inset-4 z-50' : ''
+      }`}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+    >
+      {/* Toolbar */}
+      <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <BarChart3 className="w-5 h-5 text-purple-400" />
+            <h3 className="text-lg font-bold text-white">{symbol}</h3>
+            <span className="text-sm text-slate-400">
+              {timeframeLabels[currentTimeframe]}
+            </span>
+          </div>
+          
+          <TimeframeSelector
+            current={currentTimeframe}
+            onChange={setCurrentTimeframe}
+          />
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <ChartTypeSelector
+            current={currentChartType}
+            onChange={setCurrentChartType}
+          />
+          
+          <div className="flex items-center space-x-1">
+            <ToolbarButton
+              icon={<Grid3X3 className="w-4 h-4" />}
+              label="Toggle Grid"
+              active={chartSettings.showGrid}
+              onClick={() => setChartSettings(prev => ({ ...prev, showGrid: !prev.showGrid }))}
+            />
+            
+            <ToolbarButton
+              icon={<BarChart3 className="w-4 h-4" />}
+              label="Toggle Volume"
+              active={chartSettings.showVolume}
+              onClick={() => setChartSettings(prev => ({ ...prev, showVolume: !prev.showVolume }))}
+            />
+            
+            <ToolbarButton
+              icon={<Target className="w-4 h-4" />}
+              label="Indicators"
+              active={showIndicatorPanel}
+              onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}
+            />
+            
+            <ToolbarButton
+              icon={<Download className="w-4 h-4" />}
+              label="Export Chart"
+              onClick={() => console.log('Export chart')}
+            />
+            
+            <ToolbarButton
+              icon={<Share2 className="w-4 h-4" />}
+              label="Share Chart"
+              onClick={() => console.log('Share chart')}
+            />
+            
+            {onFullscreenToggle && (
+              <ToolbarButton
+                icon={fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                label={fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                onClick={onFullscreenToggle}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* Chart Content */}
+      <div className="flex">
+        {/* Main Chart Area */}
+        <div className="flex-1 relative">
+          {data.length > 0 ? (
+            <ChartCanvas
+              data={data}
+              chartType={currentChartType}
+              indicators={currentIndicators}
+              showVolume={chartSettings.showVolume}
+              showGrid={chartSettings.showGrid}
+              width={containerSize.width - (showIndicatorPanel ? 300 : 0)}
+              height={chartHeight}
+              onDataPointHover={setHoveredDataIndex}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-slate-400">
+              <div className="text-center">
+                <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No chart data available</p>
+                <p className="text-sm">Waiting for market data...</p>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Indicator Panel */}
+        <AnimatePresence>
+          {showIndicatorPanel && (
+            <motion.div
+              className="w-80 border-l border-slate-700/50 p-4 space-y-4"
+              initial={{ opacity: 0, x: 300 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 300 }}
+              transition={{ duration: 0.3 }}
+            >
+              <PriceInfo
+                data={data}
+                currentIndex={hoveredDataIndex}
+              />
+              
+              <IndicatorPanel
+                indicators={currentIndicators}
+                onToggleIndicator={handleToggleIndicator}
+                onAddIndicator={handleAddIndicator}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  )
+}
+
+export default AdvancedChart

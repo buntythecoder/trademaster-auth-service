@@ -1,363 +1,272 @@
 package com.trademaster.brokerauth.service;
 
-import com.trademaster.brokerauth.entity.Broker;
 import com.trademaster.brokerauth.enums.BrokerType;
 import com.trademaster.brokerauth.repository.BrokerRepository;
-import io.github.resilience4j.ratelimiter.RateLimiter;
-import io.github.resilience4j.ratelimiter.RateLimiterConfig;
-import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 
 /**
  * Broker Rate Limiting Service
  * 
- * Implements rate limiting for broker API calls according to each broker's limits.
- * Uses Redis for distributed rate limiting and circuit breakers for protection.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Rate limiting for broker APIs - Rule #22
+ * MANDATORY: Virtual Threads for performance - Rule #12
+ * MANDATORY: Redis for distributed rate limiting - Rule #22
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BrokerRateLimitService {
     
+    private final RedisTemplate<String, Object> redisTemplate;
     private final BrokerRepository brokerRepository;
-    private final RedisTemplate<String, String> redisTemplate;
-    private final RateLimiterRegistry rateLimiterRegistry;
-    private final MeterRegistry meterRegistry;
-    
-    // Cache for rate limiters per broker
-    private final Map<BrokerType, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
-    
-    // Metrics
-    private final Counter rateLimitExceededCounter;
-    private final Counter rateLimitCheckCounter;
-    
-    public BrokerRateLimitService(BrokerRepository brokerRepository,
-                                 RedisTemplate<String, String> redisTemplate,
-                                 RateLimiterRegistry rateLimiterRegistry,
-                                 MeterRegistry meterRegistry) {
-        this.brokerRepository = brokerRepository;
-        this.redisTemplate = redisTemplate;
-        this.rateLimiterRegistry = rateLimiterRegistry;
-        this.meterRegistry = meterRegistry;
-        
-        // Initialize metrics
-        this.rateLimitExceededCounter = Counter.builder("broker.rate.limit.exceeded")
-                .description("Number of rate limit violations")
-                .register(meterRegistry);
-                
-        this.rateLimitCheckCounter = Counter.builder("broker.rate.limit.check")
-                .description("Number of rate limit checks performed")
-                .register(meterRegistry);
-    }
+    private final SecurityAuditService auditService;
     
     /**
-     * Check if API call is within rate limits
+     * Check if API call is allowed for user and broker
+     * 
+     * MANDATORY: Pattern matching - Rule #14
+     * MANDATORY: Virtual Threads - Rule #12
      */
-    public CompletableFuture<RateLimitResult> checkRateLimit(BrokerType brokerType, Long userId, String operation) {
-        return CompletableFuture.supplyAsync(() -> {
-            rateLimitCheckCounter.increment();
-            
-            try {
-                // Get or create rate limiter for broker
-                RateLimiter rateLimiter = getRateLimiter(brokerType);
-                
-                // Check global broker rate limit
-                boolean globalAllowed = rateLimiter.acquirePermission();
-                if (!globalAllowed) {
-                    rateLimitExceededCounter.increment();
-                    return RateLimitResult.denied("Global rate limit exceeded for broker " + brokerType);
-                }
-                
-                // Check user-specific rate limit using Redis
-                String userKey = String.format("rate_limit:user:%d:broker:%s", userId, brokerType.getCode());
-                boolean userAllowed = checkRedisRateLimit(userKey, getUserRateLimit(brokerType), Duration.ofMinutes(1));
-                
-                if (!userAllowed) {
-                    rateLimitExceededCounter.increment();
-                    return RateLimitResult.denied("User rate limit exceeded for broker " + brokerType);
-                }
-                
-                // Check operation-specific rate limit if specified
-                if (operation != null && !operation.isEmpty()) {
-                    String operationKey = String.format("rate_limit:operation:%s:broker:%s", operation, brokerType.getCode());
-                    boolean operationAllowed = checkRedisRateLimit(operationKey, getOperationRateLimit(operation), Duration.ofMinutes(1));
-                    
-                    if (!operationAllowed) {
-                        rateLimitExceededCounter.increment();
-                        return RateLimitResult.denied("Operation rate limit exceeded for " + operation);
-                    }
-                }
-                
-                log.debug("Rate limit check passed for user {} and broker {}", userId, brokerType);
-                return RateLimitResult.allowed();
-                
-            } catch (Exception e) {
-                log.error("Error checking rate limits for user {} and broker {}", userId, brokerType, e);
-                // Fail open - allow request if rate limiting fails
-                return RateLimitResult.allowed();
-            }
-        });
+    public CompletableFuture<Boolean> isAllowed(String userId, BrokerType brokerType, String endpoint) {
+        return CompletableFuture
+            .supplyAsync(() -> performRateLimitCheck(userId, brokerType, endpoint),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleRateLimitResult);
     }
     
     /**
      * Record API call for rate limiting
+     * 
+     * MANDATORY: Atomic operations for consistency - Rule #22
      */
-    public CompletableFuture<Void> recordApiCall(BrokerType brokerType, Long userId, String operation) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                // Record user call
-                String userKey = String.format("rate_limit:user:%d:broker:%s", userId, brokerType.getCode());
-                incrementRedisCounter(userKey, Duration.ofMinutes(1));
-                
-                // Record operation call if specified
-                if (operation != null && !operation.isEmpty()) {
-                    String operationKey = String.format("rate_limit:operation:%s:broker:%s", operation, brokerType.getCode());
-                    incrementRedisCounter(operationKey, Duration.ofMinutes(1));
+    public CompletableFuture<Void> recordApiCall(String userId, BrokerType brokerType, String endpoint) {
+        return CompletableFuture
+            .runAsync(() -> performApiCallRecording(userId, brokerType, endpoint),
+                     Executors.newVirtualThreadPerTaskExecutor())
+            .handle((result, throwable) -> {
+                if (throwable != null) {
+                    log.error("Failed to record API call for user: {} broker: {} endpoint: {}", 
+                        userId, brokerType, endpoint, throwable);
                 }
-                
-                // Record broker-level metrics
-                meterRegistry.counter("broker.api.calls", "broker", brokerType.getCode()).increment();
-                
-                log.debug("Recorded API call for user {} and broker {}", userId, brokerType);
-                
-            } catch (Exception e) {
-                log.error("Error recording API call for user {} and broker {}", userId, brokerType, e);
-            }
-        });
+                return null;
+            });
     }
     
     /**
-     * Get current usage stats for user and broker
+     * Get current rate limit status for user
+     * 
+     * MANDATORY: User visibility into rate limits - Rule #22
      */
-    public CompletableFuture<UsageStats> getUsageStats(BrokerType brokerType, Long userId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String userKey = String.format("rate_limit:user:%d:broker:%s", userId, brokerType.getCode());
-                String countStr = redisTemplate.opsForValue().get(userKey);
-                
-                long currentCount = countStr != null ? Long.parseLong(countStr) : 0;
-                long limit = getUserRateLimit(brokerType);
-                long remaining = Math.max(0, limit - currentCount);
-                
-                return UsageStats.builder()
-                        .brokerType(brokerType)
-                        .userId(userId)
-                        .currentUsage(currentCount)
-                        .limit(limit)
-                        .remaining(remaining)
-                        .windowMinutes(1)
-                        .build();
-                
-            } catch (Exception e) {
-                log.error("Error getting usage stats for user {} and broker {}", userId, brokerType, e);
-                return UsageStats.builder()
-                        .brokerType(brokerType)
-                        .userId(userId)
-                        .currentUsage(0)
-                        .limit(getUserRateLimit(brokerType))
-                        .remaining(getUserRateLimit(brokerType))
-                        .windowMinutes(1)
-                        .build();
-            }
-        });
+    public CompletableFuture<Map<String, Integer>> getRateLimitStatus(
+            String userId, BrokerType brokerType) {
+        
+        return CompletableFuture
+            .supplyAsync(() -> retrieveRateLimitStatus(userId, brokerType),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle((status, throwable) -> {
+                if (throwable != null) {
+                    log.error("Failed to get rate limit status for user: {} broker: {}", 
+                        userId, brokerType, throwable);
+                    return Map.of();
+                }
+                return status;
+            });
     }
     
     /**
-     * Reset rate limits for user (admin function)
+     * Reset rate limits for user (admin operation)
+     * 
+     * MANDATORY: Administrative controls - Rule #23
      */
-    public CompletableFuture<Boolean> resetUserLimits(BrokerType brokerType, Long userId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String userKey = String.format("rate_limit:user:%d:broker:%s", userId, brokerType.getCode());
-                redisTemplate.delete(userKey);
+    public CompletableFuture<Boolean> resetUserRateLimits(String userId, BrokerType brokerType) {
+        return CompletableFuture
+            .supplyAsync(() -> performRateLimitReset(userId, brokerType),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle((result, throwable) -> {
+                if (throwable != null) {
+                    log.error("Failed to reset rate limits for user: {} broker: {}", 
+                        userId, brokerType, throwable);
+                    return false;
+                }
+                return result;
+            });
+    }
+    
+    private boolean performRateLimitCheck(String userId, BrokerType brokerType, String endpoint) {
+        try {
+            // Get broker rate limits from database
+            Optional<Map<String, Integer>> rateLimitsOpt = 
+                brokerRepository.findRateLimitsByBrokerType(brokerType);
+            
+            if (rateLimitsOpt.isEmpty()) {
+                log.warn("No rate limits found for broker: {}", brokerType);
+                return true; // Allow if no limits configured
+            }
+            
+            Map<String, Integer> rateLimits = rateLimitsOpt.get();
+            
+            // Check per-second limit
+            boolean perSecondAllowed = checkRateLimit(
+                userId, brokerType, endpoint, "per_second", 
+                rateLimits.getOrDefault("per_second", Integer.MAX_VALUE), 1);
+            
+            // Check per-minute limit
+            boolean perMinuteAllowed = checkRateLimit(
+                userId, brokerType, endpoint, "per_minute",
+                rateLimits.getOrDefault("per_minute", Integer.MAX_VALUE), 60);
+            
+            // Check per-day limit
+            boolean perDayAllowed = checkRateLimit(
+                userId, brokerType, endpoint, "per_day",
+                rateLimits.getOrDefault("per_day", Integer.MAX_VALUE), 24 * 60);
+            
+            boolean allowed = perSecondAllowed && perMinuteAllowed && perDayAllowed;
+            
+            if (!allowed) {
+                auditService.logRateLimitEvent(userId, brokerType.name(), endpoint, 
+                    "CHECK", getCurrentCount(userId, brokerType, endpoint, "per_second"), 
+                    rateLimits.getOrDefault("per_second", 0), "per_second");
+            }
+            
+            return allowed;
+            
+        } catch (Exception e) {
+            log.error("Rate limit check failed for user: {} broker: {} endpoint: {}", 
+                userId, brokerType, endpoint, e);
+            return false; // Fail closed for security
+        }
+    }
+    
+    private boolean checkRateLimit(String userId, BrokerType brokerType, String endpoint, 
+                                  String windowType, int limit, int windowMinutes) {
+        
+        String key = buildRedisKey(userId, brokerType, endpoint, windowType);
+        
+        try {
+            // Get current count
+            String countStr = (String) redisTemplate.opsForValue().get(key);
+            int currentCount = countStr != null ? Integer.parseInt(countStr) : 0;
+            
+            return currentCount < limit;
+            
+        } catch (Exception e) {
+            log.error("Failed to check rate limit for key: {}", key, e);
+            return false; // Fail closed
+        }
+    }
+    
+    private void performApiCallRecording(String userId, BrokerType brokerType, String endpoint) {
+        try {
+            // Increment counters for different time windows
+            incrementCounter(userId, brokerType, endpoint, "per_second", 1);
+            incrementCounter(userId, brokerType, endpoint, "per_minute", 60);  
+            incrementCounter(userId, brokerType, endpoint, "per_day", 24 * 60);
+            
+            log.debug("API call recorded for user: {} broker: {} endpoint: {}", 
+                userId, brokerType, endpoint);
                 
-                log.info("Reset rate limits for user {} and broker {}", userId, brokerType);
+        } catch (Exception e) {
+            log.error("Failed to record API call for user: {} broker: {} endpoint: {}", 
+                userId, brokerType, endpoint, e);
+        }
+    }
+    
+    private void incrementCounter(String userId, BrokerType brokerType, String endpoint, 
+                                 String windowType, int windowMinutes) {
+        
+        String key = buildRedisKey(userId, brokerType, endpoint, windowType);
+        
+        try {
+            // Increment the counter
+            Long newCount = redisTemplate.opsForValue().increment(key, 1);
+            
+            // Set expiry if this is the first increment
+            if (newCount != null && newCount == 1) {
+                redisTemplate.expire(key, Duration.ofMinutes(windowMinutes));
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to increment counter for key: {}", key, e);
+        }
+    }
+    
+    private int getCurrentCount(String userId, BrokerType brokerType, String endpoint, String windowType) {
+        String key = buildRedisKey(userId, brokerType, endpoint, windowType);
+        
+        try {
+            String countStr = (String) redisTemplate.opsForValue().get(key);
+            return countStr != null ? Integer.parseInt(countStr) : 0;
+        } catch (Exception e) {
+            log.error("Failed to get current count for key: {}", key, e);
+            return 0;
+        }
+    }
+    
+    private Map<String, Integer> retrieveRateLimitStatus(String userId, BrokerType brokerType) {
+        try {
+            return Map.of(
+                "per_second", getCurrentCount(userId, brokerType, "default", "per_second"),
+                "per_minute", getCurrentCount(userId, brokerType, "default", "per_minute"),
+                "per_day", getCurrentCount(userId, brokerType, "default", "per_day")
+            );
+        } catch (Exception e) {
+            log.error("Failed to retrieve rate limit status for user: {} broker: {}", 
+                userId, brokerType, e);
+            return Map.of();
+        }
+    }
+    
+    private boolean performRateLimitReset(String userId, BrokerType brokerType) {
+        try {
+            String pattern = String.format("rate_limit:%s:%s:*", 
+                sanitizeKeyComponent(userId), brokerType.name());
+            
+            // Find all keys for this user and broker
+            var keys = redisTemplate.keys(pattern);
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                log.info("Reset {} rate limit keys for user: {} broker: {}", 
+                    keys.size(), userId, brokerType);
                 return true;
-                
-            } catch (Exception e) {
-                log.error("Error resetting rate limits for user {} and broker {}", userId, brokerType, e);
-                return false;
-            }
-        });
-    }
-    
-    /**
-     * Get or create rate limiter for broker
-     */
-    private RateLimiter getRateLimiter(BrokerType brokerType) {
-        return rateLimiters.computeIfAbsent(brokerType, this::createRateLimiter);
-    }
-    
-    /**
-     * Create rate limiter for broker based on its configuration
-     */
-    private RateLimiter createRateLimiter(BrokerType brokerType) {
-        Broker broker = brokerRepository.findByBrokerType(brokerType)
-                .orElseThrow(() -> new IllegalArgumentException("Broker not found: " + brokerType));
-        
-        int limitPerSecond = broker.getRateLimitPerSecond() != null ? broker.getRateLimitPerSecond() : 10;
-        
-        RateLimiterConfig config = RateLimiterConfig.custom()
-                .limitRefreshPeriod(Duration.ofSeconds(1))
-                .limitForPeriod(limitPerSecond)
-                .timeoutDuration(Duration.ofSeconds(5))
-                .build();
-        
-        String rateLimiterName = "broker-" + brokerType.getCode();
-        return rateLimiterRegistry.rateLimiter(rateLimiterName, config);
-    }
-    
-    /**
-     * Check rate limit using Redis sliding window
-     */
-    private boolean checkRedisRateLimit(String key, long limit, Duration window) {
-        try {
-            long currentTime = System.currentTimeMillis();
-            long windowStart = currentTime - window.toMillis();
-            
-            // Use Redis sorted set for sliding window
-            String windowKey = key + ":window";
-            
-            // Remove old entries
-            redisTemplate.opsForZSet().removeRangeByScore(windowKey, 0, windowStart);
-            
-            // Count current entries in window
-            Long currentCount = redisTemplate.opsForZSet().count(windowKey, windowStart, currentTime);
-            
-            if (currentCount >= limit) {
-                return false; // Rate limit exceeded
             }
             
-            // Add current request
-            redisTemplate.opsForZSet().add(windowKey, String.valueOf(currentTime), currentTime);
-            redisTemplate.expire(windowKey, window);
-            
-            return true;
+            return false;
             
         } catch (Exception e) {
-            log.error("Error checking Redis rate limit for key {}", key, e);
-            return true; // Fail open
+            log.error("Failed to reset rate limits for user: {} broker: {}", 
+                userId, brokerType, e);
+            return false;
         }
     }
     
-    /**
-     * Increment Redis counter with expiration
-     */
-    private void incrementRedisCounter(String key, Duration expiration) {
-        try {
-            redisTemplate.opsForValue().increment(key);
-            redisTemplate.expire(key, expiration);
-        } catch (Exception e) {
-            log.error("Error incrementing Redis counter for key {}", key, e);
-        }
+    private String buildRedisKey(String userId, BrokerType brokerType, String endpoint, String windowType) {
+        return String.format("rate_limit:%s:%s:%s:%s", 
+            sanitizeKeyComponent(userId), 
+            brokerType.name(), 
+            sanitizeKeyComponent(endpoint), 
+            windowType);
     }
     
-    /**
-     * Get user rate limit for broker
-     */
-    private long getUserRateLimit(BrokerType brokerType) {
-        return switch (brokerType) {
-            case ZERODHA -> 100; // 100 requests per minute per user
-            case UPSTOX -> 150;  // 150 requests per minute per user
-            case ANGEL_ONE -> 120; // 120 requests per minute per user
-            case ICICI_DIRECT -> 60; // 60 requests per minute per user
-        };
+    private String sanitizeKeyComponent(String component) {
+        if (component == null) return "null";
+        // Remove or replace characters that might cause issues in Redis keys
+        return component.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
     
-    /**
-     * Get operation-specific rate limit
-     */
-    private long getOperationRateLimit(String operation) {
-        return switch (operation.toLowerCase()) {
-            case "orders" -> 10; // Order placement more restrictive
-            case "positions" -> 60;
-            case "holdings" -> 30;
-            case "margins" -> 20;
-            default -> 100; // Default limit
-        };
-    }
-    
-    /**
-     * Rate limit check result
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class RateLimitResult {
-        private boolean allowed;
-        private String reason;
-        private long retryAfterSeconds;
-        
-        public static RateLimitResult allowed() {
-            return RateLimitResult.builder().allowed(true).build();
+    private Boolean handleRateLimitResult(Boolean result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Rate limit check failed", throwable);
+            return false; // Fail closed for security
         }
-        
-        public static RateLimitResult denied(String reason) {
-            return RateLimitResult.builder()
-                    .allowed(false)
-                    .reason(reason)
-                    .retryAfterSeconds(60) // Default retry after 1 minute
-                    .build();
-        }
-        
-        public static RateLimitResult denied(String reason, long retryAfterSeconds) {
-            return RateLimitResult.builder()
-                    .allowed(false)
-                    .reason(reason)
-                    .retryAfterSeconds(retryAfterSeconds)
-                    .build();
-        }
-    }
-    
-    /**
-     * Usage statistics
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class UsageStats {
-        private BrokerType brokerType;
-        private Long userId;
-        private long currentUsage;
-        private long limit;
-        private long remaining;
-        private int windowMinutes;
-        
-        /**
-         * Calculate usage percentage
-         */
-        public double getUsagePercentage() {
-            if (limit == 0) return 0.0;
-            return (double) currentUsage / limit * 100.0;
-        }
-        
-        /**
-         * Check if close to limit
-         */
-        public boolean isNearLimit() {
-            return getUsagePercentage() > 80.0;
-        }
-        
-        /**
-         * Check if at limit
-         */
-        public boolean isAtLimit() {
-            return currentUsage >= limit;
-        }
+        return result;
     }
 }

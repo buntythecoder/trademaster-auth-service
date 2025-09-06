@@ -1,0 +1,69 @@
+# Shared configuration for all TradeMaster services
+
+# Spring Configuration
+spring:
+  threads:
+    virtual:
+      enabled: true  # Enable Virtual Threads globally
+  
+  # Jackson Configuration
+  jackson:
+    time-zone: UTC
+    date-format: "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+      accept-single-value-as-array: true
+
+# Logging Configuration (Shared)
+logging:
+  level:
+    com.trademaster: INFO
+    org.springframework.security: INFO
+    org.springframework.cloud.consul: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+
+# Actuator Configuration (Shared)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      show-components: when-authorized
+  info:
+    env:
+      enabled: true
+    git:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        step: 60s
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+# Consul Configuration (Shared)
+spring:
+  cloud:
+    consul:
+      discovery:
+        health-check-interval: 10s
+        health-check-timeout: 5s
+        health-check-critical-timeout: 30s
+        prefer-ip-address: true
+      config:
+        watch:
+          enabled: true
+          delay: 1000

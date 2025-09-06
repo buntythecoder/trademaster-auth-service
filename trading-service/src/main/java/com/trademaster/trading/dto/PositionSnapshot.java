@@ -438,24 +438,24 @@ public class PositionSnapshot {
      * Get position summary for reporting
      */
     public Map<String, Object> getPositionSummary() {
-        return Map.of(
-            "symbol", symbol != null ? symbol : "N/A",
-            "quantity", positionDetails != null && positionDetails.getTotalQuantity() != null ? 
-                       positionDetails.getTotalQuantity() : 0,
-            "marketValue", positionDetails != null && positionDetails.getMarketValue() != null ? 
-                          positionDetails.getMarketValue() : BigDecimal.ZERO,
-            "unrealizedPnL", pnlBreakdown != null && pnlBreakdown.getUnrealizedPnL() != null ? 
-                            pnlBreakdown.getUnrealizedPnL() : BigDecimal.ZERO,
-            "percentReturn", pnlBreakdown != null && pnlBreakdown.getPercentReturn() != null ? 
-                            pnlBreakdown.getPercentReturn() : BigDecimal.ZERO,
-            "riskLevel", riskMetrics != null && riskMetrics.getRiskLevel() != null ? 
-                        riskMetrics.getRiskLevel() : "UNKNOWN",
-            "isProfitable", isProfitable(),
-            "isAtRisk", isAtRisk(),
-            "hasMarginCall", hasMarginCall(),
-            "holdingDays", getHoldingPeriodDays(),
-            "snapshotTime", snapshotTime != null ? snapshotTime : Instant.EPOCH
-        );
+        Map<String, Object> summary = new java.util.HashMap<>();
+        summary.put("symbol", symbol != null ? symbol : "N/A");
+        summary.put("quantity", positionDetails != null && positionDetails.getTotalQuantity() != null ? 
+                   positionDetails.getTotalQuantity() : 0);
+        summary.put("marketValue", positionDetails != null && positionDetails.getMarketValue() != null ? 
+                  positionDetails.getMarketValue() : BigDecimal.ZERO);
+        summary.put("unrealizedPnL", pnlBreakdown != null && pnlBreakdown.getUnrealizedPnL() != null ? 
+                    pnlBreakdown.getUnrealizedPnL() : BigDecimal.ZERO);
+        summary.put("percentReturn", pnlBreakdown != null && pnlBreakdown.getPercentReturn() != null ? 
+                    pnlBreakdown.getPercentReturn() : BigDecimal.ZERO);
+        summary.put("riskLevel", riskMetrics != null && riskMetrics.getRiskLevel() != null ? 
+                riskMetrics.getRiskLevel() : "UNKNOWN");
+        summary.put("isProfitable", isProfitable());
+        summary.put("isAtRisk", isAtRisk());
+        summary.put("hasMarginCall", hasMarginCall());
+        summary.put("holdingDays", getHoldingPeriodDays());
+        summary.put("snapshotTime", snapshotTime != null ? snapshotTime : Instant.EPOCH);
+        return java.util.Collections.unmodifiableMap(summary);
     }
     
     /**

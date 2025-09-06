@@ -1,216 +1,200 @@
-server:
-  port: 8082
-  servlet:
-    context-path: /api/v1
-  error:
-    include-message: always
-    include-binding-errors: always
-
 spring:
   application:
-    name: trademaster-user-profile-service
-    version: 1.0.0
-  
-  profiles:
-    active: dev
-    
+    name: user-profile-service
+
+  # DataSource Configuration
   datasource:
-    url: jdbc:postgresql://localhost:5432/trademaster_profiles
-    username: ${DB_USERNAME:trademaster_user}
-    password: ${DB_PASSWORD:trademaster_password}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:trademaster_userprofile}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-      idle-timeout: 300000
-      connection-timeout: 20000
-      max-lifetime: 1200000
-      leak-detection-threshold: 60000
-      
+      connection-timeout: ${HIKARI_CONNECTION_TIMEOUT:30000}
+      idle-timeout: ${HIKARI_IDLE_TIMEOUT:600000}
+      max-lifetime: ${HIKARI_MAX_LIFETIME:1800000}
+      minimum-idle: ${HIKARI_MIN_IDLE:5}
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:20}
+      pool-name: UserProfileServiceHikariCP
+
+  # JPA Configuration with PostgreSQL JSONB
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: validate
-    show-sql: false
+      ddl-auto: ${HIBERNATE_DDL_AUTO:validate}
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.SnakeCasePhysicalNamingStrategy
     properties:
       hibernate:
+        format_sql: ${HIBERNATE_FORMAT_SQL:false}
+        show_sql: ${HIBERNATE_SHOW_SQL:false}
+        use_sql_comments: ${HIBERNATE_SQL_COMMENTS:false}
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        jdbc:
-          batch_size: 20
-        order_inserts: true
-        order_updates: true
-        generate_statistics: false
-        
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
-    validate-on-migrate: true
-    
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:trademaster_redis_pass}
-    timeout: 2000ms
-    lettuce:
-      pool:
-        max-active: 8
-        max-idle: 8
-        min-idle: 0
-        max-wait: -1ms
-        
+        types:
+          print:
+            banner: false
+    show-sql: ${JPA_SHOW_SQL:false}
+
+  # Cache Configuration
   cache:
     type: redis
     redis:
-      time-to-live: 3600000
-      
+      time-to-live: ${CACHE_TTL:3600000} # 1 hour
+
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:2000}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:20}
+          max-idle: ${REDIS_POOL_MAX_IDLE:10}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+
+  # Kafka Configuration
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: trademaster-user-profile-service
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "com.trademaster.*"
-        spring.json.value.default.type: com.trademaster.userprofile.event.ProfileEvent
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        spring.json.add.type.headers: false
-    properties:
-      schema.registry.url: ${KAFKA_SCHEMA_REGISTRY_URL:http://localhost:8081}
-    admin:
-      properties:
-        bootstrap.servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    
-  servlet:
-    multipart:
-      max-file-size: 10MB
-      max-request-size: 15MB
+      acks: all
+      retries: ${KAFKA_PRODUCER_RETRIES:3}
+      batch-size: ${KAFKA_PRODUCER_BATCH_SIZE:16384}
+      linger-ms: ${KAFKA_PRODUCER_LINGER_MS:10}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:user-profile-service}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+
+  # Liquibase Configuration
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: ${LIQUIBASE_ENABLED:true}
+
+  # Virtual Threads Configuration (Java 24)
+  threads:
+    virtual:
       enabled: true
 
-# MinIO Configuration
-minio:
-  url: ${MINIO_URL:http://localhost:9000}
-  access-key: ${MINIO_ACCESS_KEY:trademaster_admin}
-  secret-key: ${MINIO_SECRET_KEY:trademaster_minio_pass_2024}
-  buckets:
-    documents: ${MINIO_BUCKET_DOCUMENTS:trademaster-documents}
-    kyc-docs: ${MINIO_BUCKET_KYC:trademaster-kyc-docs}
-    profile-pics: ${MINIO_BUCKET_PROFILES:trademaster-profile-pics}
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8083}
+  servlet:
+    context-path: ${CONTEXT_PATH:/api/v1}
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:200}
+      min-spare: ${TOMCAT_MIN_THREADS:10}
+    connection-timeout: ${TOMCAT_CONNECTION_TIMEOUT:20000}
 
-logging:
-  level:
-    com.trademaster: INFO
-    org.springframework.security: INFO
-    org.springframework.web: INFO
-    org.hibernate.SQL: WARN
-    org.hibernate.type.descriptor.sql.BasicBinder: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/user-profile-service.log
-    max-size: 10MB
-    max-history: 30
-
+# Management Configuration
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics,prometheus
-      base-path: /actuator
   endpoint:
     health:
-      show-details: when_authorized
+      show-details: when-authorized
   metrics:
     export:
       prometheus:
         enabled: true
-        
-trademaster:
-  jwt:
-    secret: ${JWT_SECRET:your-256-bit-secret-key-here-change-in-production}
-    
-  file-storage:
-    type: ${FILE_STORAGE_TYPE:local} # local, minio, s3
-    local:
-      upload-path: ${LOCAL_UPLOAD_PATH:./uploads}
-    minio:
-      endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
-      access-key: ${MINIO_ACCESS_KEY:minioadmin}
-      secret-key: ${MINIO_SECRET_KEY:minioadmin}
-      bucket-name: ${MINIO_BUCKET:trademaster-documents}
-      
-  profile:
-    validation:
-      pan-regex: "^[A-Z]{5}[0-9]{4}[A-Z]{1}$"
-      mobile-regex: "^[6-9]\\d{9}$"
-      max-file-size: 10485760 # 10MB
-      allowed-file-types: ["jpg", "jpeg", "png", "pdf", "doc", "docx"]
-      
-  cache:
-    profiles:
-      ttl-seconds: 3600 # 1 hour
-    documents:
-      ttl-seconds: 1800 # 30 minutes
-      
-  audit:
-    enabled: true
-    retention-days: 2555 # 7 years for financial compliance
-    
-  compliance:
-    sebi:
+  health:
+    redis:
       enabled: true
-      audit-level: DETAILED
-      
----
-spring:
-  config:
-    activate:
-      on-profile: dev
-      
-  jpa:
-    show-sql: true
-    properties:
-      hibernate:
-        generate_statistics: true
+    db:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    com.trademaster.userprofile: ${LOG_LEVEL_APP:INFO}
+    org.springframework.kafka: ${LOG_LEVEL_KAFKA:WARN}
+    org.hibernate: ${LOG_LEVEL_HIBERNATE:WARN}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.springframework.transaction: ${LOG_LEVEL_TX:WARN}
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{correlationId}] %logger{36} - %msg%n"
+  file:
+    name: ${LOG_FILE_NAME:logs/user-profile-service.log}
+    max-size: ${LOG_FILE_MAX_SIZE:10MB}
+    max-history: ${LOG_FILE_MAX_HISTORY:30}
+
+# TradeMaster Configuration
+trademaster:
+  # JWT Configuration
+  jwt:
+    secret: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-chars-long}
+    expiration: ${JWT_EXPIRATION:86400000} # 24 hours
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days
+  
+  # CORS Configuration
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:8000}
+    allowed-headers: ${CORS_ALLOWED_HEADERS:*}
+    allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+    allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+  
+  # Security Configuration
+  security:
+    permit-all-paths: ${SECURITY_PERMIT_ALL_PATHS:/actuator/health,/actuator/info,/api/v1/profiles/*/exists}
+    max-session-duration: ${MAX_SESSION_DURATION:28800} # 8 hours
+    
+    password-policy:
+      min-length: ${PASSWORD_MIN_LENGTH:12}
+      require-uppercase: ${PASSWORD_REQUIRE_UPPERCASE:true}
+      require-lowercase: ${PASSWORD_REQUIRE_LOWERCASE:true}
+      require-numbers: ${PASSWORD_REQUIRE_NUMBERS:true}
+      require-special: ${PASSWORD_REQUIRE_SPECIAL:true}
+    
+    rate-limiting:
+      requests-per-minute: ${RATE_LIMIT_PER_MINUTE:60}
+      burst-size: ${RATE_LIMIT_BURST:10}
+
+  user-profile:
+    # Document Management
+    documents:
+      max-file-size: ${USER_PROFILE_MAX_FILE_SIZE:20971520} # 20MB
+      allowed-mime-types: ${USER_PROFILE_ALLOWED_MIMES:image/jpeg,image/png,application/pdf}
+      storage-path: ${USER_PROFILE_STORAGE_PATH:/var/trademaster/documents}
+      cleanup-interval: ${USER_PROFILE_CLEANUP_INTERVAL:86400000} # 24 hours
+    
+    # KYC Configuration
+    kyc:
+      verification-timeout: ${KYC_VERIFICATION_TIMEOUT:172800000} # 48 hours
+      retry-attempts: ${KYC_RETRY_ATTEMPTS:3}
+      auto-approve-threshold: ${KYC_AUTO_APPROVE_THRESHOLD:95}
+    
+    # Audit Configuration
+    audit:
+      retention-days: ${AUDIT_RETENTION_DAYS:2555} # 7 years
+      batch-size: ${AUDIT_BATCH_SIZE:1000}
+      enabled: ${AUDIT_ENABLED:true}
+    
+    # Cache Configuration
+    cache:
+      profile-ttl: ${PROFILE_CACHE_TTL:1800} # 30 minutes
+      preferences-ttl: ${PREFERENCES_CACHE_TTL:3600} # 1 hour
+      documents-ttl: ${DOCUMENTS_CACHE_TTL:900} # 15 minutes
+    
+    # Circuit Breaker Configuration
+    circuit-breaker:
+      failure-rate-threshold: ${CB_FAILURE_RATE_THRESHOLD:50}
+      wait-duration: ${CB_WAIT_DURATION:60}
+      sliding-window-size: ${CB_SLIDING_WINDOW_SIZE:10}
+      minimum-calls: ${CB_MINIMUM_CALLS:5}
         
-logging:
-  level:
-    com.trademaster: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    
----
-spring:
-  config:
-    activate:
-      on-profile: docker
-      
-  datasource:
-    url: jdbc:postgresql://postgres:5432/trademaster_profiles
-    
-  redis:
-    host: redis
-    
-  rabbitmq:
-    host: rabbitmq
-    
----
-spring:
-  config:
-    activate:
-      on-profile: prod
-      
-  datasource:
-    hikari:
-      maximum-pool-size: 50
-      
-logging:
-  level:
-    com.trademaster: INFO
-    org.springframework.security: WARN
-    root: WARN
+# Actuator Info
+info:
+  app:
+    name: "TradeMaster User Profile Service"
+    version: "2.0.0"
+    description: "Enterprise User Profile Management with KYC and Document Management"
+    java-version: "24"
+    spring-version: "3.5.3"

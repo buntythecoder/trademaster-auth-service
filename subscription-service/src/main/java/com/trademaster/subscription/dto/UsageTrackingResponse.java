@@ -1,9 +1,7 @@
 package com.trademaster.subscription.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.trademaster.subscription.entity.UsageTracking;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -11,134 +9,110 @@ import java.util.UUID;
 /**
  * Usage Tracking Response DTO
  * 
- * Response object containing feature usage information and limits.
+ * MANDATORY: Immutable Record - TradeMaster Rule #9
+ * MANDATORY: Functional Programming - TradeMaster Rule #3
  * 
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class UsageTrackingResponse {
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record UsageTrackingResponse(
+    UUID id,
+    UUID userId,
+    UUID subscriptionId,
+    String featureName,
+    Long usageCount,
+    Long usageLimit,
+    LocalDateTime periodStart,
+    LocalDateTime periodEnd,
+    LocalDateTime resetDate,
+    Integer resetFrequencyDays,
+    Boolean limitExceeded,
+    Integer exceededCount,
+    LocalDateTime firstExceededAt,
+    Boolean isUnlimited,
+    Boolean isWithinLimit,
+    Long remainingUsage,
+    Double usagePercentage,
+    Boolean isPeriodActive,
+    Boolean isApproachingLimit,
+    Boolean isAtSoftLimit,
+    WarningLevel warningLevel,
+    LocalDateTime createdAt,
+    LocalDateTime updatedAt
+) {
 
     /**
-     * Usage tracking ID
+     * Factory method to create response from entity using pattern matching
      */
-    private UUID id;
-
+    public static UsageTrackingResponse fromEntity(UsageTracking entity) {
+        LocalDateTime now = LocalDateTime.now();
+        
+        // Calculate derived values using pattern matching
+        Long remainingUsage = switch (entity.getUsageLimit()) {
+            case Long limit when limit == -1 -> Long.MAX_VALUE;  // Unlimited
+            case Long limit -> Math.max(0L, limit - entity.getUsageCount());
+        };
+        
+        Double usagePercentage = switch (entity.getUsageLimit()) {
+            case Long limit when limit == -1 -> 0.0;  // Unlimited
+            case Long limit when limit == 0 -> 0.0;   // No limit
+            case Long limit -> Math.min(100.0, (entity.getUsageCount().doubleValue() / limit.doubleValue()) * 100.0);
+        };
+        
+        Boolean isUnlimited = entity.getUsageLimit() == -1;
+        Boolean limitExceeded = !isUnlimited && entity.getUsageCount() > entity.getUsageLimit();
+        Boolean isWithinLimit = !limitExceeded;
+        Boolean isPeriodActive = entity.getBillingPeriodStart().isBefore(now) && entity.getBillingPeriodEnd().isAfter(now);
+        Boolean isApproachingLimit = !isUnlimited && usagePercentage >= 80.0 && usagePercentage < 100.0;
+        Boolean isAtSoftLimit = !isUnlimited && usagePercentage >= 90.0 && usagePercentage < 100.0;
+        
+        WarningLevel warningLevel = calculateWarningLevel(usagePercentage, limitExceeded);
+        
+        return new UsageTrackingResponse(
+            entity.getId(),
+            entity.getUserId(),
+            entity.getSubscriptionId(),
+            entity.getFeature(),
+            entity.getUsageCount(),
+            entity.getUsageLimit(),
+            entity.getBillingPeriodStart(),
+            entity.getBillingPeriodEnd(),
+            entity.getLastResetDate(),
+            null, // resetFrequencyDays not in entity
+            limitExceeded,
+            null, // exceededCount not in entity
+            null, // firstExceededAt not in entity
+            isUnlimited,
+            isWithinLimit,
+            remainingUsage,
+            usagePercentage,
+            isPeriodActive,
+            isApproachingLimit,
+            isAtSoftLimit,
+            warningLevel,
+            entity.getCreatedAt(),
+            entity.getUpdatedAt()
+        );
+    }
+    
     /**
-     * User ID
+     * Calculate warning level using pattern matching
      */
-    private UUID userId;
-
+    private static WarningLevel calculateWarningLevel(Double percentage, Boolean limitExceeded) {
+        return switch (limitExceeded) {
+            case Boolean exceeded when exceeded -> WarningLevel.CRITICAL;
+            default -> switch (percentage) {
+                case Double p when p >= 90.0 -> WarningLevel.HIGH;
+                case Double p when p >= 80.0 -> WarningLevel.MEDIUM;
+                case Double p when p >= 60.0 -> WarningLevel.LOW;
+                default -> WarningLevel.NONE;
+            };
+        };
+    }
+    
     /**
-     * Associated subscription ID
-     */
-    private UUID subscriptionId;
-
-    /**
-     * Feature name being tracked
-     */
-    private String featureName;
-
-    /**
-     * Current usage count in this period
-     */
-    private Long usageCount;
-
-    /**
-     * Maximum allowed usage for this feature (-1 for unlimited)
-     */
-    private Long usageLimit;
-
-    /**
-     * Period start date
-     */
-    private LocalDateTime periodStart;
-
-    /**
-     * Period end date
-     */
-    private LocalDateTime periodEnd;
-
-    /**
-     * When usage counter resets
-     */
-    private LocalDateTime resetDate;
-
-    /**
-     * Reset frequency in days
-     */
-    private Integer resetFrequencyDays;
-
-    /**
-     * Whether limit has been exceeded
-     */
-    private Boolean limitExceeded;
-
-    /**
-     * Number of times limit was exceeded
-     */
-    private Integer exceededCount;
-
-    /**
-     * First time limit was exceeded in this period
-     */
-    private LocalDateTime firstExceededAt;
-
-    /**
-     * Whether feature has unlimited usage
-     */
-    private Boolean isUnlimited;
-
-    /**
-     * Whether usage is within limits
-     */
-    private Boolean isWithinLimit;
-
-    /**
-     * Remaining usage allowance
-     */
-    private Long remainingUsage;
-
-    /**
-     * Usage percentage (0-100)
-     */
-    private Double usagePercentage;
-
-    /**
-     * Whether period is currently active
-     */
-    private Boolean isPeriodActive;
-
-    /**
-     * Whether usage is approaching limit (>80%)
-     */
-    private Boolean isApproachingLimit;
-
-    /**
-     * Whether usage is at soft limit (>90%)
-     */
-    private Boolean isAtSoftLimit;
-
-    /**
-     * Warning level based on usage
-     */
-    private WarningLevel warningLevel;
-
-    /**
-     * Creation timestamp
-     */
-    private LocalDateTime createdAt;
-
-    /**
-     * Last update timestamp
-     */
-    private LocalDateTime updatedAt;
-
-    /**
-     * Usage warning levels
+     * Usage warning levels using sealed interface pattern
      */
     public enum WarningLevel {
         NONE("No Warning", 0),
@@ -161,6 +135,19 @@ public class UsageTrackingResponse {
 
         public int getThreshold() {
             return threshold;
+        }
+        
+        /**
+         * Get warning level from percentage using pattern matching
+         */
+        public static WarningLevel fromPercentage(double percentage) {
+            return switch (percentage) {
+                case double p when p >= 100.0 -> CRITICAL;
+                case double p when p >= 90.0 -> HIGH;
+                case double p when p >= 80.0 -> MEDIUM;
+                case double p when p >= 60.0 -> LOW;
+                default -> NONE;
+            };
         }
     }
 }

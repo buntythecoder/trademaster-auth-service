@@ -27,8 +27,8 @@ tasks.named('test') {
     jvmArgs += ['--enable-preview']
     useJUnitPlatform()
     testLogging {
-        events "passed", "skipped", "failed"
-        exceptionFormat "full"
+        events = ["passed", "skipped", "failed"]
+        exceptionFormat = "full"
     }
 }
 
@@ -70,6 +70,9 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
     
+    // HTTP Client for Service Integration
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
+    
     // Validation
     implementation 'org.hibernate.validator:hibernate-validator'
     
@@ -84,11 +87,17 @@ dependencies {
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:2.2.0'
     
-    // Resilience with correct versions for Spring Boot 3.5.3
-    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-retry:2.1.0'
-    implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.1.0'
+    // Circuit Breaker & Resilience - MANDATORY per TradeMaster Standards
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-all:2.2.0'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+    
+    // Service Discovery & Configuration - MANDATORY for TradeMaster Infrastructure
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    implementation 'org.springframework.cloud:spring-cloud-starter-config'
+    implementation 'org.springframework.cloud:spring-cloud-starter-bootstrap'
     
     // Lombok
     compileOnly 'org.projectlombok:lombok'
@@ -100,6 +109,7 @@ dependencies {
     
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
@@ -126,8 +136,12 @@ springBoot {
 dependencyManagement {
     imports {
         mavenBom "org.springframework.cloud:spring-cloud-dependencies:2023.0.4"
-        mavenBom "io.github.resilience4j:resilience4j-bom:2.1.0"
+        mavenBom "io.github.resilience4j:resilience4j-bom:2.2.0"
     }
+}
+
+ext {
+    set('springCloudVersion', "2023.0.4")
 }
 
 // Flyway Configuration

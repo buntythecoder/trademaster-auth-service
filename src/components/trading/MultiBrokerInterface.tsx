@@ -85,6 +85,7 @@ const brokerTypes = [
 export const MultiBrokerInterface: React.FC = () => {
   const { user } = useAuthStore()
   const [brokerConnections, setBrokerConnections] = useState<BrokerConnection[]>([])
+  const [positions, setPositions] = useState<BrokerPosition[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'connections' | 'positions' | 'pnl'>('connections')
   
@@ -116,6 +117,10 @@ export const MultiBrokerInterface: React.FC = () => {
       // Get connected brokers from service
       const connections = MultiBrokerService.getConnectedBrokers();
       setBrokerConnections(connections);
+      
+      // Get aggregated portfolio data which includes positions
+      const portfolio = await MultiBrokerService.getAggregatedPortfolio();
+      setPositions(portfolio.positions);
     } catch (error) {
       console.error('Failed to fetch broker connections:', error)
     } finally {
@@ -532,11 +537,21 @@ export const MultiBrokerInterface: React.FC = () => {
       )}
 
       {activeTab === 'positions' && (
-        <MultiBrokerPositionDashboard />
+        <MultiBrokerPositionDashboard 
+          positions={positions}
+          brokers={brokerConnections}
+          onRefresh={fetchBrokerConnections}
+          isLoading={loading}
+        />
       )}
 
       {activeTab === 'pnl' && (
-        <MultiBrokerPnLDashboard />
+        <MultiBrokerPnLDashboard 
+          positions={positions}
+          brokers={brokerConnections}
+          onRefresh={fetchBrokerConnections}
+          isLoading={loading}
+        />
       )}
 
       {/* Add Broker Modal */}

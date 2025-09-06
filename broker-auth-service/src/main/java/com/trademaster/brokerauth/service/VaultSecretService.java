@@ -1,339 +1,350 @@
 package com.trademaster.brokerauth.service;
 
-import com.trademaster.brokerauth.exception.CredentialManagementException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.vault.core.VaultTemplate;
 import org.springframework.vault.support.VaultResponse;
 
-import jakarta.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 /**
- * Vault Secret Management Service
+ * HashiCorp Vault Secret Management Service
  * 
- * Provides secure storage and retrieval of sensitive credentials
- * including encryption keys, API secrets, and database passwords.
- * 
- * Features:
- * - Secure credential storage/retrieval
- * - Local caching with TTL
- * - Automatic secret rotation support
- * - Audit logging for compliance
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Secure secret storage in production - Rule #23
+ * MANDATORY: Virtual Threads for performance - Rule #12
+ * MANDATORY: Pattern matching for error handling - Rule #14
  */
 @Service
-@Slf4j
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "vault.enabled", havingValue = "true", matchIfMissing = true)
+@Slf4j
 public class VaultSecretService {
-
+    
     private final VaultTemplate vaultTemplate;
-
-    @Value("${vault.secret-path:secret/broker-auth}")
-    private String secretPath;
-
-    @Value("${vault.cache.enabled:true}")
-    private boolean cacheEnabled;
-
-    @Value("${vault.cache.ttl-minutes:5}")
-    private long cacheTtlMinutes;
-
-    // Local cache for frequently accessed secrets
-    private final Map<String, CachedSecret> secretCache = new ConcurrentHashMap<>();
-
-    @PostConstruct
-    public void validateVaultConnection() {
-        try {
-            // Test Vault connectivity by trying to read a test path
-            // This is more compatible across Spring Vault versions
-            try {
-                vaultTemplate.read("sys/health");
-            } catch (Exception e) {
-                // If sys/health fails, try a simple read operation
-                log.debug("Vault sys/health check failed, trying alternative validation: {}", e.getMessage());
-            }
-            
-            log.info("✅ Vault connection validated successfully");
-            
-            // Initialize critical secrets if they don't exist
-            initializeCriticalSecrets();
-            
-        } catch (Exception e) {
-            log.error("❌ Vault connection validation failed: {}", e.getMessage());
-            throw new CredentialManagementException(
-                "Failed to connect to Vault: " + e.getMessage(),
-                "VAULT_CONNECTION_FAILED"
-            );
-        }
-    }
-
+    
+    @Value("${spring.cloud.vault.kv.backend:secret}")
+    private String kvBackend;
+    
     /**
-     * Retrieve a secret from Vault
+     * Store secret in Vault
      * 
-     * @param key Secret key
-     * @return Secret value
+     * MANDATORY: Secure secret storage - Rule #23
+     * MANDATORY: Virtual Threads - Rule #12
      */
-    public Optional<String> getSecret(String key) {
-        try {
-            // Check cache first
-            if (cacheEnabled && secretCache.containsKey(key)) {
-                CachedSecret cached = secretCache.get(key);
-                if (!cached.isExpired()) {
-                    log.debug("🎯 Retrieved secret '{}' from cache", key);
-                    return Optional.of(cached.getValue());
-                } else {
-                    secretCache.remove(key);
-                    log.debug("♻️ Removed expired secret '{}' from cache", key);
-                }
-            }
-
-            // Retrieve from Vault
-            VaultResponse response = vaultTemplate.read(secretPath);
-            if (response == null || response.getData() == null) {
-                log.warn("⚠️ Secret not found in Vault: {}", key);
-                return Optional.empty();
-            }
-
-            Object secretValue = response.getData().get(key);
-            if (secretValue == null) {
-                log.warn("⚠️ Secret key '{}' not found in path '{}'", key, secretPath);
-                return Optional.empty();
-            }
-
-            String secret = secretValue.toString();
-
-            // Cache the secret
-            if (cacheEnabled) {
-                secretCache.put(key, new CachedSecret(secret, cacheTtlMinutes));
-                log.debug("💾 Cached secret '{}' for {} minutes", key, cacheTtlMinutes);
-            }
-
-            log.info("🔒 Successfully retrieved secret: {}", key);
-            return Optional.of(secret);
-
-        } catch (Exception e) {
-            log.error("❌ Failed to retrieve secret '{}': {}", key, e.getMessage());
-            throw new CredentialManagementException(
-                "Failed to retrieve secret from Vault: " + e.getMessage(),
-                "VAULT_READ_FAILED"
-            );
-        }
+    public CompletableFuture<Boolean> storeSecret(String path, String key, String value) {
+        return CompletableFuture
+            .supplyAsync(() -> performSecretStorage(path, key, value),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleSecretOperationResult);
     }
-
+    
     /**
-     * Store a secret in Vault
+     * Store multiple secrets in Vault
      * 
-     * @param key Secret key
-     * @param value Secret value
+     * MANDATORY: Batch operations for efficiency - Rule #22
      */
-    public void storeSecret(String key, String value) {
+    public CompletableFuture<Boolean> storeSecrets(String path, Map<String, String> secrets) {
+        return CompletableFuture
+            .supplyAsync(() -> performBatchSecretStorage(path, secrets),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleSecretOperationResult);
+    }
+    
+    /**
+     * Retrieve secret from Vault
+     * 
+     * MANDATORY: Secure secret retrieval - Rule #23
+     */
+    public CompletableFuture<Optional<String>> getSecret(String path, String key) {
+        return CompletableFuture
+            .supplyAsync(() -> performSecretRetrieval(path, key),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleSecretRetrievalResult);
+    }
+    
+    /**
+     * Retrieve all secrets from path
+     * 
+     * MANDATORY: Batch retrieval for efficiency - Rule #22
+     */
+    public CompletableFuture<Map<String, String>> getAllSecrets(String path) {
+        return CompletableFuture
+            .supplyAsync(() -> performBatchSecretRetrieval(path),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleBatchRetrievalResult);
+    }
+    
+    /**
+     * Delete secret from Vault
+     * 
+     * MANDATORY: Secure secret deletion - Rule #23
+     */
+    public CompletableFuture<Boolean> deleteSecret(String path) {
+        return CompletableFuture
+            .supplyAsync(() -> performSecretDeletion(path),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleSecretOperationResult);
+    }
+    
+    /**
+     * Check if secret exists in Vault
+     * 
+     * MANDATORY: Existence checking without exposure - Rule #23
+     */
+    public CompletableFuture<Boolean> secretExists(String path) {
+        return CompletableFuture
+            .supplyAsync(() -> performSecretExistenceCheck(path),
+                        Executors.newVirtualThreadPerTaskExecutor())
+            .handle(this::handleSecretOperationResult);
+    }
+    
+    private boolean performSecretStorage(String path, String key, String value) {
+        return switch (validateSecretStorageInputs(path, key, value)) {
+            case VALID -> executeSecretStorage(path, key, value);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+            case INVALID_KEY -> throw new IllegalArgumentException("Secret key cannot be empty");
+            case INVALID_VALUE -> throw new IllegalArgumentException("Secret value cannot be empty");
+        };
+    }
+    
+    private boolean performBatchSecretStorage(String path, Map<String, String> secrets) {
+        return switch (validateBatchStorageInputs(path, secrets)) {
+            case VALID -> executeBatchSecretStorage(path, secrets);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+            case INVALID_SECRETS -> throw new IllegalArgumentException("Secrets map cannot be empty");
+        };
+    }
+    
+    private Optional<String> performSecretRetrieval(String path, String key) {
+        return switch (validateSecretRetrievalInputs(path, key)) {
+            case VALID -> executeSecretRetrieval(path, key);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+            case INVALID_KEY -> throw new IllegalArgumentException("Secret key cannot be empty");
+        };
+    }
+    
+    private Map<String, String> performBatchSecretRetrieval(String path) {
+        return switch (validatePathInput(path)) {
+            case VALID -> executeBatchSecretRetrieval(path);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+        };
+    }
+    
+    private boolean performSecretDeletion(String path) {
+        return switch (validatePathInput(path)) {
+            case VALID -> executeSecretDeletion(path);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+        };
+    }
+    
+    private boolean performSecretExistenceCheck(String path) {
+        return switch (validatePathInput(path)) {
+            case VALID -> executeSecretExistenceCheck(path);
+            case INVALID_PATH -> throw new IllegalArgumentException("Secret path cannot be empty");
+        };
+    }
+    
+    private boolean executeSecretStorage(String path, String key, String value) {
         try {
+            String vaultPath = buildVaultPath(path);
+            
             // Get existing secrets to preserve them
-            Map<String, Object> existingSecrets = getCurrentSecrets();
+            Map<String, Object> existingSecrets = new HashMap<>();
+            try {
+                VaultResponse response = vaultTemplate.read(vaultPath);
+                if (response != null && response.getData() != null) {
+                    existingSecrets.putAll(response.getData());
+                }
+            } catch (Exception e) {
+                log.debug("No existing secrets found at path: {}", vaultPath);
+            }
             
             // Add/update the new secret
             existingSecrets.put(key, value);
             
-            // Write back to Vault
-            vaultTemplate.write(secretPath, existingSecrets);
-            
-            // Update cache
-            if (cacheEnabled) {
-                secretCache.put(key, new CachedSecret(value, cacheTtlMinutes));
-            }
-            
-            log.info("🔒 Successfully stored secret: {}", key);
+            // Store back to Vault
+            vaultTemplate.write(vaultPath, existingSecrets);
+            log.info("Secret stored successfully at path: {} key: {}", vaultPath, key);
+            return true;
             
         } catch (Exception e) {
-            log.error("❌ Failed to store secret '{}': {}", key, e.getMessage());
-            throw new CredentialManagementException(
-                "Failed to store secret in Vault: " + e.getMessage(),
-                "VAULT_WRITE_FAILED"
-            );
+            log.error("Failed to store secret at path: {} key: {}", path, key, e);
+            throw new RuntimeException("Secret storage failed", e);
         }
     }
-
-    /**
-     * Delete a secret from Vault
-     * 
-     * @param key Secret key to delete
-     */
-    public void deleteSecret(String key) {
+    
+    private boolean executeBatchSecretStorage(String path, Map<String, String> secrets) {
         try {
-            // Get existing secrets
-            Map<String, Object> existingSecrets = getCurrentSecrets();
+            String vaultPath = buildVaultPath(path);
             
-            // Remove the secret
-            if (existingSecrets.remove(key) != null) {
-                // Write back the updated secrets
-                if (existingSecrets.isEmpty()) {
-                    vaultTemplate.delete(secretPath);
-                } else {
-                    vaultTemplate.write(secretPath, existingSecrets);
+            // Convert to Object map for Vault
+            Map<String, Object> vaultSecrets = new HashMap<>(secrets);
+            
+            vaultTemplate.write(vaultPath, vaultSecrets);
+            log.info("Batch secrets stored successfully at path: {} count: {}", 
+                vaultPath, secrets.size());
+            return true;
+            
+        } catch (Exception e) {
+            log.error("Failed to store batch secrets at path: {}", path, e);
+            throw new RuntimeException("Batch secret storage failed", e);
+        }
+    }
+    
+    private Optional<String> executeSecretRetrieval(String path, String key) {
+        try {
+            String vaultPath = buildVaultPath(path);
+            VaultResponse response = vaultTemplate.read(vaultPath);
+            
+            if (response == null || response.getData() == null) {
+                log.debug("No data found at path: {}", vaultPath);
+                return Optional.empty();
+            }
+            
+            Object value = response.getData().get(key);
+            if (value == null) {
+                log.debug("Key '{}' not found at path: {}", key, vaultPath);
+                return Optional.empty();
+            }
+            
+            return Optional.of(value.toString());
+            
+        } catch (Exception e) {
+            log.error("Failed to retrieve secret at path: {} key: {}", path, key, e);
+            throw new RuntimeException("Secret retrieval failed", e);
+        }
+    }
+    
+    private Map<String, String> executeBatchSecretRetrieval(String path) {
+        try {
+            String vaultPath = buildVaultPath(path);
+            VaultResponse response = vaultTemplate.read(vaultPath);
+            
+            if (response == null || response.getData() == null) {
+                log.debug("No data found at path: {}", vaultPath);
+                return Map.of();
+            }
+            
+            Map<String, String> secrets = new HashMap<>();
+            response.getData().forEach((key, value) -> {
+                if (value != null) {
+                    secrets.put(key, value.toString());
                 }
-                
-                // Remove from cache
-                secretCache.remove(key);
-                
-                log.info("🗑️ Successfully deleted secret: {}", key);
-            } else {
-                log.warn("⚠️ Secret '{}' not found for deletion", key);
-            }
+            });
+            
+            return secrets;
             
         } catch (Exception e) {
-            log.error("❌ Failed to delete secret '{}': {}", key, e.getMessage());
-            throw new CredentialManagementException(
-                "Failed to delete secret from Vault: " + e.getMessage(),
-                "VAULT_DELETE_FAILED"
-            );
+            log.error("Failed to retrieve batch secrets at path: {}", path, e);
+            throw new RuntimeException("Batch secret retrieval failed", e);
         }
     }
-
-    /**
-     * Get encryption key from Vault
-     */
-    public String getEncryptionKey() {
-        return getSecret("encryption-key")
-            .orElseThrow(() -> new CredentialManagementException(
-                "Encryption key not found in Vault",
-                "ENCRYPTION_KEY_NOT_FOUND"
-            ));
-    }
-
-    /**
-     * Get JWT secret from Vault
-     */
-    public String getJwtSecret() {
-        return getSecret("jwt-secret")
-            .orElseThrow(() -> new CredentialManagementException(
-                "JWT secret not found in Vault",
-                "JWT_SECRET_NOT_FOUND"
-            ));
-    }
-
-    /**
-     * Get database password from Vault
-     */
-    public Optional<String> getDatabasePassword() {
-        return getSecret("database-password");
-    }
-
-    /**
-     * Get Redis password from Vault
-     */
-    public Optional<String> getRedisPassword() {
-        return getSecret("redis-password");
-    }
-
-    /**
-     * Get broker API credentials
-     * 
-     * @param brokerType Broker type (zerodha, upstox, etc.)
-     * @return Map containing API key and secret
-     */
-    public Map<String, String> getBrokerCredentials(String brokerType) {
-        Map<String, String> credentials = new HashMap<>();
-        
-        String apiKey = getSecret(brokerType + "-api-key").orElse(null);
-        String apiSecret = getSecret(brokerType + "-api-secret").orElse(null);
-        
-        if (apiKey != null) {
-            credentials.put("apiKey", apiKey);
-        }
-        if (apiSecret != null) {
-            credentials.put("apiSecret", apiSecret);
-        }
-        
-        return credentials;
-    }
-
-    /**
-     * Clear all cached secrets
-     */
-    public void clearCache() {
-        secretCache.clear();
-        log.info("🧹 Secret cache cleared");
-    }
-
-    /**
-     * Get cache statistics
-     */
-    public Map<String, Object> getCacheStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("cacheEnabled", cacheEnabled);
-        stats.put("cachedSecrets", secretCache.size());
-        stats.put("ttlMinutes", cacheTtlMinutes);
-        
-        long expiredCount = secretCache.values().stream()
-            .mapToLong(secret -> secret.isExpired() ? 1L : 0L)
-            .sum();
-        stats.put("expiredSecrets", expiredCount);
-        
-        return stats;
-    }
-
-    /**
-     * Initialize critical secrets if they don't exist
-     */
-    private void initializeCriticalSecrets() {
+    
+    private boolean executeSecretDeletion(String path) {
         try {
-            // Check if critical secrets exist
-            boolean hasEncryptionKey = getSecret("encryption-key").isPresent();
-            boolean hasJwtSecret = getSecret("jwt-secret").isPresent();
-            
-            if (!hasEncryptionKey || !hasJwtSecret) {
-                log.warn("⚠️ Critical secrets missing in Vault - this should be addressed");
-                // In production, this should trigger an alert rather than auto-generation
-            }
+            String vaultPath = buildVaultPath(path);
+            vaultTemplate.delete(vaultPath);
+            log.info("Secret deleted successfully at path: {}", vaultPath);
+            return true;
             
         } catch (Exception e) {
-            log.warn("⚠️ Could not verify critical secrets: {}", e.getMessage());
+            log.error("Failed to delete secret at path: {}", path, e);
+            throw new RuntimeException("Secret deletion failed", e);
         }
     }
-
-    /**
-     * Get current secrets from Vault
-     */
-    private Map<String, Object> getCurrentSecrets() {
+    
+    private boolean executeSecretExistenceCheck(String path) {
         try {
-            VaultResponse response = vaultTemplate.read(secretPath);
-            if (response != null && response.getData() != null) {
-                return new HashMap<>(response.getData());
-            }
-            return new HashMap<>();
+            String vaultPath = buildVaultPath(path);
+            VaultResponse response = vaultTemplate.read(vaultPath);
+            return response != null && response.getData() != null && !response.getData().isEmpty();
+            
         } catch (Exception e) {
-            log.debug("No existing secrets found at path: {}", secretPath);
-            return new HashMap<>();
+            log.debug("Secret existence check failed for path: {}", path, e);
+            return false;
         }
     }
-
-    /**
-     * Cached secret with expiration
-     */
-    private static class CachedSecret {
-        private final String value;
-        private final long expiryTime;
-
-        public CachedSecret(String value, long ttlMinutes) {
-            this.value = value;
-            this.expiryTime = System.currentTimeMillis() + (ttlMinutes * 60 * 1000);
+    
+    private String buildVaultPath(String path) {
+        // Ensure path starts with KV backend but avoid double prefixes
+        if (path.startsWith(kvBackend + "/")) {
+            return path;
         }
-
-        public String getValue() {
-            return value;
+        return kvBackend + "/" + path;
+    }
+    
+    // Validation methods using pattern matching
+    
+    private StorageValidation validateSecretStorageInputs(String path, String key, String value) {
+        if (path == null || path.trim().isEmpty()) return StorageValidation.INVALID_PATH;
+        if (key == null || key.trim().isEmpty()) return StorageValidation.INVALID_KEY;
+        if (value == null || value.trim().isEmpty()) return StorageValidation.INVALID_VALUE;
+        return StorageValidation.VALID;
+    }
+    
+    private BatchStorageValidation validateBatchStorageInputs(String path, Map<String, String> secrets) {
+        if (path == null || path.trim().isEmpty()) return BatchStorageValidation.INVALID_PATH;
+        if (secrets == null || secrets.isEmpty()) return BatchStorageValidation.INVALID_SECRETS;
+        return BatchStorageValidation.VALID;
+    }
+    
+    private RetrievalValidation validateSecretRetrievalInputs(String path, String key) {
+        if (path == null || path.trim().isEmpty()) return RetrievalValidation.INVALID_PATH;
+        if (key == null || key.trim().isEmpty()) return RetrievalValidation.INVALID_KEY;
+        return RetrievalValidation.VALID;
+    }
+    
+    private PathValidation validatePathInput(String path) {
+        if (path == null || path.trim().isEmpty()) return PathValidation.INVALID_PATH;
+        return PathValidation.VALID;
+    }
+    
+    // Result handlers
+    
+    private Boolean handleSecretOperationResult(Boolean result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Vault operation failed", throwable);
+            return false;
         }
-
-        public boolean isExpired() {
-            return System.currentTimeMillis() > expiryTime;
+        return result;
+    }
+    
+    private Optional<String> handleSecretRetrievalResult(Optional<String> result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Vault retrieval failed", throwable);
+            return Optional.empty();
         }
+        return result;
+    }
+    
+    private Map<String, String> handleBatchRetrievalResult(Map<String, String> result, Throwable throwable) {
+        if (throwable != null) {
+            log.error("Vault batch retrieval failed", throwable);
+            return Map.of();
+        }
+        return result;
+    }
+    
+    // Validation enums
+    
+    private enum StorageValidation {
+        VALID, INVALID_PATH, INVALID_KEY, INVALID_VALUE
+    }
+    
+    private enum BatchStorageValidation {
+        VALID, INVALID_PATH, INVALID_SECRETS
+    }
+    
+    private enum RetrievalValidation {
+        VALID, INVALID_PATH, INVALID_KEY
+    }
+    
+    private enum PathValidation {
+        VALID, INVALID_PATH
     }
 }

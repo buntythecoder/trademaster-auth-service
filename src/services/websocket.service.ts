@@ -1,40 +1,5 @@
 import { notificationService } from './notification.service'
-
-// Browser-compatible EventEmitter
-class EventEmitter {
-  private events: { [key: string]: Function[] } = {}
-
-  on(event: string, listener: Function) {
-    if (!this.events[event]) {
-      this.events[event] = []
-    }
-    this.events[event].push(listener)
-  }
-
-  off(event: string, listener: Function) {
-    if (!this.events[event]) return
-    this.events[event] = this.events[event].filter(l => l !== listener)
-  }
-
-  emit(event: string, ...args: any[]) {
-    if (!this.events[event]) return
-    this.events[event].forEach(listener => {
-      try {
-        listener(...args)
-      } catch (error) {
-        console.error('Error in event listener:', error)
-      }
-    })
-  }
-
-  removeAllListeners(event?: string) {
-    if (event) {
-      delete this.events[event]
-    } else {
-      this.events = {}
-    }
-  }
-}
+import { BrowserEventEmitter } from '../utils/BrowserEventEmitter'
 
 export interface MarketData {
   symbol: string
@@ -96,7 +61,7 @@ export type WebSocketMessage =
   | { type: 'CONNECTION_STATUS'; data: { status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING'; timestamp: Date } }
   | { type: 'HEARTBEAT'; data: { timestamp: Date } }
 
-export class WebSocketService extends EventEmitter {
+export class WebSocketService extends BrowserEventEmitter {
   private ws: WebSocket | null = null
   private url: string
   private reconnectAttempts = 0

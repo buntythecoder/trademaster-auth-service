@@ -381,20 +381,20 @@ public class OrderExecution {
      * Get execution summary for reporting
      */
     public Map<String, Object> getExecutionSummary() {
-        return Map.of(
-            "executionId", executionId != null ? executionId : "N/A",
-            "symbol", symbol != null ? symbol : "N/A",
-            "side", side != null ? side : "N/A",
-            "executedQuantity", executedQuantity != null ? executedQuantity : 0,
-            "averagePrice", getAverageFillPrice(),
-            "totalValue", totalValue != null ? totalValue : BigDecimal.ZERO,
-            "executionStatus", executionStatus != null ? executionStatus : "UNKNOWN",
-            "venue", venue != null ? venue : "N/A",
-            "fillRate", getFillRate(),
-            "executionTimeMs", getExecutionTimeMs(),
-            "isSuccessful", isSuccessful(),
-            "hasGoodQuality", hasGoodExecutionQuality()
-        );
+        Map<String, Object> summary = new java.util.HashMap<>();
+        summary.put("executionId", executionId != null ? executionId : "N/A");
+        summary.put("symbol", symbol != null ? symbol : "N/A");
+        summary.put("side", side != null ? side : "N/A");
+        summary.put("executedQuantity", executedQuantity != null ? executedQuantity : 0);
+        summary.put("averagePrice", getAverageFillPrice());
+        summary.put("totalValue", totalValue != null ? totalValue : BigDecimal.ZERO);
+        summary.put("executionStatus", executionStatus != null ? executionStatus : "UNKNOWN");
+        summary.put("venue", venue != null ? venue : "N/A");
+        summary.put("fillRate", getFillRate());
+        summary.put("executionTimeMs", getExecutionTimeMs());
+        summary.put("isSuccessful", isSuccessful());
+        summary.put("hasGoodQuality", hasGoodExecutionQuality());
+        return java.util.Collections.unmodifiableMap(summary);
     }
     
     /**

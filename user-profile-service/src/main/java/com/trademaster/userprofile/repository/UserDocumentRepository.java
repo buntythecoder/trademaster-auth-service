@@ -1,7 +1,7 @@
 package com.trademaster.userprofile.repository;
 
-import com.trademaster.userprofile.entity.DocumentType;
 import com.trademaster.userprofile.entity.UserDocument;
+import com.trademaster.userprofile.entity.DocumentType;
 import com.trademaster.userprofile.entity.VerificationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -12,11 +12,21 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * User Document Repository with Advanced Query Support
+ * 
+ * MANDATORY: Immutability & Records Usage - Rule #9
+ * MANDATORY: Functional Programming First - Rule #3
+ * MANDATORY: Pattern Matching Excellence - Rule #14
+ * 
+ * @author TradeMaster Development Team
+ * @version 2.0.0
+ */
 @Repository
 public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID> {
     
@@ -82,8 +92,8 @@ public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID
      */
     List<UserDocument> findByUserProfileIdAndUploadedAtBetween(
         UUID userProfileId, 
-        Instant startDate, 
-        Instant endDate
+        LocalDateTime startDate, 
+        LocalDateTime endDate
     );
     
     /**
@@ -92,7 +102,7 @@ public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID
     @Query("SELECT ud FROM UserDocument ud WHERE " +
            "ud.verificationStatus = 'PENDING' AND " +
            "ud.uploadedAt < :cutoffDate")
-    List<UserDocument> findPendingDocumentsOlderThan(@Param("cutoffDate") Instant cutoffDate);
+    List<UserDocument> findPendingDocumentsOlderThan(@Param("cutoffDate") LocalDateTime cutoffDate);
     
     /**
      * Get document verification statistics for a user
@@ -123,7 +133,7 @@ public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID
         @Param("documentId") UUID documentId,
         @Param("status") VerificationStatus status,
         @Param("remarks") String remarks,
-        @Param("verifiedAt") Instant verifiedAt
+        @Param("verifiedAt") LocalDateTime verifiedAt
     );
     
     /**
@@ -134,7 +144,7 @@ public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID
     @Query("DELETE FROM UserDocument ud WHERE " +
            "ud.verificationStatus = 'REJECTED' AND " +
            "ud.uploadedAt < :cutoffDate")
-    int deleteRejectedDocumentsOlderThan(@Param("cutoffDate") Instant cutoffDate);
+    int deleteRejectedDocumentsOlderThan(@Param("cutoffDate") LocalDateTime cutoffDate);
     
     /**
      * Find documents by file path (for file cleanup)
@@ -181,6 +191,11 @@ public interface UserDocumentRepository extends JpaRepository<UserDocument, UUID
            "ud.uploadedAt >= :startOfDay")
     long countDocumentsUploadedToday(
         @Param("userProfileId") UUID userProfileId,
-        @Param("startOfDay") Instant startOfDay
+        @Param("startOfDay") LocalDateTime startOfDay
     );
+    
+    /**
+     * Find documents by verification status
+     */
+    List<UserDocument> findByVerificationStatus(VerificationStatus status);
 }

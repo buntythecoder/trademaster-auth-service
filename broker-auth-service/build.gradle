@@ -61,6 +61,16 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     
+    // Spring Cloud Config Client for centralized configuration
+    implementation 'org.springframework.cloud:spring-cloud-starter-config'
+    
+    // Service Discovery for Config Server
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    
+    // Distributed Tracing
+    implementation 'io.micrometer:micrometer-tracing-bridge-brave'
+    implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
+    
     // Kafka for Event-Driven Architecture
     implementation 'org.springframework.kafka:spring-kafka'
     
@@ -88,8 +98,9 @@ dependencies {
     // OpenAPI Documentation
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
     
-    // HTTP Client for Broker API Calls
-    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    // HTTP Client for Broker API Calls - MANDATORY: No WebFlux per TradeMaster Rule #1
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.3'
     
     // Security and Encryption
     implementation 'org.springframework.security:spring-security-crypto'
@@ -124,6 +135,7 @@ dependencies {
     testImplementation 'org.testcontainers:postgresql'
     testImplementation 'org.testcontainers:kafka'
     testImplementation 'com.github.tomakehurst:wiremock-jre8:2.35.0'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -154,7 +166,7 @@ test {
     useJUnitPlatform()
     testLogging {
         events "passed", "skipped", "failed"
-        exceptionFormat "full"
+        exceptionFormat = "full"
         showStandardStreams = false
     }
     systemProperty 'spring.profiles.active', 'test'

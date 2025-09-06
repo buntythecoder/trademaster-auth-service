@@ -1,0 +1,251 @@
+# Trading-Specific Alert Rules for TradeMaster
+groups:
+  - name: trading.financial
+    rules:
+      # Order Management Alerts
+      - alert: OrderExecutionTimeout
+        expr: rate(trading_order_timeout_total[5m]) > 0.01
+        for: 1m
+        labels:
+          severity: critical
+          category: trading
+          impact: financial
+        annotations:
+          summary: "Order execution timeouts detected"
+          description: "Order timeout rate is {{ $value }} timeouts/sec - potential financial impact"
+
+      - alert: OrderCancellationRate
+        expr: (rate(trading_order_cancelled_total[5m]) / rate(trading_order_total[5m])) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          category: trading
+          impact: operational
+        annotations:
+          summary: "High order cancellation rate"
+          description: "{{ $value | humanizePercentage }} of orders are being cancelled"
+
+      # Risk Management Alerts
+      - alert: PositionLimitBreach
+        expr: portfolio_position_value > portfolio_position_limit
+        for: 0s
+        labels:
+          severity: critical
+          category: risk
+          impact: financial
+        annotations:
+          summary: "Position limit breached"
+          description: "Position value {{ $value }} exceeds limit for {{ $labels.symbol }}"
+
+      - alert: DailyLossLimitApproached
+        expr: portfolio_daily_pnl < -0.8 * portfolio_daily_loss_limit
+        for: 0s
+        labels:
+          severity: warning
+          category: risk
+          impact: financial
+        annotations:
+          summary: "Daily loss limit 80% reached"
+          description: "Daily P&L is {{ $value }}, approaching daily loss limit"
+
+      - alert: DailyLossLimitBreach
+        expr: portfolio_daily_pnl <= portfolio_daily_loss_limit
+        for: 0s
+        labels:
+          severity: critical
+          category: risk
+          impact: financial
+        annotations:
+          summary: "CRITICAL: Daily loss limit breached"
+          description: "Daily P&L {{ $value }} has breached the daily loss limit"
+
+      # Broker Integration Alerts
+      - alert: BrokerConnectionFailure
+        expr: broker_connection_active == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: connectivity
+          impact: trading
+        annotations:
+          summary: "Broker connection failure"
+          description: "Connection to {{ $labels.broker }} is down"
+
+      - alert: BrokerAPIRateLimit
+        expr: rate(broker_api_rate_limited_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: connectivity
+          impact: operational
+        annotations:
+          summary: "Broker API rate limit hit"
+          description: "{{ $labels.broker }} API rate limit exceeded {{ $value }} times/sec"
+
+  - name: trading.market_data
+    rules:
+      # Market Data Feed Alerts
+      - alert: MarketDataStale
+        expr: time() - market_data_last_update_timestamp > 30
+        for: 0s
+        labels:
+          severity: critical
+          category: market_data
+          impact: trading
+        annotations:
+          summary: "Market data is stale"
+          description: "Market data for {{ $labels.symbol }} is {{ $value }}s old"
+
+      - alert: MarketDataFeedDown
+        expr: market_data_feed_active == 0
+        for: 15s
+        labels:
+          severity: critical
+          category: market_data
+          impact: trading
+        annotations:
+          summary: "Market data feed is down"
+          description: "Market data feed {{ $labels.feed_name }} is not active"
+
+      - alert: HighMarketDataLatency
+        expr: market_data_processing_latency_seconds > 0.005
+        for: 2m
+        labels:
+          severity: warning
+          category: market_data
+          impact: performance
+        annotations:
+          summary: "High market data latency"
+          description: "Market data latency is {{ $value }}s (threshold: 5ms)"
+
+  - name: trading.portfolio
+    rules:
+      # Portfolio Calculation Alerts
+      - alert: PortfolioValueDiscrepancy
+        expr: abs(portfolio_calculated_value - portfolio_reported_value) / portfolio_calculated_value > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          category: portfolio
+          impact: financial
+        annotations:
+          summary: "Portfolio value discrepancy detected"
+          description: "{{ $value | humanizePercentage }} discrepancy between calculated and reported portfolio value"
+
+      - alert: PortfolioRebalancingFailure
+        expr: rate(portfolio_rebalance_failed_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          category: portfolio
+          impact: operational
+        annotations:
+          summary: "Portfolio rebalancing failures"
+          description: "Portfolio rebalancing failing at {{ $value }} failures/sec"
+
+      # P&L Monitoring
+      - alert: UnrealizedPnLCalculationDelay
+        expr: time() - portfolio_pnl_last_calculation_timestamp > 300
+        for: 0s
+        labels:
+          severity: warning
+          category: portfolio
+          impact: operational
+        annotations:
+          summary: "P&L calculation delayed"
+          description: "Unrealized P&L calculation delayed by {{ $value }}s"
+
+      - alert: RealizedPnLDiscrepancy
+        expr: abs(portfolio_realized_pnl - portfolio_trade_pnl_sum) > 100
+        for: 1m
+        labels:
+          severity: warning
+          category: portfolio
+          impact: financial
+        annotations:
+          summary: "Realized P&L discrepancy"
+          description: "{{ $value }} discrepancy in realized P&L calculation"
+
+  - name: trading.compliance
+    rules:
+      # Regulatory Compliance Alerts
+      - alert: PositionReportingDelay
+        expr: time() - compliance_last_position_report_timestamp > 3600
+        for: 0s
+        labels:
+          severity: warning
+          category: compliance
+          impact: regulatory
+        annotations:
+          summary: "Position reporting delayed"
+          description: "Position reporting delayed by {{ $value }}s (threshold: 1 hour)"
+
+      - alert: TradeReportingFailure
+        expr: rate(compliance_trade_reporting_failed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: compliance
+          impact: regulatory
+        annotations:
+          summary: "Trade reporting failures"
+          description: "Trade reporting failing at {{ $value }} failures/sec"
+
+      - alert: RiskLimitViolation
+        expr: risk_limit_violation_count > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: compliance
+          impact: regulatory
+        annotations:
+          summary: "Risk limit violation detected"
+          description: "{{ $value }} risk limit violations detected"
+
+  - name: trading.operational
+    rules:
+      # Order Book Management
+      - alert: OrderBookUpdateLag
+        expr: orderbook_update_lag_seconds > 0.1
+        for: 1m
+        labels:
+          severity: warning
+          category: market_data
+          impact: trading
+        annotations:
+          summary: "Order book update lag"
+          description: "Order book updates lagging by {{ $value }}s for {{ $labels.symbol }}"
+
+      - alert: TradingSystemCapacity
+        expr: (trading_active_orders / trading_max_orders) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          category: capacity
+          impact: operational
+        annotations:
+          summary: "Trading system approaching capacity"
+          description: "{{ $value | humanizePercentage }} of maximum order capacity used"
+
+      # Circuit Breaker Alerts
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 0s
+        labels:
+          severity: warning
+          category: resilience
+          impact: operational
+        annotations:
+          summary: "Circuit breaker opened"
+          description: "Circuit breaker for {{ $labels.service }} is open"
+
+      - alert: CircuitBreakerHalfOpen
+        expr: circuit_breaker_state == 0.5
+        for: 2m
+        labels:
+          severity: info
+          category: resilience
+          impact: operational
+        annotations:
+          summary: "Circuit breaker in half-open state"
+          description: "Circuit breaker for {{ $labels.service }} is half-open for {{ $value }}s"

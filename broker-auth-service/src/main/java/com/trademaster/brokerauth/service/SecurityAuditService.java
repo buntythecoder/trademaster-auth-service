@@ -1,27 +1,24 @@
 package com.trademaster.brokerauth.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.trademaster.brokerauth.config.CorrelationConfig;
-import com.trademaster.brokerauth.enums.BrokerType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 /**
  * Security Audit Service
  * 
- * Provides comprehensive security auditing and monitoring.
- * Tracks authentication events, security incidents, and suspicious activities.
- * 
- * @author TradeMaster Development Team
- * @version 1.0.0
+ * MANDATORY: Complete audit trail for financial compliance - Rule #15
+ * MANDATORY: Virtual Threads for performance - Rule #12
+ * MANDATORY: Structured logging - Rule #15
  */
 @Service
 @RequiredArgsConstructor
@@ -29,355 +26,355 @@ import java.util.concurrent.CompletableFuture;
 public class SecurityAuditService {
     
     private final ObjectMapper objectMapper;
-    private final StructuredLoggingService loggingService;
     
     /**
-     * Log authentication attempt
+     * Log authentication attempt with full context
+     * 
+     * MANDATORY: Audit trail for compliance - Rule #15
+     * MANDATORY: Structured logging - Rule #15
      */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logAuthenticationAttempt(Long userId, BrokerType brokerType, 
-                                                           String clientIp, String userAgent, 
-                                                           boolean success, String failureReason) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("AUTH_ATTEMPT");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("clientIp", clientIp);
-                auditData.put("userAgent", userAgent);
-                auditData.put("success", success);
-                auditData.put("failureReason", failureReason);
-                
-                // Determine severity
-                String severity = success ? "info" : "warning";
-                if (failureReason != null && (failureReason.toLowerCase().contains("blocked") ||
-                    failureReason.toLowerCase().contains("suspicious"))) {
-                    severity = "high";
-                }
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-                // Also log to structured logging service
-                if (!success) {
-                    loggingService.logSecurityIncident(
-                        "auth_failure", 
-                        severity, 
-                        userId != null ? userId.toString() : null, 
-                        clientIp, 
-                        userAgent, 
-                        auditData
-                    );
-                }
-                
-            } catch (Exception e) {
-                log.error("Failed to log authentication attempt audit", e);
+    @Async
+    public CompletableFuture<Void> logAuthenticationAttempt(
+            String userId, String brokerType, String action, String status,
+            String ipAddress, String userAgent, Map<String, Object> requestDetails,
+            Map<String, Object> responseDetails, Map<String, Object> errorDetails,
+            long executionTimeMs) {
+        
+        return CompletableFuture
+            .runAsync(() -> performAuditLogging(userId, brokerType, action, status,
+                     ipAddress, userAgent, requestDetails, responseDetails, 
+                     errorDetails, executionTimeMs),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log security event with correlation ID
+     * 
+     * MANDATORY: Correlation tracking - Rule #15
+     */
+    @Async
+    public CompletableFuture<Void> logSecurityEvent(
+            String correlationId, String userId, String eventType, String severity,
+            String description, Map<String, Object> eventDetails) {
+        
+        return CompletableFuture
+            .runAsync(() -> performSecurityEventLogging(correlationId, userId, 
+                     eventType, severity, description, eventDetails),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log rate limiting event
+     * 
+     * MANDATORY: Rate limiting audit - Rule #15
+     */
+    @Async
+    public CompletableFuture<Void> logRateLimitEvent(
+            String userId, String brokerType, String endpoint, String action,
+            int currentCount, int limitValue, String windowType) {
+        
+        return CompletableFuture
+            .runAsync(() -> performRateLimitLogging(userId, brokerType, endpoint,
+                     action, currentCount, limitValue, windowType),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log session lifecycle event
+     * 
+     * MANDATORY: Session audit trail - Rule #15
+     */
+    @Async
+    public CompletableFuture<Void> logSessionEvent(
+            String sessionId, String userId, String brokerType, String action,
+            String status, LocalDateTime timestamp, Map<String, Object> sessionDetails) {
+        
+        return CompletableFuture
+            .runAsync(() -> performSessionEventLogging(sessionId, userId, brokerType,
+                     action, status, timestamp, sessionDetails),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    /**
+     * Log credential management event
+     * 
+     * MANDATORY: Credential audit trail - Rule #23
+     */
+    @Async
+    public CompletableFuture<Void> logCredentialEvent(
+            String userId, String brokerType, String action, String status,
+            String ipAddress, boolean containsSensitiveData) {
+        
+        return CompletableFuture
+            .runAsync(() -> performCredentialEventLogging(userId, brokerType, action,
+                     status, ipAddress, containsSensitiveData),
+                     Executors.newVirtualThreadPerTaskExecutor());
+    }
+    
+    private void performAuditLogging(
+            String userId, String brokerType, String action, String status,
+            String ipAddress, String userAgent, Map<String, Object> requestDetails,
+            Map<String, Object> responseDetails, Map<String, Object> errorDetails,
+            long executionTimeMs) {
+        
+        try {
+            String correlationId = UUID.randomUUID().toString();
+            
+            // Create structured audit entry
+            Map<String, Object> auditEntry = new java.util.HashMap<>();
+            auditEntry.put("type", "BROKER_AUTH_AUDIT");
+            auditEntry.put("correlationId", correlationId);
+            auditEntry.put("timestamp", LocalDateTime.now().toString());
+            auditEntry.put("userId", sanitizeUserId(userId));
+            auditEntry.put("brokerType", brokerType);
+            auditEntry.put("action", action);
+            auditEntry.put("status", status);
+            auditEntry.put("ipAddress", sanitizeIpAddress(ipAddress));
+            auditEntry.put("userAgent", sanitizeUserAgent(userAgent));
+            auditEntry.put("executionTimeMs", executionTimeMs);
+            auditEntry.put("requestDetails", sanitizeRequestDetails(requestDetails));
+            auditEntry.put("responseDetails", sanitizeResponseDetails(responseDetails));
+            auditEntry.put("errorDetails", sanitizeErrorDetails(errorDetails));
+            
+            String auditJson = objectMapper.writeValueAsString(auditEntry);
+            
+            // Log with appropriate level based on status
+            switch (status.toUpperCase()) {
+                case "SUCCESS" -> log.info("AUDIT: {}", auditJson);
+                case "FAILURE" -> log.warn("AUDIT: {}", auditJson);
+                case "ERROR" -> log.error("AUDIT: {}", auditJson);
+                default -> log.info("AUDIT: {}", auditJson);
             }
-        });
-    }
-    
-    /**
-     * Log session creation
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSessionCreated(Long userId, BrokerType brokerType, 
-                                                    String sessionId, String clientIp, 
-                                                    LocalDateTime expiresAt) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("SESSION_CREATED");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("sessionId", hashSessionId(sessionId)); // Hash for privacy
-                auditData.put("clientIp", clientIp);
-                auditData.put("expiresAt", expiresAt != null ? expiresAt.toString() : null);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-            } catch (Exception e) {
-                log.error("Failed to log session creation audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log session validation
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSessionValidation(Long userId, BrokerType brokerType, 
-                                                       String sessionId, String clientIp, 
-                                                       boolean valid, String validationMethod) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("SESSION_VALIDATION");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("sessionId", hashSessionId(sessionId));
-                auditData.put("clientIp", clientIp);
-                auditData.put("valid", valid);
-                auditData.put("validationMethod", validationMethod);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-                // Log security incident if validation failed
-                if (!valid) {
-                    loggingService.logSecurityIncident(
-                        "session_validation_failed", 
-                        "medium", 
-                        userId != null ? userId.toString() : null, 
-                        clientIp, 
-                        null, 
-                        auditData
-                    );
-                }
-                
-            } catch (Exception e) {
-                log.error("Failed to log session validation audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log token refresh
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logTokenRefresh(Long userId, BrokerType brokerType, 
-                                                  String sessionId, boolean success, 
-                                                  String reason) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("TOKEN_REFRESH");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("sessionId", hashSessionId(sessionId));
-                auditData.put("success", success);
-                auditData.put("reason", reason);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-            } catch (Exception e) {
-                log.error("Failed to log token refresh audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log session termination
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSessionTerminated(Long userId, BrokerType brokerType, 
-                                                       String sessionId, String reason, 
-                                                       String clientIp) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("SESSION_TERMINATED");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("sessionId", hashSessionId(sessionId));
-                auditData.put("reason", reason);
-                auditData.put("clientIp", clientIp);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-            } catch (Exception e) {
-                log.error("Failed to log session termination audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log suspicious activity
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logSuspiciousActivity(String activityType, Long userId, 
-                                                        String clientIp, String userAgent, 
-                                                        Map<String, Object> details) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("SUSPICIOUS_ACTIVITY");
-                auditData.put("activityType", activityType);
-                auditData.put("userId", userId);
-                auditData.put("clientIp", clientIp);
-                auditData.put("userAgent", userAgent);
-                
-                if (details != null) {
-                    auditData.put("details", details);
-                }
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.warn("SECURITY_AUDIT: {}", jsonAudit);
-                
-                // Always log suspicious activities as security incidents
-                loggingService.logSecurityIncident(
-                    activityType, 
-                    "high", 
-                    userId != null ? userId.toString() : null, 
-                    clientIp, 
-                    userAgent, 
-                    auditData
-                );
-                
-            } catch (Exception e) {
-                log.error("Failed to log suspicious activity audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log rate limit violation
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logRateLimitViolation(Long userId, BrokerType brokerType, 
-                                                        String rateLimitType, String clientIp, 
-                                                        int currentRequests, int maxRequests) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("RATE_LIMIT_VIOLATION");
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("rateLimitType", rateLimitType);
-                auditData.put("clientIp", clientIp);
-                auditData.put("currentRequests", currentRequests);
-                auditData.put("maxRequests", maxRequests);
-                auditData.put("violationRatio", (double) currentRequests / maxRequests);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.warn("SECURITY_AUDIT: {}", jsonAudit);
-                
-                // Log as security incident
-                String severity = currentRequests > maxRequests * 2 ? "high" : "medium";
-                loggingService.logSecurityIncident(
-                    "rate_limit_violation", 
-                    severity, 
-                    userId != null ? userId.toString() : null, 
-                    clientIp, 
-                    null, 
-                    auditData
-                );
-                
-            } catch (Exception e) {
-                log.error("Failed to log rate limit violation audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log configuration changes
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logConfigurationChange(String configType, String configKey, 
-                                                         String oldValue, String newValue, 
-                                                         String changedBy) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("CONFIG_CHANGE");
-                auditData.put("configType", configType);
-                auditData.put("configKey", configKey);
-                auditData.put("oldValue", sanitizeConfigValue(oldValue));
-                auditData.put("newValue", sanitizeConfigValue(newValue));
-                auditData.put("changedBy", changedBy);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.warn("SECURITY_AUDIT: {}", jsonAudit);
-                
-            } catch (Exception e) {
-                log.error("Failed to log configuration change audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Log credential management events
-     */
-    @Async("brokerAuthExecutor")
-    public CompletableFuture<Void> logCredentialEvent(String eventType, Long userId, 
-                                                     BrokerType brokerType, String operation, 
-                                                     boolean success, String clientIp) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                Map<String, Object> auditData = createBaseAuditData("CREDENTIAL_EVENT");
-                auditData.put("eventType", eventType);
-                auditData.put("userId", userId);
-                auditData.put("brokerType", brokerType != null ? brokerType.toString() : null);
-                auditData.put("operation", operation);
-                auditData.put("success", success);
-                auditData.put("clientIp", clientIp);
-                
-                String jsonAudit = objectMapper.writeValueAsString(auditData);
-                log.info("SECURITY_AUDIT: {}", jsonAudit);
-                
-                // Log security incident for sensitive operations
-                if (!success && ("DECRYPT".equals(operation) || "ENCRYPT".equals(operation))) {
-                    loggingService.logSecurityIncident(
-                        "credential_operation_failed", 
-                        "high", 
-                        userId != null ? userId.toString() : null, 
-                        clientIp, 
-                        null, 
-                        auditData
-                    );
-                }
-                
-            } catch (Exception e) {
-                log.error("Failed to log credential event audit", e);
-            }
-        });
-    }
-    
-    /**
-     * Create base audit data with common fields
-     */
-    private Map<String, Object> createBaseAuditData(String eventType) {
-        Map<String, Object> auditData = new HashMap<>();
-        auditData.put("eventType", eventType);
-        auditData.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        auditData.put("correlationId", CorrelationConfig.CorrelationContext.getCorrelationId());
-        auditData.put("requestId", CorrelationConfig.CorrelationContext.getRequestId());
-        auditData.put("service", "broker-auth-service");
-        auditData.put("version", "1.0.0");
-        return auditData;
-    }
-    
-    /**
-     * Hash session ID for privacy in logs
-     */
-    private String hashSessionId(String sessionId) {
-        if (sessionId == null || sessionId.length() < 8) {
-            return "invalid";
+            
+        } catch (Exception e) {
+            log.error("Failed to log audit entry for user: {} action: {}", 
+                userId, action, e);
         }
-        
-        // Return first 4 and last 4 characters with hash in between
-        return sessionId.substring(0, 4) + "***" + 
-               sessionId.substring(sessionId.length() - 4) + 
-               ":" + Integer.toHexString(sessionId.hashCode());
     }
     
-    /**
-     * Sanitize configuration values to avoid logging sensitive data
-     */
-    private String sanitizeConfigValue(String value) {
-        if (value == null) {
-            return null;
+    private void performSecurityEventLogging(
+            String correlationId, String userId, String eventType, String severity,
+            String description, Map<String, Object> eventDetails) {
+        
+        try {
+            Map<String, Object> securityEvent = Map.of(
+                "type", "SECURITY_EVENT",
+                "correlationId", correlationId != null ? correlationId : UUID.randomUUID().toString(),
+                "timestamp", LocalDateTime.now().toString(),
+                "userId", sanitizeUserId(userId),
+                "eventType", eventType,
+                "severity", severity,
+                "description", description,
+                "eventDetails", sanitizeEventDetails(eventDetails)
+            );
+            
+            String eventJson = objectMapper.writeValueAsString(securityEvent);
+            
+            switch (severity.toUpperCase()) {
+                case "CRITICAL" -> log.error("SECURITY_EVENT: {}", eventJson);
+                case "HIGH" -> log.warn("SECURITY_EVENT: {}", eventJson);
+                case "MEDIUM" -> log.info("SECURITY_EVENT: {}", eventJson);
+                case "LOW" -> log.debug("SECURITY_EVENT: {}", eventJson);
+                default -> log.info("SECURITY_EVENT: {}", eventJson);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to log security event for user: {} type: {}", 
+                userId, eventType, e);
         }
+    }
+    
+    private void performRateLimitLogging(
+            String userId, String brokerType, String endpoint, String action,
+            int currentCount, int limitValue, String windowType) {
         
-        String lowerValue = value.toLowerCase();
-        
-        // If it looks like a password, key, or secret, hide it
-        if (lowerValue.contains("password") || lowerValue.contains("secret") || 
-            lowerValue.contains("key") || lowerValue.contains("token")) {
-            return "***REDACTED***";
+        try {
+            Map<String, Object> rateLimitEvent = Map.of(
+                "type", "RATE_LIMIT_EVENT",
+                "timestamp", LocalDateTime.now().toString(),
+                "userId", sanitizeUserId(userId),
+                "brokerType", brokerType,
+                "endpoint", endpoint,
+                "action", action,
+                "currentCount", currentCount,
+                "limitValue", limitValue,
+                "windowType", windowType,
+                "limitExceeded", currentCount >= limitValue
+            );
+            
+            String eventJson = objectMapper.writeValueAsString(rateLimitEvent);
+            
+            if (currentCount >= limitValue) {
+                log.warn("RATE_LIMIT: {}", eventJson);
+            } else {
+                log.debug("RATE_LIMIT: {}", eventJson);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to log rate limit event for user: {} broker: {}", 
+                userId, brokerType, e);
         }
+    }
+    
+    private void performSessionEventLogging(
+            String sessionId, String userId, String brokerType, String action,
+            String status, LocalDateTime timestamp, Map<String, Object> sessionDetails) {
         
-        // If the value is long and looks like encoded data, truncate it
-        if (value.length() > 50 && (value.matches("^[A-Za-z0-9+/]*={0,2}$") || 
-                                   value.matches("^[A-Fa-f0-9]+$"))) {
-            return value.substring(0, 8) + "...***TRUNCATED***";
+        try {
+            Map<String, Object> sessionEvent = Map.of(
+                "type", "SESSION_EVENT",
+                "timestamp", timestamp.toString(),
+                "sessionId", sessionId,
+                "userId", sanitizeUserId(userId),
+                "brokerType", brokerType,
+                "action", action,
+                "status", status,
+                "sessionDetails", sanitizeSessionDetails(sessionDetails)
+            );
+            
+            String eventJson = objectMapper.writeValueAsString(sessionEvent);
+            log.info("SESSION_EVENT: {}", eventJson);
+            
+        } catch (Exception e) {
+            log.error("Failed to log session event for session: {} user: {}", 
+                sessionId, userId, e);
         }
+    }
+    
+    private void performCredentialEventLogging(
+            String userId, String brokerType, String action, String status,
+            String ipAddress, boolean containsSensitiveData) {
         
+        try {
+            Map<String, Object> credentialEvent = Map.of(
+                "type", "CREDENTIAL_EVENT",
+                "timestamp", LocalDateTime.now().toString(),
+                "userId", sanitizeUserId(userId),
+                "brokerType", brokerType,
+                "action", action,
+                "status", status,
+                "ipAddress", sanitizeIpAddress(ipAddress),
+                "containsSensitiveData", containsSensitiveData
+            );
+            
+            String eventJson = objectMapper.writeValueAsString(credentialEvent);
+            
+            if ("FAILURE".equals(status) || containsSensitiveData) {
+                log.warn("CREDENTIAL_EVENT: {}", eventJson);
+            } else {
+                log.info("CREDENTIAL_EVENT: {}", eventJson);
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to log credential event for user: {} broker: {}", 
+                userId, brokerType, e);
+        }
+    }
+    
+    // Sanitization methods to prevent sensitive data leakage
+    
+    private String sanitizeUserId(String userId) {
+        if (userId == null) return "anonymous";
+        return userId.length() > 50 ? userId.substring(0, 50) + "..." : userId;
+    }
+    
+    private String sanitizeIpAddress(String ipAddress) {
+        if (ipAddress == null) return "unknown";
+        // Keep first 3 octets for IPv4, mask the last one
+        if (ipAddress.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
+            String[] parts = ipAddress.split("\\.");
+            return parts[0] + "." + parts[1] + "." + parts[2] + ".***";
+        }
+        return "masked";
+    }
+    
+    private String sanitizeUserAgent(String userAgent) {
+        if (userAgent == null) return "unknown";
+        // Keep only browser/platform info, remove potentially identifying details
+        return userAgent.length() > 100 ? userAgent.substring(0, 100) + "..." : userAgent;
+    }
+    
+    private Map<String, Object> sanitizeRequestDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        // Remove sensitive fields like passwords, secrets, tokens
+        return details.entrySet().stream()
+            .filter(entry -> !isSensitiveField(entry.getKey()))
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey, 
+                entry -> sanitizeValue(entry.getValue())
+            ));
+    }
+    
+    private Map<String, Object> sanitizeResponseDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        return details.entrySet().stream()
+            .filter(entry -> !isSensitiveField(entry.getKey()))
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> sanitizeValue(entry.getValue())
+            ));
+    }
+    
+    private Map<String, Object> sanitizeErrorDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        // For error details, keep error types but mask sensitive info
+        return details.entrySet().stream()
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> sanitizeErrorValue(entry.getValue())
+            ));
+    }
+    
+    private Map<String, Object> sanitizeEventDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        return details.entrySet().stream()
+            .filter(entry -> !isSensitiveField(entry.getKey()))
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> sanitizeValue(entry.getValue())
+            ));
+    }
+    
+    private Map<String, Object> sanitizeSessionDetails(Map<String, Object> details) {
+        if (details == null) return Map.of();
+        return details.entrySet().stream()
+            .filter(entry -> !isSensitiveField(entry.getKey()))
+            .collect(java.util.stream.Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> sanitizeValue(entry.getValue())
+            ));
+    }
+    
+    private boolean isSensitiveField(String fieldName) {
+        if (fieldName == null) return false;
+        String lower = fieldName.toLowerCase();
+        return lower.contains("password") || 
+               lower.contains("secret") || 
+               lower.contains("token") || 
+               lower.contains("key") ||
+               lower.contains("credential") ||
+               lower.contains("auth") ||
+               lower.contains("pin") ||
+               lower.contains("otp");
+    }
+    
+    private Object sanitizeValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof String) {
+            String str = (String) value;
+            return str.length() > 200 ? str.substring(0, 200) + "..." : str;
+        }
+        return value;
+    }
+    
+    private Object sanitizeErrorValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof String) {
+            String str = (String) value;
+            // Keep error messages but mask sensitive patterns
+            str = str.replaceAll("(?i)(password|secret|token|key)=[^\\s]+", "$1=***");
+            return str.length() > 500 ? str.substring(0, 500) + "..." : str;
+        }
         return value;
     }
 }

@@ -23,7 +23,7 @@ public record TaxLotInfo(
     BigDecimal currentPrice,
     BigDecimal unrealizedPnl,
     Integer holdingDays,
-    boolean isLongTerm,
+    Boolean isLongTerm,
     String taxStatus
 ) {
     public TaxLotInfo {
@@ -44,14 +44,55 @@ public record TaxLotInfo(
         }
         
         // Calculate derived fields
+        // Note: Can't modify parameters in compact constructor
+        // These calculations should be done in factory methods or builder
         if (holdingDays == null) {
-            holdingDays = (int) java.time.Duration.between(purchaseDate, Instant.now()).toDays();
+            throw new IllegalArgumentException("Holding days must be calculated and provided");
         }
         if (isLongTerm == null) {
-            isLongTerm = holdingDays >= 365;
+            throw new IllegalArgumentException("Long term status must be calculated and provided");
         }
         if (taxStatus == null) {
-            taxStatus = isLongTerm ? "LONG_TERM" : "SHORT_TERM";
+            throw new IllegalArgumentException("Tax status must be calculated and provided");
         }
+    }
+    
+    /**
+     * Factory method to create TaxLotInfo with calculated fields
+     */
+    public static TaxLotInfo create(
+            Long lotId,
+            String symbol,
+            Instant purchaseDate,
+            Integer originalQuantity,
+            Integer remainingQuantity,
+            BigDecimal costBasisPerShare,
+            BigDecimal totalCostBasis,
+            BigDecimal currentPrice,
+            BigDecimal unrealizedPnl) {
+        
+        // Calculate holding days
+        int holdingDays = (int) java.time.Duration.between(purchaseDate, Instant.now()).toDays();
+        
+        // Calculate long term status
+        boolean isLongTerm = holdingDays >= 365;
+        
+        // Calculate tax status
+        String taxStatus = isLongTerm ? "LONG_TERM" : "SHORT_TERM";
+        
+        return new TaxLotInfo(
+            lotId,
+            symbol,
+            purchaseDate,
+            originalQuantity,
+            remainingQuantity,
+            costBasisPerShare,
+            totalCostBasis,
+            currentPrice,
+            unrealizedPnl,
+            holdingDays,
+            isLongTerm,
+            taxStatus
+        );
     }
 }
