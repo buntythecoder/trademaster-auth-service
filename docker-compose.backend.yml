@@ -179,8 +179,8 @@ services:
       - CONSUL_HOST=consul
       - CONSUL_PORT=8500
       - DATABASE_URL=jdbc:postgresql://postgres:5432/trademaster_trading
-      - DATABASE_USERNAME=trading_user
-      - DATABASE_PASSWORD=trading_pass
+      - DATABASE_USERNAME=trademaster_admin
+      - DATABASE_PASSWORD=trademaster_secure_pass
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - EVENT_BUS_URL=http://event-bus-service:8081
