@@ -197,6 +197,25 @@ show_next_steps() {
     echo
 }
 
+# Configure Kong authentication
+configure_kong_auth() {
+    print_info "Configuring Kong API Gateway authentication..."
+    
+    if [ -f "$SCRIPT_DIR/configure-kong-api-keys.sh" ]; then
+        if bash "$SCRIPT_DIR/configure-kong-api-keys.sh" > /tmp/kong-config.log 2>&1; then
+            print_success "Kong API Gateway configured successfully"
+            print_info "API keys generated and routes configured"
+        else
+            print_warning "Kong configuration may have failed - check /tmp/kong-config.log"
+            print_info "You can manually run: ./scripts/configure-kong-api-keys.sh"
+        fi
+    else
+        print_warning "Kong configuration script not found at $SCRIPT_DIR/configure-kong-api-keys.sh"
+        print_info "Kong will need to be configured manually"
+    fi
+    echo
+}
+
 # Main execution
 main() {
     echo -e "${GREEN}🚀 TradeMaster Platform Startup${NC}"
@@ -209,6 +228,7 @@ main() {
     start_stack
     wait_for_services
     verify_services
+    configure_kong_auth
     show_service_urls
     show_next_steps
     
