@@ -145,6 +145,23 @@ services:
       - MANAGEMENT_TRACING_ENABLED=true
       - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
       - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=events
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      # Internal Service URLs (via Kong Gateway)
+      - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
+      - MARKET_DATA_INTERNAL_URL=http://kong:8000/internal/market-data
+      - RISK_SERVICE_INTERNAL_URL=http://kong:8000/internal/risk
+      - PORTFOLIO_SERVICE_INTERNAL_URL=http://kong:8000/internal/portfolio
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+    volumes:
+      - kong_secrets:/kong/secrets:ro
     depends_on:
       consul:
         condition: service_healthy
@@ -199,6 +216,23 @@ services:
       - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
       - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
       - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=trading
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      # Internal Service URLs (via Kong Gateway)
+      - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
+      - MARKET_DATA_INTERNAL_URL=http://kong:8000/internal/market-data
+      - RISK_SERVICE_INTERNAL_URL=http://kong:8000/internal/risk
+      - PORTFOLIO_SERVICE_INTERNAL_URL=http://kong:8000/internal/portfolio
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+    volumes:
+      - kong_secrets:/kong/secrets:ro
     depends_on:
       consul:
         condition: service_healthy
@@ -237,7 +271,7 @@ services:
 
   # Kong Database Migration (using shared PostgreSQL)
   kong-migrations:
-    image: kong:3.4.2
+    image: kong:3.9.1
     command: kong migrations bootstrap
     environment:
       KONG_DATABASE: postgres
@@ -254,7 +288,7 @@ services:
 
   # Kong Enterprise API Gateway with PostgreSQL
   kong:
-    image: kong:3.4.2
+    image: kong:3.9.1
     environment:
       # Database Configuration
       - KONG_DATABASE=postgres
@@ -270,11 +304,12 @@ services:
       - KONG_ADMIN_ERROR_LOG=/dev/stderr
       - KONG_ADMIN_LISTEN=0.0.0.0:8001
       - KONG_ADMIN_GUI_LISTEN=0.0.0.0:8002
+      - KONG_ADMIN_GUI_URL=http://localhost:8002
       - KONG_STATUS_LISTEN=0.0.0.0:8100
       # Performance & Security
       - KONG_NGINX_WORKER_PROCESSES=auto
-      # Plugins
-      - KONG_PLUGINS=bundled,prometheus,rate-limiting,jwt,key-auth,cors,ip-restriction,response-transformer
+      # Plugins (Enhanced for API Key Authentication)
+      - KONG_PLUGINS=bundled,prometheus,rate-limiting,jwt,key-auth,cors,ip-restriction,response-transformer,correlation-id,acl,request-size-limiting
       # Logging
       - KONG_LOG_LEVEL=info
     ports:
@@ -285,7 +320,8 @@ services:
       - "8443:8443"    # Kong proxy SSL
       - "8444:8444"    # Kong admin API SSL
     volumes:
-      - ./kong:/kong/config:ro
+      - ./kong:/kong/config:rw
+      - kong_secrets:/kong/config/secrets
     networks:
       - backend-network
     restart: unless-stopped
@@ -300,6 +336,52 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  # Kong Dynamic API Key Setup Service
+  kong-dynamic-key-setup:
+    image: curlimages/curl:8.1.2
+    command: >
+      sh -c "
+        apk add --no-cache bash jq openssl &&
+        chmod +x /kong/config/kong-dynamic-key-setup.sh &&
+        /kong/config/kong-dynamic-key-setup.sh
+      "
+    volumes:
+      - ./kong:/kong/config:rw
+      - kong_secrets:/kong/config/secrets
+    networks:
+      - backend-network
+    depends_on:
+      kong:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/config/secrets
+
+  # Service Key Discovery Helper
+  service-key-discovery:
+    image: curlimages/curl:8.1.2
+    command: >
+      sh -c "
+        apk add --no-cache bash jq &&
+        chmod +x /kong/config/service-key-discovery.sh &&
+        echo 'Key discovery service ready. Services can discover keys using:' &&
+        echo '  /kong/config/service-key-discovery.sh --service [SERVICE_NAME]' &&
+        tail -f /dev/null
+      "
+    volumes:
+      - ./kong:/kong/config:ro
+      - kong_secrets:/kong/config/secrets:ro
+    networks:
+      - backend-network
+    depends_on:
+      kong-dynamic-key-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    environment:
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/config/secrets
 
 
   # Prometheus for Monitoring
@@ -356,6 +438,7 @@ volumes:
   zookeeper_logs:
   prometheus_data:
   grafana_data:
+  kong_secrets:
 
 networks:
   backend-network:

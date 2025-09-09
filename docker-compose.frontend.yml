@@ -1,56 +1,55 @@
-# Docker Compose override for frontend development
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.frontend.yml up
-
+# Docker Compose for TradeMaster Frontend
+# Clean setup for React frontend with development and production modes
 version: '3.8'
 
 services:
-  # Frontend Development Server with Storybook
-  frontend:
+  # React Frontend Development Server
+  frontend-dev:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
       target: development
-    container_name: trademaster-frontend-dev
-    restart: unless-stopped
-    environment:
-      NODE_ENV: development
-      VITE_API_URL: http://localhost:8080/api/v1
-      VITE_APP_NAME: TradeMaster
-      VITE_APP_VERSION: 1.0.0-dev
-      # Enable hot reload
-      CHOKIDAR_USEPOLLING: true
-      WATCHPACK_POLLING: true
     ports:
-      - "6006:6006"  # Storybook (main UI validation interface)
-      - "5173:5173"  # Vite dev server (for app development)
+      - "3000:3000"
+      - "5173:5173"  # Vite dev server
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - VITE_API_BASE_URL=http://localhost:8083
+      - VITE_EVENT_BUS_URL=http://localhost:8081
+      - VITE_WS_URL=ws://localhost:8081
     volumes:
-      # Mount source code for hot reload
-      - ./src:/app/src:cached
-      - ./public:/app/public:cached
-      - ./.storybook:/app/.storybook:cached
-      - ./package.json:/app/package.json:cached
-      - ./package-lock.json:/app/package-lock.json:cached
-      - ./vite.config.ts:/app/vite.config.ts:cached
-      - ./tailwind.config.js:/app/tailwind.config.js:cached
-      - ./tsconfig.json:/app/tsconfig.json:cached
-      # Preserve node_modules in container
-      - frontend_node_modules:/app/node_modules
+      - ./frontend:/app
+      - /app/node_modules
     networks:
-      - trademaster-network
-    depends_on:
-      - auth-service  # Optional: connect to backend for API testing
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6006 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    command: ["npm", "run", "storybook", "--", "--host", "0.0.0.0", "--port", "6006", "--no-open"]
+      - frontend-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+  # React Frontend Production Build with Nginx
+  frontend-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_BASE_URL=http://localhost:8083
+      - VITE_EVENT_BUS_URL=http://localhost:8081
+      - VITE_WS_URL=ws://localhost:8081
+    networks:
+      - frontend-network
+    restart: unless-stopped
+    profiles:
+      - prod
 
 volumes:
   frontend_node_modules:
     driver: local
 
 networks:
-  trademaster-network:
-    external: true
+  frontend-network:
+    driver: bridge
