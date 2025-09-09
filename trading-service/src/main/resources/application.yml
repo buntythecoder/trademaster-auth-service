@@ -293,6 +293,12 @@ agentos:
 
 # TradeMaster Trading Configuration
 trademaster:
+  # Service-to-Service Security Configuration
+  security:
+    service:
+      enabled: ${SERVICE_AUTH_ENABLED:true}
+      api-key: ${SERVICE_API_KEY:trademaster-service-api-key-2024-secure}
+      
   trading:
     # Order Management Configuration
     orders:

@@ -125,6 +125,27 @@ verify_services() {
         print_warning "Kong Admin API may not be ready yet at http://localhost:8001"
     fi
     
+    # Check Kong Gateway Proxy
+    if curl -s "http://localhost:8000/health" > /dev/null 2>&1; then
+        print_success "Kong Gateway is accessible at http://localhost:8000"
+    else
+        print_warning "Kong Gateway may not be ready yet at http://localhost:8000"
+    fi
+    
+    # Check Trading Service through Kong
+    if curl -s "http://localhost:8000/api/v2/health" > /dev/null 2>&1; then
+        print_success "Trading Service is accessible through Kong at http://localhost:8000/api/v2/health"
+    else
+        print_warning "Trading Service through Kong may not be ready yet"
+    fi
+    
+    # Check API Documentation through Kong
+    if curl -s "http://localhost:8000/swagger-ui.html" > /dev/null 2>&1; then
+        print_success "API Documentation is accessible through Kong at http://localhost:8000/swagger-ui.html"
+    else
+        print_warning "API Documentation through Kong may not be ready yet"
+    fi
+    
     # Check Prometheus
     if curl -s "http://localhost:9090" > /dev/null 2>&1; then
         print_success "Prometheus is accessible at http://localhost:9090"
@@ -140,13 +161,17 @@ show_service_urls() {
     echo
     print_info "📋 Service URLs:"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo -e "${BLUE}📊 Trading API Documentation:${NC} http://localhost:8083/swagger-ui.html"
-    echo -e "${BLUE}🚀 Kong API Gateway:${NC}        http://localhost:8000/api/v2"
+    echo -e "${GREEN}🚀 Kong API Gateway:${NC}         http://localhost:8000"
+    echo -e "${GREEN}📊 API Documentation (Kong):${NC} http://localhost:8000/swagger-ui.html"
+    echo -e "${GREEN}❤️  API Health (Kong):${NC}       http://localhost:8000/api/v2/health"
     echo -e "${BLUE}⚙️  Kong Admin API:${NC}          http://localhost:8001"
     echo -e "${BLUE}🔍 Consul Service Discovery:${NC} http://localhost:8500/ui"
     echo -e "${BLUE}📈 Prometheus Metrics:${NC}       http://localhost:9090"
-    echo -e "${BLUE}❤️  Trading Service Health:${NC}  http://localhost:8083/api/v2/health"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+    print_warning "⚠️  Direct service access (for debugging only):"
+    echo -e "${YELLOW}📊 Direct Trading API:${NC}       http://localhost:8083/swagger-ui.html"
+    echo -e "${YELLOW}❤️  Direct Trading Health:${NC}   http://localhost:8083/api/v2/health"
     echo
     print_info "💡 Tip: Services may take a few more minutes to be fully ready"
     print_info "💡 Use 'docker-compose -f docker-compose-consul.yml ps' to check status"
@@ -158,9 +183,11 @@ show_service_urls() {
 show_next_steps() {
     print_info "🚀 Next Steps:"
     echo "  1. Wait 2-3 minutes for all services to be fully ready"
-    echo "  2. Visit http://localhost:8083/swagger-ui.html for API documentation"
-    echo "  3. Check service registration at http://localhost:8500/ui"
-    echo "  4. Monitor metrics at http://localhost:9090"
+    echo "  2. Visit http://localhost:8000/swagger-ui.html for API documentation (via Kong)"
+    echo "  3. Test API health at http://localhost:8000/api/v2/health"
+    echo "  4. Check Kong configuration at http://localhost:8001"
+    echo "  5. Check service registration at http://localhost:8500/ui"
+    echo "  6. Monitor metrics at http://localhost:9090"
     echo
     print_info "🛠️  Useful Commands:"
     echo "  • Check service status: docker-compose -f docker-compose-consul.yml ps"

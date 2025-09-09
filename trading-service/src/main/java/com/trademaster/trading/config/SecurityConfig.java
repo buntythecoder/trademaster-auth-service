@@ -2,6 +2,7 @@ package com.trademaster.trading.config;
 
 import com.trademaster.trading.security.JwtAuthenticationFilter;
 import com.trademaster.trading.security.JwtAuthenticationEntryPoint;
+import com.trademaster.trading.security.ServiceApiKeyFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -47,6 +48,7 @@ public class SecurityConfig {
     
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final ServiceApiKeyFilter serviceApiKeyFilter;
     
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
@@ -99,14 +101,20 @@ public class SecurityConfig {
             )
             
             .authorizeHttpRequests(auth -> auth
-                // Public endpoints for health checks and monitoring (broad pattern first)
-                .requestMatchers("/actuator/**").permitAll()
+                // Public health and monitoring endpoints (MUST BE FIRST - order matters!)
+                .requestMatchers("/actuator/health", "/actuator/prometheus", "/actuator/info").permitAll()
+                .requestMatchers("/api/internal/*/actuator/health", "/api/internal/*/actuator/prometheus", "/api/internal/*/actuator/info").permitAll()
+                .requestMatchers("/api/internal/trading/actuator/health", "/api/internal/trading/actuator/prometheus", "/api/internal/trading/actuator/info").permitAll()
+                .requestMatchers("/health").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 
                 // Allow basic access to root and error pages (for Docker health checks)
                 .requestMatchers("/", "/error", "/favicon.ico").permitAll()
                 
-                // Trading endpoints require authentication
+                // Internal service API endpoints - authenticated by ServiceApiKeyFilter
+                .requestMatchers("/api/internal/**").hasRole("SERVICE")
+                
+                // Trading endpoints require JWT authentication
                 .requestMatchers("/api/v1/orders/**").authenticated()
                 .requestMatchers("/api/v1/portfolio/**").authenticated()
                 .requestMatchers("/api/v1/trades/**").authenticated()
@@ -118,6 +126,7 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex.authenticationEntryPoint(jwtAuthenticationEntryPoint))
+            .addFilterBefore(serviceApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
             
         // Require SSL/HTTPS if enabled
