@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -555,7 +556,7 @@ public class TradingController {
                         return null;
                     }
                 })
-                .filter(response -> response != null)
+                .filter(Objects::nonNull)
                 .toList();
                 
             log.info("Processed {}/{} bulk orders successfully for user {}", 
