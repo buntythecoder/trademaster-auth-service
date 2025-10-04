@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /**
  * Structured Logging Configuration for Auth Service
@@ -90,19 +91,21 @@ class AuthLogger {
     }
     
     /**
-     * Set user context for all subsequent logs
+     * Set user context for all subsequent logs using functional approach
      */
     public void setUserContext(String userId, String sessionId) {
-        if (userId != null) MDC.put(AuthConstants.USER_ID_FIELD, userId);
-        if (sessionId != null) MDC.put(AuthConstants.SESSION_ID_FIELD, sessionId);
+        Optional.ofNullable(userId).ifPresent(id -> MDC.put(AuthConstants.USER_ID_FIELD, id));
+        Optional.ofNullable(sessionId).ifPresent(sid -> MDC.put(AuthConstants.SESSION_ID_FIELD, sid));
     }
     
     /**
-     * Set request context for all subsequent logs
+     * Set request context for all subsequent logs using functional approach
      */
     public void setRequestContext(String ipAddress, String userAgent) {
-        if (ipAddress != null) MDC.put(AuthConstants.IP_ADDRESS_FIELD, ipAddress);
-        if (userAgent != null) MDC.put(AuthConstants.USER_AGENT_FIELD, sanitizeUserAgent(userAgent));
+        Optional.ofNullable(ipAddress).ifPresent(ip -> MDC.put(AuthConstants.IP_ADDRESS_FIELD, ip));
+        Optional.ofNullable(userAgent)
+                .map(this::sanitizeUserAgent)
+                .ifPresent(ua -> MDC.put(AuthConstants.USER_AGENT_FIELD, ua));
     }
     
     /**
@@ -186,26 +189,29 @@ class AuthLogger {
      */
     public void logSecurityIncident(String incidentType, String severity, String userId,
                                    String ipAddress, String description, Map<String, Object> details) {
-        var logBuilder = log.atWarn();
-        
-        logBuilder = logBuilder.addKeyValue("incidentType", incidentType)
-            .addKeyValue("severity", severity)
-            .addKeyValue(AuthConstants.USER_ID_FIELD, userId)
-            .addKeyValue(AuthConstants.IP_ADDRESS_FIELD, ipAddress)
-            .addKeyValue("description", description)
-            .addKeyValue(AuthConstants.OPERATION_FIELD, "security_incident")
-            .addKeyValue(AuthConstants.SECURITY_EVENT_FIELD, incidentType)
-            .addKeyValue(AuthConstants.RISK_LEVEL_FIELD, severity)
-            .addKeyValue("timestamp", Instant.now());
-        
-        if (details != null) {
-            logBuilder = details.entrySet().stream()
-                .reduce(logBuilder, 
-                    (builder, entry) -> builder.addKeyValue("incident_" + entry.getKey(), entry.getValue()),
-                    (b1, b2) -> b1);
-        }
-        
-        logBuilder.log("Security incident detected");
+        // Functional approach using StructuredArguments
+        var baseArguments = Stream.of(
+            StructuredArguments.kv("incidentType", incidentType),
+            StructuredArguments.kv("severity", severity),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
+            StructuredArguments.kv(AuthConstants.IP_ADDRESS_FIELD, ipAddress),
+            StructuredArguments.kv("description", description),
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, "security_incident"),
+            StructuredArguments.kv(AuthConstants.SECURITY_EVENT_FIELD, incidentType),
+            StructuredArguments.kv(AuthConstants.RISK_LEVEL_FIELD, severity),
+            StructuredArguments.kv("timestamp", Instant.now())
+        );
+
+        var detailArguments = Optional.ofNullable(details)
+            .map(Map::entrySet)
+            .map(entries -> entries.stream()
+                .map(entry -> StructuredArguments.kv("incident_" + entry.getKey(), entry.getValue())))
+            .orElse(Stream.empty());
+
+        var allArguments = Stream.concat(baseArguments, detailArguments)
+            .toArray();
+
+        log.warn("Security incident detected", allArguments);
     }
     
     /**
@@ -329,24 +335,27 @@ class AuthLogger {
      */
     public void logAuditEvent(String eventType, String userId, String action, String resource,
                              String outcome, Map<String, Object> auditData) {
-        var logBuilder = log.atInfo();
-        
-        logBuilder = logBuilder.addKeyValue("eventType", eventType)
-            .addKeyValue(AuthConstants.USER_ID_FIELD, userId)
-            .addKeyValue("action", action)
-            .addKeyValue("resource", resource)
-            .addKeyValue("outcome", outcome)
-            .addKeyValue("timestamp", Instant.now())
-            .addKeyValue("category", "audit");
-        
-        if (auditData != null) {
-            logBuilder = auditData.entrySet().stream()
-                .reduce(logBuilder,
-                    (builder, entry) -> builder.addKeyValue("audit_" + entry.getKey(), entry.getValue()),
-                    (b1, b2) -> b1);
-        }
-        
-        logBuilder.log("Audit event recorded for compliance");
+        // Functional approach using StructuredArguments
+        var baseArguments = Stream.of(
+            StructuredArguments.kv("eventType", eventType),
+            StructuredArguments.kv(AuthConstants.USER_ID_FIELD, userId),
+            StructuredArguments.kv("action", action),
+            StructuredArguments.kv("resource", resource),
+            StructuredArguments.kv("outcome", outcome),
+            StructuredArguments.kv("timestamp", Instant.now()),
+            StructuredArguments.kv("category", "audit")
+        );
+
+        var auditDataArguments = Optional.ofNullable(auditData)
+            .map(Map::entrySet)
+            .map(entries -> entries.stream()
+                .map(entry -> StructuredArguments.kv("audit_" + entry.getKey(), entry.getValue())))
+            .orElse(Stream.empty());
+
+        var allArguments = Stream.concat(baseArguments, auditDataArguments)
+            .toArray();
+
+        log.info("Audit event recorded for compliance", allArguments);
     }
     
     /**
@@ -371,22 +380,25 @@ class AuthLogger {
      */
     public void logPerformanceMetrics(String operation, long durationMs, boolean success,
                                      Map<String, Object> additionalMetrics) {
-        var logBuilder = log.atInfo();
-        
-        logBuilder = logBuilder.addKeyValue(AuthConstants.OPERATION_FIELD, operation)
-            .addKeyValue(AuthConstants.DURATION_MS_FIELD, durationMs)
-            .addKeyValue(AuthConstants.STATUS_FIELD, success ? "success" : "failure")
-            .addKeyValue("timestamp", Instant.now())
-            .addKeyValue("category", "performance");
-        
-        if (additionalMetrics != null) {
-            logBuilder = additionalMetrics.entrySet().stream()
-                .reduce(logBuilder,
-                    (builder, entry) -> builder.addKeyValue("metric_" + entry.getKey(), entry.getValue()),
-                    (b1, b2) -> b1);
-        }
-        
-        logBuilder.log("Performance metrics recorded");
+        // Functional approach using StructuredArguments
+        var baseArguments = Stream.of(
+            StructuredArguments.kv(AuthConstants.OPERATION_FIELD, operation),
+            StructuredArguments.kv(AuthConstants.DURATION_MS_FIELD, durationMs),
+            StructuredArguments.kv(AuthConstants.STATUS_FIELD, success ? "success" : "failure"),
+            StructuredArguments.kv("timestamp", Instant.now()),
+            StructuredArguments.kv("category", "performance")
+        );
+
+        var metricsArguments = Optional.ofNullable(additionalMetrics)
+            .map(Map::entrySet)
+            .map(entries -> entries.stream()
+                .map(entry -> StructuredArguments.kv("metric_" + entry.getKey(), entry.getValue())))
+            .orElse(Stream.empty());
+
+        var allArguments = Stream.concat(baseArguments, metricsArguments)
+            .toArray();
+
+        log.info("Performance metrics recorded", allArguments);
     }
     
     /**
@@ -425,13 +437,12 @@ class AuthLogger {
     
     // Utility Methods
     private String sanitizeUserAgent(String userAgent) {
-        if (userAgent == null || userAgent.trim().isEmpty()) {
-            return "unknown";
-        }
-        // Remove sensitive information and limit length
-        return userAgent.length() > AuthConstants.MAX_USER_AGENT_LENGTH 
-            ? userAgent.substring(0, AuthConstants.MAX_USER_AGENT_LENGTH) 
-            : userAgent;
+        return Optional.ofNullable(userAgent)
+                .filter(ua -> !ua.trim().isEmpty())
+                .map(ua -> ua.length() > AuthConstants.MAX_USER_AGENT_LENGTH
+                    ? ua.substring(0, AuthConstants.MAX_USER_AGENT_LENGTH)
+                    : ua)
+                .orElse("unknown");
     }
     
     private static final Map<String, String> RISK_LEVEL_PATTERNS = Map.of(

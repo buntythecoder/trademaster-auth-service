@@ -74,15 +74,13 @@ public final class ServiceOperations {
      * Chain service operations with functional composition
      */
     @SafeVarargs
-    public static <T, R> Function<T, Result<R, String>> chain(Function<T, Result<T, String>>... operations) {
-        return input -> {
-            Result<T, String> current = Result.success(input);
-            for (Function<T, Result<T, String>> operation : operations) {
-                if (current.isFailure()) break;
-                current = current.flatMap(operation);
-            }
-            return current.map(value -> (R) value);
-        };
+    public static <T> Function<T, Result<T, String>> chain(Function<T, Result<T, String>>... operations) {
+        return input -> java.util.stream.Stream.of(operations)
+            .reduce(
+                Result.success(input),
+                (currentResult, operation) -> currentResult.flatMap(operation),
+                (a, b) -> b
+            );
     }
     
     /**
@@ -103,24 +101,25 @@ public final class ServiceOperations {
             String operationName, Supplier<T> operation, int currentAttempt, int maxAttempts, long delayMs) {
         
         return VirtualThreadFactory.INSTANCE.supplyAsync(() -> SafeOperations.safely(operation))
-            .thenCompose(result -> {
-                if (result.isPresent() || currentAttempt >= maxAttempts - 1) {
-                    return CompletableFuture.completedFuture(result);
-                }
-                
-                log.warn("Operation failed (attempt {}/{}): {}", currentAttempt + 1, maxAttempts, operationName);
-                
-                return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return Optional.<T>empty();
-                    }
-                    return Optional.<T>empty();
-                }).thenCompose(ignored -> 
-                    retryAsyncInternal(operationName, operation, currentAttempt + 1, maxAttempts, delayMs * 2)
-                );
-            });
+            .thenCompose(result ->
+                Optional.of(result)
+                    .filter(r -> r.isPresent() || currentAttempt >= maxAttempts - 1)
+                    .map(CompletableFuture::completedFuture)
+                    .orElseGet(() -> {
+                        log.warn("Operation failed (attempt {}/{}): {}", currentAttempt + 1, maxAttempts, operationName);
+
+                        return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
+                            try {
+                                Thread.sleep(delayMs);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                return Optional.<T>empty();
+                            }
+                            return Optional.<T>empty();
+                        }).thenCompose(ignored ->
+                            retryAsyncInternal(operationName, operation, currentAttempt + 1, maxAttempts, delayMs * 2)
+                        );
+                    })
+            );
     }
 }

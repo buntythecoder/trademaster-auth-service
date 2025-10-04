@@ -1,18 +1,15 @@
 package com.trademaster.auth.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
-import org.hibernate.annotations.Type;
 
 import java.net.InetAddress;
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -25,12 +22,12 @@ import java.util.UUID;
 public class SecurityAuditLog {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     @EqualsAndHashCode.Include
     private UUID id;
 
-    @Column(name = "user_id", length = 50)
-    private String userId;
+    @Column(name = "user_id")
+    private Long userId;
 
     @Column(name = "session_id", length = 255)
     private String sessionId;
@@ -44,8 +41,8 @@ public class SecurityAuditLog {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "ip_address", columnDefinition = "inet")
-    private InetAddress ipAddress;
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
 
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
@@ -53,13 +50,11 @@ public class SecurityAuditLog {
     @Column(name = "location", length = 255)
     private String location;
 
-    @Type(JsonType.class)
-    @Column(name = "metadata", columnDefinition = "jsonb")
-    private Map<String, Object> metadata;
+    @Column(name = "metadata", columnDefinition = "text")
+    private String metadata;
 
-    @Type(JsonType.class)
-    @Column(name = "event_details", columnDefinition = "jsonb")
-    private Map<String, Object> eventDetails;
+    @Column(name = "event_details", columnDefinition = "text")
+    private String eventDetails;
 
     @Column(name = "risk_level", length = 20)
     @Enumerated(EnumType.STRING)
@@ -115,9 +110,9 @@ public class SecurityAuditLog {
     }
 
     // Static factory methods for common events
-    public static SecurityAuditLog loginSuccess(String userId, String sessionId, InetAddress ipAddress, String userAgent) {
+    public static SecurityAuditLog loginSuccess(String userId, String sessionId, String ipAddress, String userAgent) {
         return SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType("LOGIN_SUCCESS")
                 .description("User successfully logged in")
@@ -127,9 +122,9 @@ public class SecurityAuditLog {
                 .build();
     }
 
-    public static SecurityAuditLog loginFailed(String userId, InetAddress ipAddress, String userAgent, String reason) {
+    public static SecurityAuditLog loginFailed(String userId, String ipAddress, String userAgent, String reason) {
         return SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .eventType("LOGIN_FAILED")
                 .description("Login attempt failed: " + reason)
                 .ipAddress(ipAddress)
@@ -140,7 +135,7 @@ public class SecurityAuditLog {
 
     public static SecurityAuditLog mfaEnabled(String userId, String sessionId, MfaConfiguration.MfaType mfaType) {
         return SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType("MFA_ENABLED")
                 .description("MFA enabled for type: " + mfaType)
@@ -150,7 +145,7 @@ public class SecurityAuditLog {
 
     public static SecurityAuditLog deviceTrusted(String userId, String sessionId, String deviceFingerprint) {
         return SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType("DEVICE_TRUSTED")
                 .description("Device marked as trusted: " + deviceFingerprint)
@@ -158,9 +153,9 @@ public class SecurityAuditLog {
                 .build();
     }
 
-    public static SecurityAuditLog suspiciousActivity(String userId, String sessionId, String description, InetAddress ipAddress) {
+    public static SecurityAuditLog suspiciousActivity(String userId, String sessionId, String description, String ipAddress) {
         return SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType("SECURITY_SUSPICIOUS_ACTIVITY")
                 .description(description)

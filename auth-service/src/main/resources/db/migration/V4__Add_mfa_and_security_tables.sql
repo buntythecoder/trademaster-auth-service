@@ -2,7 +2,7 @@
 -- Story 2.1.1: Authentication Service Integration
 
 -- MFA Configuration Table
-CREATE TABLE mfa_configuration (
+CREATE TABLE IF NOT EXISTS mfa_configuration (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(50) NOT NULL,
     mfa_type VARCHAR(20) NOT NULL CHECK (mfa_type IN ('TOTP', 'SMS', 'EMAIL')),
@@ -17,7 +17,7 @@ CREATE TABLE mfa_configuration (
 );
 
 -- User Devices Table for Device Trust Management
-CREATE TABLE user_devices (
+CREATE TABLE IF NOT EXISTS user_devices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(50) NOT NULL,
     device_fingerprint VARCHAR(255) NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE user_devices (
     user_agent TEXT,
     ip_address INET,
     location VARCHAR(255),
-    trusted BOOLEAN DEFAULT false,
+    is_trusted BOOLEAN DEFAULT false,
     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMP,
     trust_expiry TIMESTAMP,
@@ -35,7 +35,7 @@ CREATE TABLE user_devices (
 );
 
 -- Security Audit Logs Table
-CREATE TABLE security_audit_logs (
+CREATE TABLE IF NOT EXISTS security_audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(50),
     session_id VARCHAR(255),
@@ -50,7 +50,7 @@ CREATE TABLE security_audit_logs (
 );
 
 -- Enhanced User Sessions Table
-CREATE TABLE user_sessions (
+CREATE TABLE IF NOT EXISTS user_sessions (
     session_id VARCHAR(255) PRIMARY KEY,
     user_id VARCHAR(50) NOT NULL,
     device_fingerprint VARCHAR(255),
@@ -65,7 +65,7 @@ CREATE TABLE user_sessions (
 );
 
 -- Session Settings Table
-CREATE TABLE session_settings (
+CREATE TABLE IF NOT EXISTS session_settings (
     user_id VARCHAR(50) PRIMARY KEY,
     max_concurrent_sessions INTEGER DEFAULT 3,
     session_timeout_minutes INTEGER DEFAULT 30,
@@ -76,7 +76,7 @@ CREATE TABLE session_settings (
 );
 
 -- Device Settings Table
-CREATE TABLE device_settings (
+CREATE TABLE IF NOT EXISTS device_settings (
     user_id VARCHAR(50) PRIMARY KEY,
     trust_duration_days INTEGER DEFAULT 30,
     require_mfa_for_untrusted BOOLEAN DEFAULT true,
@@ -87,40 +87,53 @@ CREATE TABLE device_settings (
 );
 
 -- Create indexes for optimal performance
-CREATE INDEX idx_mfa_config_user_id ON mfa_configuration(user_id);
-CREATE INDEX idx_mfa_config_enabled ON mfa_configuration(enabled) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_mfa_config_user_id ON mfa_configuration(user_id);
+CREATE INDEX IF NOT EXISTS idx_mfa_config_enabled ON mfa_configuration(enabled) WHERE enabled = true;
 
-CREATE INDEX idx_user_devices_user_id ON user_devices(user_id);
-CREATE INDEX idx_user_devices_fingerprint ON user_devices(device_fingerprint);
-CREATE INDEX idx_user_devices_trusted ON user_devices(trusted) WHERE trusted = true;
-CREATE INDEX idx_user_devices_last_seen ON user_devices(last_seen);
+CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON user_devices(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_devices_fingerprint ON user_devices(device_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_user_devices_trusted ON user_devices(is_trusted) WHERE is_trusted = true;
+CREATE INDEX IF NOT EXISTS idx_user_devices_last_seen ON user_devices(last_seen);
 
-CREATE INDEX idx_audit_logs_user_id ON security_audit_logs(user_id);
-CREATE INDEX idx_audit_logs_timestamp ON security_audit_logs(timestamp);
-CREATE INDEX idx_audit_logs_event_type ON security_audit_logs(event_type);
-CREATE INDEX idx_audit_logs_risk_level ON security_audit_logs(risk_level);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON security_audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON security_audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON security_audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_risk_level ON security_audit_logs(risk_level);
 
-CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
-CREATE INDEX idx_user_sessions_active ON user_sessions(active) WHERE active = true;
-CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
-CREATE INDEX idx_user_sessions_device ON user_sessions(device_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(active) WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_device ON user_sessions(device_fingerprint);
 
 -- Add foreign key constraints (assuming users table exists)
 -- Note: Adjust table name if different in your schema
-ALTER TABLE mfa_configuration ADD CONSTRAINT fk_mfa_config_user 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_mfa_config_user') THEN
+        ALTER TABLE mfa_configuration ADD CONSTRAINT fk_mfa_config_user
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
 
-ALTER TABLE user_devices ADD CONSTRAINT fk_user_devices_user 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_devices_user') THEN
+        ALTER TABLE user_devices ADD CONSTRAINT fk_user_devices_user
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
 
-ALTER TABLE user_sessions ADD CONSTRAINT fk_user_sessions_user 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_sessions_user') THEN
+        ALTER TABLE user_sessions ADD CONSTRAINT fk_user_sessions_user
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
 
-ALTER TABLE session_settings ADD CONSTRAINT fk_session_settings_user 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_settings_user') THEN
+        ALTER TABLE session_settings ADD CONSTRAINT fk_session_settings_user
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
 
-ALTER TABLE device_settings ADD CONSTRAINT fk_device_settings_user 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_settings_user') THEN
+        ALTER TABLE device_settings ADD CONSTRAINT fk_device_settings_user
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+END$$;
 
 -- Create trigger for updating timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -132,17 +145,28 @@ END;
 $$ language 'plpgsql';
 
 -- Apply update timestamp triggers
-CREATE TRIGGER update_mfa_configuration_updated_at BEFORE UPDATE
-    ON mfa_configuration FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_mfa_configuration_updated_at') THEN
+        CREATE TRIGGER update_mfa_configuration_updated_at BEFORE UPDATE
+            ON mfa_configuration FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
 
-CREATE TRIGGER update_user_devices_updated_at BEFORE UPDATE
-    ON user_devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_user_devices_updated_at') THEN
+        CREATE TRIGGER update_user_devices_updated_at BEFORE UPDATE
+            ON user_devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
 
-CREATE TRIGGER update_session_settings_updated_at BEFORE UPDATE
-    ON session_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_session_settings_updated_at') THEN
+        CREATE TRIGGER update_session_settings_updated_at BEFORE UPDATE
+            ON session_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
 
-CREATE TRIGGER update_device_settings_updated_at BEFORE UPDATE
-    ON device_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_device_settings_updated_at') THEN
+        CREATE TRIGGER update_device_settings_updated_at BEFORE UPDATE
+            ON device_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END$$;
 
 -- Insert default settings for existing users
 INSERT INTO session_settings (user_id)
@@ -154,7 +178,7 @@ SELECT id FROM users
 ON CONFLICT (user_id) DO NOTHING;
 
 -- Create materialized view for security dashboard
-CREATE MATERIALIZED VIEW security_metrics_summary AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS security_metrics_summary AS
 SELECT 
     DATE_TRUNC('day', timestamp) as date,
     event_type,
@@ -167,8 +191,8 @@ GROUP BY DATE_TRUNC('day', timestamp), event_type, risk_level
 ORDER BY date DESC;
 
 -- Create index on materialized view
-CREATE INDEX idx_security_metrics_summary_date ON security_metrics_summary(date);
-CREATE INDEX idx_security_metrics_summary_event_type ON security_metrics_summary(event_type);
+CREATE INDEX IF NOT EXISTS idx_security_metrics_summary_date ON security_metrics_summary(date);
+CREATE INDEX IF NOT EXISTS idx_security_metrics_summary_event_type ON security_metrics_summary(event_type);
 
 -- Refresh materialized view function
 CREATE OR REPLACE FUNCTION refresh_security_metrics()

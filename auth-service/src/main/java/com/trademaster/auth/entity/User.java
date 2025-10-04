@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
+import lombok.Getter;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -19,7 +19,6 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
@@ -53,10 +52,10 @@ import java.util.stream.Collectors;
     @Index(name = "idx_users_last_login_at", columnList = "lastLoginAt")
 })
 @EntityListeners(AuditingEntityListener.class)
-@Data
+@Getter
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
 public class User implements UserDetails {
 
@@ -124,8 +123,8 @@ public class User implements UserDetails {
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
-    @Column(name = "last_login_ip")
-    private InetAddress lastLoginIp;
+    @Column(name = "last_login_ip", length = 45)
+    private String lastLoginIp;
 
     @Column(name = "device_fingerprint", length = 512)
     private String deviceFingerprint;
@@ -244,25 +243,75 @@ public class User implements UserDetails {
                passwordChangedAt.isBefore(LocalDateTime.now().minusDays(90));
     }
 
-    public void incrementFailedLoginAttempts() {
-        this.failedLoginAttempts = (this.failedLoginAttempts == null ? 0 : this.failedLoginAttempts) + 1;
+    /**
+     * Immutable update methods using builder pattern - Rule #9
+     * MANDATORY: No direct field mutations, return new instances
+     */
+    public User withIncrementedFailedLoginAttempts() {
+        int newAttempts = (this.failedLoginAttempts == null ? 0 : this.failedLoginAttempts) + 1;
+        return this.toBuilder()
+            .failedLoginAttempts(newAttempts)
+            .updatedAt(LocalDateTime.now())
+            .build();
     }
 
-    public void resetFailedLoginAttempts() {
-        this.failedLoginAttempts = 0;
-        this.accountLockedUntil = null;
+    public User withResetFailedLoginAttempts() {
+        return this.toBuilder()
+            .failedLoginAttempts(0)
+            .accountLockedUntil(null)
+            .updatedAt(LocalDateTime.now())
+            .build();
     }
 
-    public void lockAccount(int lockDurationMinutes) {
-        this.accountStatus = AccountStatus.LOCKED;
-        this.accountLockedUntil = LocalDateTime.now().plusMinutes(lockDurationMinutes);
+    public User withLockedAccount(int lockDurationMinutes) {
+        return this.toBuilder()
+            .accountStatus(AccountStatus.LOCKED)
+            .accountLockedUntil(LocalDateTime.now().plusMinutes(lockDurationMinutes))
+            .updatedAt(LocalDateTime.now())
+            .build();
     }
 
-    public void updateLastLogin(InetAddress ipAddress, String deviceFingerprint) {
-        this.lastLoginAt = LocalDateTime.now();
-        this.lastLoginIp = ipAddress;
-        this.deviceFingerprint = deviceFingerprint;
-        resetFailedLoginAttempts();
+    public User withUpdatedLastLogin(String ipAddress, String deviceFingerprint) {
+        return this.toBuilder()
+            .lastLoginAt(LocalDateTime.now())
+            .lastLoginIp(ipAddress)
+            .deviceFingerprint(deviceFingerprint)
+            .failedLoginAttempts(0)  // Reset on successful login
+            .accountLockedUntil(null)
+            .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    /**
+     * Immutable status updates
+     */
+    public User withAccountStatus(AccountStatus newStatus) {
+        return this.toBuilder()
+            .accountStatus(newStatus)
+            .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    public User withKycStatus(KycStatus newStatus) {
+        return this.toBuilder()
+            .kycStatus(newStatus)
+            .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    public User withEmailVerified(boolean verified) {
+        return this.toBuilder()
+            .emailVerified(verified)
+            .updatedAt(LocalDateTime.now())
+            .build();
+    }
+
+    public User withPasswordHash(String newPasswordHash) {
+        return this.toBuilder()
+            .passwordHash(newPasswordHash)
+            .passwordChangedAt(LocalDateTime.now())
+            .updatedAt(LocalDateTime.now())
+            .build();
     }
 
     // Enums

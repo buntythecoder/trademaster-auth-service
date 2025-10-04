@@ -18,7 +18,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -40,12 +39,12 @@ public class DeviceTrustService {
     /**
      * Register or update device information
      */
-    @Transactional
-    public UserDevice registerDevice(String userId, HttpServletRequest request, String sessionId) {
+    @Transactional(readOnly = false)
+    public UserDevice registerDevice(Long userId, HttpServletRequest request, String sessionId) {
         Result<UserDevice, String> result = SafeOperations.safelyToResult(() -> {
             String deviceFingerprint = deviceFingerprintService.generateFingerprint(request);
             String userAgent = request.getHeader("User-Agent");
-            InetAddress ipAddress = getClientIpAddress(request);
+            String ipAddress = getClientIpAddress(request);
             
             log.info("Registering device for user: {} with fingerprint: {}", userId, deviceFingerprint);
             
@@ -54,13 +53,18 @@ public class DeviceTrustService {
                 .orElseGet(() -> createNewDevice(userId, deviceFingerprint, userAgent, ipAddress, request, sessionId));
         });
         
-        return result.orElseThrow(error -> new RuntimeException("Failed to register device: " + error));
+        return result.fold(
+            error -> {
+                throw new RuntimeException("Failed to register device: " + error);
+            },
+            success -> success
+        );
     }
 
     /**
      * Check if device is trusted
      */
-    public boolean isDeviceTrusted(String userId, String deviceFingerprint) {
+    public boolean isDeviceTrusted(Long userId, String deviceFingerprint) {
         return userDeviceRepository.findByUserIdAndDeviceFingerprint(userId, deviceFingerprint)
             .map(userDevice -> evaluateDeviceTrust(userId, deviceFingerprint, userDevice))
             .orElseGet(() -> {
@@ -72,10 +76,10 @@ public class DeviceTrustService {
     /**
      * Trust a device
      */
-    @Transactional
-    public void trustDevice(String userId, String deviceFingerprint, String sessionId) {
+    @Transactional(readOnly = false)
+    public void trustDevice(Long userId, String deviceFingerprint, String sessionId) {
         log.info("Trusting device for user: {} - {}", userId, deviceFingerprint);
-        
+
         userDeviceRepository.findByUserIdAndDeviceFingerprint(userId, deviceFingerprint)
             .map(device -> processDeviceTrusting(device, userId, deviceFingerprint, sessionId))
             .orElseThrow(() -> new IllegalArgumentException("Device not found"));
@@ -84,10 +88,10 @@ public class DeviceTrustService {
     /**
      * Revoke trust for a device
      */
-    @Transactional
-    public void revokeTrust(String userId, String deviceFingerprint, String sessionId) {
+    @Transactional(readOnly = false)
+    public void revokeTrust(Long userId, String deviceFingerprint, String sessionId) {
         log.info("Revoking trust for device - user: {} device: {}", userId, deviceFingerprint);
-        
+
         userDeviceRepository.findByUserIdAndDeviceFingerprint(userId, deviceFingerprint)
             .map(device -> processDeviceTrustRevocation(device, userId, deviceFingerprint, sessionId))
             .orElseThrow(() -> new IllegalArgumentException("Device not found"));
@@ -96,8 +100,8 @@ public class DeviceTrustService {
     /**
      * Block a device
      */
-    @Transactional
-    public void blockDevice(String userId, String deviceFingerprint, String sessionId) {
+    @Transactional(readOnly = false)
+    public void blockDevice(Long userId, String deviceFingerprint, String sessionId) {
         log.info("Blocking device for user: {} - {}", userId, deviceFingerprint);
         
         Functions.compose(
@@ -112,8 +116,8 @@ public class DeviceTrustService {
     /**
      * Unblock a device
      */
-    @Transactional
-    public void unblockDevice(String userId, String deviceFingerprint, String sessionId) {
+    @Transactional(readOnly = false)
+    public void unblockDevice(Long userId, String deviceFingerprint, String sessionId) {
         log.info("Unblocking device for user: {} - {}", userId, deviceFingerprint);
         
         Functions.compose(
@@ -127,34 +131,34 @@ public class DeviceTrustService {
     /**
      * Get all devices for user
      */
-    public List<UserDevice> getUserDevices(String userId) {
+    public List<UserDevice> getUserDevices(Long userId) {
         return userDeviceRepository.findByUserId(userId);
     }
 
     /**
      * Get trusted devices for user
      */
-    public List<UserDevice> getTrustedDevices(String userId) {
+    public List<UserDevice> getTrustedDevices(Long userId) {
         return userDeviceRepository.findActiveTrustedDevicesForUser(userId, LocalDateTime.now());
     }
 
     /**
      * Get device settings for user
      */
-    public DeviceSettings getDeviceSettings(String userId) {
+    public DeviceSettings getDeviceSettings(Long userId) {
         return getOrCreateDeviceSettings(userId);
     }
 
     /**
      * Update device settings
      */
-    @Transactional
-    public DeviceSettings updateDeviceSettings(String userId, DeviceSettings settings, String sessionId) {
+    @Transactional(readOnly = false)
+    public DeviceSettings updateDeviceSettings(Long userId, DeviceSettings settings, String sessionId) {
         log.info("Updating device settings for user: {}", userId);
-        
+
         settings.setUserId(userId);
         DeviceSettings savedSettings = deviceSettingsRepository.save(settings);
-        
+
         // Log settings update
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
                 .userId(userId)
@@ -171,27 +175,28 @@ public class DeviceTrustService {
     /**
      * Validate device trust and return comprehensive trust information
      */
-    public DeviceTrustResult validateDeviceTrust(String deviceId, String userId) {
+    public DeviceTrustResult validateDeviceTrust(String deviceId, Long userId) {
         Result<DeviceTrustResult, String> result = SafeOperations.safelyToResult(() -> {
             log.info("Validating device trust for device: {} user: {}", deviceId, userId);
-            
+
             return userDeviceRepository.findByUserIdAndDeviceFingerprint(userId, deviceId)
                 .map(device -> evaluateDeviceTrustLevel(deviceId, userId, device))
                 .orElseGet(() -> createUnknownDeviceResult(deviceId, userId));
         });
-        
-        if (result.isFailure()) {
-            log.error("Error validating device trust for device: {} user: {},error :{}", deviceId, userId, result.getError());
-            return createErrorDeviceResult(deviceId, userId, result.getError());
-        }
-        
-        return result.getValue();
+
+        return result.fold(
+            error -> {
+                log.error("Error validating device trust for device: {} user: {}, error: {}", deviceId, userId, error);
+                return createErrorDeviceResult(deviceId, userId, error);
+            },
+            success -> success
+        );
     }
 
     /**
      * Check if MFA is required for device
      */
-    public boolean requiresMfaForDevice(String userId, String deviceFingerprint) {
+    public boolean requiresMfaForDevice(Long userId, String deviceFingerprint) {
         return Optional.of(getOrCreateDeviceSettings(userId))
             .filter(DeviceSettings::shouldRequireMfaForUntrusted)
             .map(settings -> !isDeviceTrusted(userId, deviceFingerprint))
@@ -202,7 +207,7 @@ public class DeviceTrustService {
      * Remove old devices (cleanup task)
      */
     @Scheduled(cron = "0 0 2 * * ?") // Daily at 2 AM
-    @Transactional
+    @Transactional(readOnly = false)
     public void cleanupOldDevices() {
         VirtualThreadFactory.INSTANCE.runAsync(() -> {
             SafeOperations.safelyToResult(() -> {
@@ -231,28 +236,28 @@ public class DeviceTrustService {
      * Revoke expired trusted devices (cleanup task)
      */
     @Scheduled(cron = "0 */15 * * * ?") // Every 15 minutes
-    @Transactional
+    @Transactional(readOnly = false)
     public void revokeExpiredTrustedDevices() {
         log.debug("Checking for expired trusted devices");
-        
+
         userDeviceRepository.revokeExpiredTrustedDevices(LocalDateTime.now());
     }
 
     // Private helper methods
     
-    private UserDevice updateExistingDevice(UserDevice device, String userAgent, InetAddress ipAddress, 
-                                          HttpServletRequest request, String userId) {
+    private UserDevice updateExistingDevice(UserDevice device, String userAgent, String ipAddress,
+                                          HttpServletRequest request, Long userId) {
         device.updateLastSeen();
         device.setUserAgent(userAgent);
         device.setIpAddress(ipAddress);
         device.setLocation(extractLocationFromRequest(request));
-        
+
         log.debug("Updated existing device for user: {}", userId);
         return userDeviceRepository.save(device);
     }
     
-    private UserDevice createNewDevice(String userId, String deviceFingerprint, String userAgent, 
-                                     InetAddress ipAddress, HttpServletRequest request, String sessionId) {
+    private UserDevice createNewDevice(Long userId, String deviceFingerprint, String userAgent,
+                                     String ipAddress, HttpServletRequest request, String sessionId) {
         UserDevice newDevice = UserDevice.builder()
                 .userId(userId)
                 .deviceFingerprint(deviceFingerprint)
@@ -264,9 +269,9 @@ public class DeviceTrustService {
                 .firstSeen(LocalDateTime.now())
                 .lastSeen(LocalDateTime.now())
                 .build();
-        
+
         UserDevice savedDevice = userDeviceRepository.save(newDevice);
-        
+
         // Log new device detection
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
                 .userId(userId)
@@ -284,7 +289,7 @@ public class DeviceTrustService {
         return savedDevice;
     }
     
-    private boolean evaluateDeviceTrust(String userId, String deviceFingerprint, UserDevice userDevice) {
+    private boolean evaluateDeviceTrust(Long userId, String deviceFingerprint, UserDevice userDevice) {
         DeviceSettings settings = getOrCreateDeviceSettings(userId);
         
         return Optional.of(settings)
@@ -301,24 +306,24 @@ public class DeviceTrustService {
             });
     }
     
-    private UserDevice processDeviceTrusting(UserDevice device, String userId, String deviceFingerprint, String sessionId) {
+    private UserDevice processDeviceTrusting(UserDevice device, Long userId, String deviceFingerprint, String sessionId) {
         DeviceSettings settings = getOrCreateDeviceSettings(userId);
         
         device.trust(settings.getTrustDurationDays());
         userDeviceRepository.save(device);
         
         // Log device trust event
-        SecurityAuditLog auditLog = SecurityAuditLog.deviceTrusted(userId, sessionId, deviceFingerprint);
+        SecurityAuditLog auditLog = SecurityAuditLog.deviceTrusted(String.valueOf(userId), sessionId, deviceFingerprint);
         securityAuditLogRepository.save(auditLog);
         
         log.info("Device trusted for user: {} - {} for {} days", userId, deviceFingerprint, settings.getTrustDurationDays());
         return device;
     }
     
-    private UserDevice processDeviceTrustRevocation(UserDevice device, String userId, String deviceFingerprint, String sessionId) {
+    private UserDevice processDeviceTrustRevocation(UserDevice device, Long userId, String deviceFingerprint, String sessionId) {
         device.revokeTrust();
         userDeviceRepository.save(device);
-        
+
         // Log trust revocation
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
                 .userId(userId)
@@ -338,7 +343,7 @@ public class DeviceTrustService {
         return deviceSettingsRepository.save(settings);
     }
     
-    private DeviceSettings revokeDeviceTrustIfPresent(String userId, String deviceFingerprint) {
+    private DeviceSettings revokeDeviceTrustIfPresent(Long userId, String deviceFingerprint) {
         userDeviceRepository.findByUserIdAndDeviceFingerprint(userId, deviceFingerprint)
             .ifPresent(device -> {
                 device.revokeTrust();
@@ -347,7 +352,7 @@ public class DeviceTrustService {
         return getOrCreateDeviceSettings(userId);
     }
     
-    private DeviceSettings logDeviceBlocking(String userId, String deviceFingerprint, String sessionId) {
+    private DeviceSettings logDeviceBlocking(Long userId, String deviceFingerprint, String sessionId) {
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
                 .userId(userId)
                 .sessionId(sessionId)
@@ -364,7 +369,7 @@ public class DeviceTrustService {
         return deviceSettingsRepository.save(settings);
     }
     
-    private DeviceSettings logDeviceUnblocking(String userId, String deviceFingerprint, String sessionId) {
+    private DeviceSettings logDeviceUnblocking(Long userId, String deviceFingerprint, String sessionId) {
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
                 .userId(userId)
                 .sessionId(sessionId)
@@ -376,27 +381,27 @@ public class DeviceTrustService {
         return getOrCreateDeviceSettings(userId);
     }
     
-    private DeviceTrustResult createUnknownDeviceResult(String deviceId, String userId) {
+    private DeviceTrustResult createUnknownDeviceResult(String deviceId, Long userId) {
         return DeviceTrustResult.builder()
             .deviceId(deviceId)
-            .userId(userId)
+            .userId(String.valueOf(userId))
             .trustLevel(TrustLevel.UNKNOWN)
             .trusted(false)
             .reason("Device not found")
             .build();
     }
     
-    private DeviceTrustResult createErrorDeviceResult(String deviceId, String userId, String errorMessage) {
+    private DeviceTrustResult createErrorDeviceResult(String deviceId, Long userId, String errorMessage) {
         return DeviceTrustResult.builder()
             .deviceId(deviceId)
-            .userId(userId)
+            .userId(String.valueOf(userId))
             .trustLevel(TrustLevel.ERROR)
             .trusted(false)
             .reason("Validation failed: " + errorMessage)
             .build();
     }
     
-    private DeviceTrustResult evaluateDeviceTrustLevel(String deviceId, String userId, UserDevice device) {
+    private DeviceTrustResult evaluateDeviceTrustLevel(String deviceId, Long userId, UserDevice device) {
         DeviceSettings settings = getOrCreateDeviceSettings(userId);
         
         return Optional.of(settings)
@@ -405,10 +410,10 @@ public class DeviceTrustService {
             .orElseGet(() -> evaluateDeviceTrustStatus(deviceId, userId, device));
     }
     
-    private DeviceTrustResult createBlockedDeviceResult(String deviceId, String userId) {
+    private DeviceTrustResult createBlockedDeviceResult(String deviceId, Long userId) {
         return DeviceTrustResult.builder()
             .deviceId(deviceId)
-            .userId(userId)
+            .userId(String.valueOf(userId))
             .trustLevel(TrustLevel.BLOCKED)
             .trusted(false)
             .reason("Device is blocked")
@@ -426,16 +431,16 @@ public class DeviceTrustService {
         device -> new TrustAssessment(TrustLevel.NEW, false, "New device detected")
     );
     
-    private DeviceTrustResult evaluateDeviceTrustStatus(String deviceId, String userId, UserDevice device) {
+    private DeviceTrustResult evaluateDeviceTrustStatus(String deviceId, Long userId, UserDevice device) {
         TrustAssessment assessment = trustAssessmentStrategies.entrySet().stream()
             .filter(entry -> entry.getKey().test(device))
             .findFirst()
             .map(entry -> entry.getValue().apply(device))
             .orElse(new TrustAssessment(TrustLevel.UNTRUSTED, false, "Device is not trusted"));
-            
+
         return DeviceTrustResult.builder()
             .deviceId(deviceId)
-            .userId(userId)
+            .userId(String.valueOf(userId))
             .trustLevel(assessment.trustLevel())
             .trusted(assessment.trusted())
             .reason(assessment.reason())
@@ -446,7 +451,7 @@ public class DeviceTrustService {
     
     private record TrustAssessment(TrustLevel trustLevel, boolean trusted, String reason) {}
     
-    private DeviceSettings getOrCreateDeviceSettings(String userId) {
+    private DeviceSettings getOrCreateDeviceSettings(Long userId) {
         return deviceSettingsRepository.findByUserId(userId)
                 .orElseGet(() -> {
                     DeviceSettings settings = DeviceSettings.createDefault(userId);
@@ -454,30 +459,28 @@ public class DeviceTrustService {
                 });
     }
 
-    private InetAddress getClientIpAddress(HttpServletRequest request) {
-        Result<String, String> ipResult = SafeOperations.safelyToResult(() -> Optional.ofNullable(request.getHeader("X-Forwarded-For"))
+    private String getClientIpAddress(HttpServletRequest request) {
+        // ✅ FUNCTIONAL PROGRAMMING: Using Optional chain and Result types
+        String ipAddress = Optional.ofNullable(request.getHeader("X-Forwarded-For"))
             .filter(header -> !header.isEmpty())
             .map(header -> header.split(",")[0].trim())
             .or(() -> Optional.ofNullable(request.getHeader("X-Real-IP"))
                 .filter(header -> !header.isEmpty()))
-            .orElse(request.getRemoteAddr()));
-        
-        if (ipResult.isFailure()) {
-            log.warn("Error extracting client IP address: {}", ipResult.getError());
-            try {
-                return InetAddress.getByName(request.getRemoteAddr());
-            } catch (Exception e) {
-                log.warn("Failed to parse remote address: {}", e.getMessage());
-                return InetAddress.getLoopbackAddress();
+            .orElse(request.getRemoteAddr());
+
+        return SafeOperations.safelyToResult(() -> {
+            if (ipAddress == null || ipAddress.trim().isEmpty()) {
+                return "127.0.0.1";
             }
-        }
-        
-        try {
-            return InetAddress.getByName(ipResult.getValue());
-        } catch (Exception e) {
-            log.warn("Failed to parse IP address {}: {}", ipResult.getValue(), e.getMessage());
-            return InetAddress.getLoopbackAddress();
-        }
+            return ipAddress.trim();
+        })
+                .fold(
+                    error -> {
+                        log.warn("Failed to parse IP address {}: {}", ipAddress, error);
+                        return "127.0.0.1";
+                    },
+                    success -> success
+                );
     }
 
     private String extractLocationFromRequest(HttpServletRequest request) {
@@ -487,15 +490,12 @@ public class DeviceTrustService {
             .filter(ip -> !isPrivateIpAddress.test(ip))
             .map(this::detectLocationByIpPattern)
             .orElse(buildLocationString("Private Network", "N/A", "N/A")));
-        
-        if (result.isSuccess()) {
-            String location = result.getValue();
-            log.debug("Extracted location '{}' for IP: {}", location, clientIp);
-            return location;
-        } else {
-            log.warn("Failed to extract location for IP {}: {}", clientIp, result.getError());
-            return buildLocationString("Unknown", "N/A", "N/A");
-        }
+        return result
+                .map(location -> {
+                    log.debug("Extracted location '{}' for IP: {}", location, clientIp);
+                    return location;
+                })
+                .getOrElse(buildLocationString("Unknown", "N/A", "N/A"));
     }
     
     private String getClientIpAddressString(HttpServletRequest request) {

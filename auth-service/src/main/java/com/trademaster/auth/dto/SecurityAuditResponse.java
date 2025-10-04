@@ -26,9 +26,9 @@ public class SecurityAuditResponse {
                 .description(log.getDescription())
                 .riskLevel(log.getRiskLevel() != null ? log.getRiskLevel().toString() : null)
                 .timestamp(log.getTimestamp())
-                .ipAddress(log.getIpAddress() != null ? log.getIpAddress().getHostAddress() : null)
+                .ipAddress(log.getIpAddress())
                 .location(log.getLocation())
-                .metadata(log.getMetadata())
+                .metadata(log.getMetadata() != null ? Map.of("data", log.getMetadata()) : null)
                 .build();
     }
 }

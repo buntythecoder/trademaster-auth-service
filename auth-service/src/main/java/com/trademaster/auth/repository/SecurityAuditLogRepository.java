@@ -15,11 +15,11 @@ import java.util.UUID;
 @Repository
 public interface SecurityAuditLogRepository extends JpaRepository<SecurityAuditLog, UUID> {
 
-    List<SecurityAuditLog> findByUserId(String userId);
+    List<SecurityAuditLog> findByUserId(Long userId);
 
-    Page<SecurityAuditLog> findByUserId(String userId, Pageable pageable);
+    Page<SecurityAuditLog> findByUserId(Long userId, Pageable pageable);
 
-    List<SecurityAuditLog> findByUserIdAndTimestampBetween(String userId, LocalDateTime start, LocalDateTime end);
+    List<SecurityAuditLog> findByUserIdAndTimestampBetween(Long userId, LocalDateTime start, LocalDateTime end);
 
     List<SecurityAuditLog> findBySessionId(String sessionId);
 
@@ -34,16 +34,16 @@ public interface SecurityAuditLogRepository extends JpaRepository<SecurityAuditL
     List<SecurityAuditLog> findRecentEvents(@Param("since") LocalDateTime since);
 
     @Query("SELECT s FROM SecurityAuditLog s WHERE s.userId = :userId AND s.timestamp >= :since")
-    List<SecurityAuditLog> findRecentEventsForUser(@Param("userId") String userId, @Param("since") LocalDateTime since);
+    List<SecurityAuditLog> findRecentEventsForUser(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
     @Query("SELECT s FROM SecurityAuditLog s WHERE s.eventType LIKE 'LOGIN%' AND s.userId = :userId ORDER BY s.timestamp DESC")
-    List<SecurityAuditLog> findLoginEventsForUser(@Param("userId") String userId, Pageable pageable);
+    List<SecurityAuditLog> findLoginEventsForUser(@Param("userId") Long userId, Pageable pageable);
 
     @Query("SELECT s FROM SecurityAuditLog s WHERE s.eventType LIKE 'MFA_%' AND s.userId = :userId ORDER BY s.timestamp DESC")
-    List<SecurityAuditLog> findMfaEventsForUser(@Param("userId") String userId, Pageable pageable);
+    List<SecurityAuditLog> findMfaEventsForUser(@Param("userId") Long userId, Pageable pageable);
 
     @Query("SELECT s FROM SecurityAuditLog s WHERE s.eventType LIKE 'DEVICE_%' AND s.userId = :userId ORDER BY s.timestamp DESC")
-    List<SecurityAuditLog> findDeviceEventsForUser(@Param("userId") String userId, Pageable pageable);
+    List<SecurityAuditLog> findDeviceEventsForUser(@Param("userId") Long userId, Pageable pageable);
 
     @Query("SELECT s.eventType, COUNT(s) FROM SecurityAuditLog s WHERE s.timestamp >= :since GROUP BY s.eventType")
     List<Object[]> getEventTypeSummary(@Param("since") LocalDateTime since);
@@ -52,10 +52,10 @@ public interface SecurityAuditLogRepository extends JpaRepository<SecurityAuditL
     List<Object[]> getRiskLevelSummary(@Param("since") LocalDateTime since);
 
     @Query("SELECT COUNT(s) FROM SecurityAuditLog s WHERE s.userId = :userId AND s.eventType = 'LOGIN_FAILED' AND s.timestamp >= :since")
-    long countFailedLoginsForUser(@Param("userId") String userId, @Param("since") LocalDateTime since);
+    long countFailedLoginsForUser(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
     @Query("SELECT COUNT(s) FROM SecurityAuditLog s WHERE s.ipAddress = :ipAddress AND s.eventType = 'LOGIN_FAILED' AND s.timestamp >= :since")
-    long countFailedLoginsFromIp(@Param("ipAddress") java.net.InetAddress ipAddress, @Param("since") LocalDateTime since);
+    long countFailedLoginsFromIp(@Param("ipAddress") String ipAddress, @Param("since") LocalDateTime since);
 
     void deleteByTimestampBefore(LocalDateTime cutoffDate);
 
@@ -65,5 +65,5 @@ public interface SecurityAuditLogRepository extends JpaRepository<SecurityAuditL
     
     long countByUserIdAndEventType(Long userId, String eventType);
     
-    Page<SecurityAuditLog> findByUserIdOrderByTimestampDesc(String userId, Pageable pageable);
+    Page<SecurityAuditLog> findByUserIdOrderByTimestampDesc(Long userId, Pageable pageable);
 }

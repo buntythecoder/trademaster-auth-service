@@ -12,6 +12,8 @@ import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import java.util.Optional;
+
 /**
  * Virtual Thread Configuration for TradeMaster Authentication Service
  * 
@@ -40,11 +42,10 @@ public class VirtualThreadConfiguration {
         executor.setVirtualThreads(true);
         executor.setThreadNamePrefix(namePrefix);
         executor.setThreadFactory(VirtualThreadFactory.createFactory(namePrefix));
-        
-        if (concurrencyLimit != null) {
-            executor.setConcurrencyLimit(concurrencyLimit);
-        }
-        
+
+        Optional.ofNullable(concurrencyLimit)
+            .ifPresent(executor::setConcurrencyLimit);
+
         return executor;
     }
     

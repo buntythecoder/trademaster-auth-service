@@ -85,19 +85,19 @@ public class AuthenticationAgent implements AgentOSComponent {
                     .build();
                 var authResult = authenticationService.login(authRequest, null);
                 String result = authResult.fold(
+                    error -> {
+                        throw new RuntimeException("Authentication failed: " + error);
+                    },
                     response -> {
                         var sessionId = sessionManagementService.createSession(
-                            response.getUser().getId(), 
-                            deviceId, 
+                            response.getUser().getId(),
+                            deviceId,
                             AuthConstants.AGENT_REQUEST_PREFIX + response.getUser().getId(),
                             AuthConstants.AGENT_USER_AGENT,
                             null // sessionData
                         );
-                        return String.format("User %s authenticated successfully with session: %s", 
+                        return String.format("User %s authenticated successfully with session: %s",
                                            username, sessionId);
-                    },
-                    error -> {
-                        throw new RuntimeException("Authentication failed: " + error);
                     }
                 );
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_USER_AUTHENTICATION);
@@ -198,7 +198,7 @@ public class AuthenticationAgent implements AgentOSComponent {
             try {
                 log.info("Validating device trust for device: {} user: {}", deviceId, userId);
                 
-                var trustResult = deviceTrustService.validateDeviceTrust(deviceId, userId);
+                var trustResult = deviceTrustService.validateDeviceTrust(deviceId, Long.valueOf(userId));
                 securityAuditService.logSecurityEvent(
                     Long.valueOf(userId), "DEVICE_TRUST_CHECK", "LOW", "127.0.0.1", "AuthenticationAgent",
                     Map.of("device_id", deviceId, "trust_level", trustResult.getTrustLevel().toString())
@@ -286,10 +286,10 @@ public class AuthenticationAgent implements AgentOSComponent {
             capabilityRegistry.recordExecutionTime("USER_AUTHENTICATION", executionTime);
             
             return authResult.fold(
-                response -> "Credentials validated successfully for user: " + response.getUser().getEmail(),
                 error -> {
                     throw new RuntimeException("Credential validation failed: " + error);
-                }
+                },
+                response -> "Credentials validated successfully for user: " + response.getUser().getEmail()
             );
             
         } catch (Exception e) {
@@ -311,8 +311,6 @@ public class AuthenticationAgent implements AgentOSComponent {
             capabilityRegistry.recordExecutionTime("USER_AUTHENTICATION", executionTime);
             
             return authResult.fold(
-                response -> String.format("Account status verified - User active: %s (ID: %d)", 
-                                        response.getUser().getEmail(), response.getUser().getId()),
                 error -> {
                     // Analyze error to determine specific account status issues
                     String lowerError = error.toLowerCase();
@@ -328,7 +326,9 @@ public class AuthenticationAgent implements AgentOSComponent {
                         // If it's just credential error, account exists and is active
                         return String.format("Account exists and active but authentication failed for: %s", request.getEmail());
                     }
-                }
+                },
+                response -> String.format("Account status verified - User active: %s (ID: %d)",
+                                        response.getUser().getEmail(), response.getUser().getId())
             );
             
         } catch (Exception e) {
@@ -346,32 +346,32 @@ public class AuthenticationAgent implements AgentOSComponent {
             var authResult = authenticationService.login(request, null);
             
             return authResult.fold(
+                error -> {
+                    log.warn("Cannot validate device trust - authentication failed: {}", error);
+                    capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(error.toString()));
+                    return "Device trust validation failed - authentication required: " + error;
+                },
                 response -> {
                     try {
                         // Use functional approach to generate device ID
                         final String deviceId = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
-                        
+
                         // Validate device trust with actual user ID
-                        var trustValidation = deviceTrustService.validateDeviceTrust(deviceId, response.getUser().getId().toString());
-                        
+                        var trustValidation = deviceTrustService.validateDeviceTrust(deviceId, response.getUser().getId());
+
                         var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
                         capabilityRegistry.recordExecutionTime("DEVICE_TRUST", executionTime);
                         capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_DEVICE_TRUST);
-                        
-                        return String.format("Device trust validated - Level: %s, Device: %s, Trusted: %s, User: %s (ID: %d)", 
+
+                        return String.format("Device trust validated - Level: %s, Device: %s, Trusted: %s, User: %s (ID: %d)",
                                            trustValidation.getTrustLevel(), deviceId, trustValidation.isTrusted(),
                                            response.getUser().getEmail(), response.getUser().getId());
-                                           
+
                     } catch (Exception deviceEx) {
                         log.error("Device trust validation failed for user {}: {}", response.getUser().getId(), deviceEx.getMessage());
                         capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, deviceEx);
                         return "Device trust validation failed: " + deviceEx.getMessage();
                     }
-                },
-                error -> {
-                    log.warn("Cannot validate device trust - authentication failed: {}", error);
-                    capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(error));
-                    return "Device trust validation failed - authentication required: " + error;
                 }
             );
             
@@ -390,11 +390,14 @@ public class AuthenticationAgent implements AgentOSComponent {
             var authResult = authenticationService.login(request, null);
             
             return authResult.fold(
+                error -> {
+                    throw new RuntimeException("Cannot create session - authentication failed: " + error);
+                },
                 response -> {
                     try {
                         // Use functional approach to generate device info
                         final String deviceInfo = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
-                        
+
                         // Create session with validated user and proper context
                         String sessionId = sessionManagementService.createSession(
                             response.getUser().getId(),
@@ -407,20 +410,17 @@ public class AuthenticationAgent implements AgentOSComponent {
                                 "agentRequested", true
                             )
                         );
-                        
+
                         var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
                         capabilityRegistry.recordExecutionTime("SESSION_MANAGEMENT", executionTime);
-                        
-                        return String.format("User session created successfully: %s for user %s", 
+
+                        return String.format("User session created successfully: %s for user %s",
                                            sessionId, response.getUser().getEmail());
-                                           
+
                     } catch (Exception sessionEx) {
                         capabilityRegistry.recordFailedExecution("SESSION_MANAGEMENT", sessionEx);
                         throw new RuntimeException("Session creation failed: " + sessionEx.getMessage());
                     }
-                },
-                error -> {
-                    throw new RuntimeException("Cannot create session - authentication failed: " + error);
                 }
             );
             
@@ -629,8 +629,8 @@ public class AuthenticationAgent implements AgentOSComponent {
             var authResult = authenticationService.login(request, null);
             
             return authResult.fold(
-                response -> new AuditResult(response.getUser().getId(), "SUCCESS"),
-                error -> determineErrorStatus(error)
+                error -> determineErrorStatus(error),
+                response -> new AuditResult(response.getUser().getId(), "SUCCESS")
             );
         } catch (Exception e) {
             log.debug("Could not resolve user ID for audit: {}", e.getMessage());

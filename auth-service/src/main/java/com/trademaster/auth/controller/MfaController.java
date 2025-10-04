@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 @RestController
 @RequestMapping("/api/v1/auth/mfa")
@@ -76,23 +78,14 @@ public class MfaController {
         String sessionId = httpRequest.getSession().getId();
         
         boolean verified = mfaService.verifyAndEnableTotp(userId, request.getCode(), sessionId);
-        
-        if (verified) {
-            securityAuditService.logMfaEvent(userId, "SETUP_COMPLETED", "SUCCESS", 
-                httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
-            return ResponseEntity.ok(MfaSetupResponse.enabled("TOTP"));
-        } else {
-            securityAuditService.logMfaEvent(userId, "SETUP_FAILED", "FAILURE", 
-                httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
-            return ResponseEntity.badRequest()
-                    .body(MfaSetupResponse.builder()
-                            .message("Invalid MFA code. Please try again.")
-                            .build());
-        }
+
+        return Optional.of(verified)
+                .map(createMfaSetupResponse(userId, httpRequest))
+                .orElse(createMfaSetupFailureResponse(userId, httpRequest));
     }
 
-    @PostMapping("/verify")
-    @Operation(summary = "Verify MFA Code", description = "Verify MFA code during authentication")
+    @PostMapping("/verify-authenticated")
+    @Operation(summary = "Verify MFA Code", description = "Verify MFA code for authenticated users")
     public ResponseEntity<Map<String, Object>> verifyMfa(
             @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody MfaVerificationRequest request,
@@ -101,19 +94,19 @@ public class MfaController {
         String userId = userDetails.getUsername();
         String sessionId = httpRequest.getSession().getId();
         
-        boolean verified = mfaService.verifyMfaCode(userId, request.getCode(), sessionId).getValue();
-        
-        if (verified) {
-            return ResponseEntity.ok(Map.of(
-                    "verified", true,
-                    "message", "MFA verification successful"
+        boolean verified = mfaService.verifyMfaCode(userId, request.getCode(), sessionId)
+                .getValue()
+                .orElse(false);
+
+        return verified
+            ? ResponseEntity.ok(Map.<String, Object>of(
+                "verified", true,
+                "message", "MFA verification successful"
+            ))
+            : ResponseEntity.badRequest().body(Map.<String, Object>of(
+                "verified", false,
+                "message", "Invalid MFA code"
             ));
-        } else {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "verified", false,
-                    "message", "Invalid MFA code"
-            ));
-        }
     }
 
     @GetMapping("/status")
@@ -124,7 +117,9 @@ public class MfaController {
         String userId = userDetails.getUsername();
         List<MfaConfiguration> configs = mfaService.getUserMfaConfigurations(userId);
         
-        boolean hasMfa = mfaService.isUserMfaEnabled(userId).getValue();
+        boolean hasMfa = mfaService.isUserMfaEnabled(userId)
+                .getValue()
+                .orElse(false);
         
         return ResponseEntity.ok(Map.of(
                 "enabled", hasMfa,
@@ -191,5 +186,24 @@ public class MfaController {
                     "message", "Invalid MFA type"
             ));
         }
+    }
+
+    private Function<Boolean, ResponseEntity<MfaSetupResponse>> createMfaSetupResponse(
+            String userId, HttpServletRequest httpRequest) {
+        return verified -> {
+            securityAuditService.logMfaEvent(userId, "SETUP_COMPLETED", "SUCCESS",
+                httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
+            return ResponseEntity.ok(MfaSetupResponse.enabled("TOTP"));
+        };
+    }
+
+    private ResponseEntity<MfaSetupResponse> createMfaSetupFailureResponse(
+            String userId, HttpServletRequest httpRequest) {
+        securityAuditService.logMfaEvent(userId, "SETUP_FAILED", "FAILURE",
+            httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
+        return ResponseEntity.badRequest()
+                .body(MfaSetupResponse.builder()
+                        .message("Invalid MFA code. Please try again.")
+                        .build());
     }
 }

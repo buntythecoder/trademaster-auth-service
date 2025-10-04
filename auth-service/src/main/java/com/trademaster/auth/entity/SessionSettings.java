@@ -23,9 +23,9 @@ import java.time.LocalDateTime;
 public class SessionSettings {
 
     @Id
-    @Column(name = "user_id", length = 50)
+    @Column(name = "user_id")
     @EqualsAndHashCode.Include
-    private String userId;
+    private Long userId;
 
     @Column(name = "max_concurrent_sessions")
     @Builder.Default
@@ -75,7 +75,7 @@ public class SessionSettings {
     }
 
     // Static factory method for default settings
-    public static SessionSettings createDefault(String userId) {
+    public static SessionSettings createDefault(Long userId) {
         return SessionSettings.builder()
                 .userId(userId)
                 .maxConcurrentSessions(3)

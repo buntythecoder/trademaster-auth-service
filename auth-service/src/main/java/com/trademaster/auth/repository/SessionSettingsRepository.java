@@ -10,9 +10,9 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface SessionSettingsRepository extends JpaRepository<SessionSettings, String> {
+public interface SessionSettingsRepository extends JpaRepository<SessionSettings, Long> {
 
-    Optional<SessionSettings> findByUserId(String userId);
+    Optional<SessionSettings> findByUserId(Long userId);
 
     @Query("SELECT s FROM SessionSettings s WHERE s.maxConcurrentSessions > :threshold")
     List<SessionSettings> findByMaxConcurrentSessionsGreaterThan(@Param("threshold") int threshold);

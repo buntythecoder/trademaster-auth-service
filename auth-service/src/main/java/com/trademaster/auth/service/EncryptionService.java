@@ -209,8 +209,10 @@ public class EncryptionService {
     public boolean isHealthy() {
         return SafeOperations.safelyToResult(() -> {
             String testData = "health_check_" + System.currentTimeMillis();
-            String encrypted = encrypt(testData).getValue();
-            String decrypted = decrypt(encrypted).getValue();
+            String encrypted = encrypt(testData).getValue()
+                    .orElseThrow(() -> new RuntimeException("Failed to encrypt test data"));
+            String decrypted = decrypt(encrypted).getValue()
+                    .orElseThrow(() -> new RuntimeException("Failed to decrypt test data"));
             
             boolean healthy = testData.equals(decrypted);
             log.debug("Encryption service health check: {}", healthy ? "PASSED" : "FAILED");
@@ -391,11 +393,11 @@ public class EncryptionService {
             return plaintextKey;
         })
         .fold(
-            plaintextKey -> plaintextKey,
             error -> {
                 log.error("Failed to generate data key from AWS KMS: {}", error);
                 throw new RuntimeException("Data key generation failed: " + error);
-            }
+            },
+            plaintextKey -> plaintextKey
         );
     }
 }

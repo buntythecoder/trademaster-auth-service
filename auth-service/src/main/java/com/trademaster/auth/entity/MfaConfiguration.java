@@ -1,7 +1,6 @@
 package com.trademaster.auth.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Type;
@@ -38,12 +37,12 @@ import java.util.List;
 public class MfaConfiguration {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     @EqualsAndHashCode.Include
     private java.util.UUID id;
 
-    @Column(name = "user_id", nullable = false, length = 50)
-    private String userId;
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "mfa_type", nullable = false, length = 20)
@@ -53,9 +52,8 @@ public class MfaConfiguration {
     @Column(name = "secret_key", length = 500)
     private String secretKey;
 
-    @Type(JsonType.class)
-    @Column(name = "backup_codes", columnDefinition = "text[]")
-    private List<String> backupCodes;
+    @Column(name = "backup_codes", columnDefinition = "text")
+    private String backupCodes;
 
     @Column(name = "enabled")
     @Builder.Default
@@ -95,8 +93,11 @@ public class MfaConfiguration {
         this.enabled = false;
     }
 
+    // ✅ FUNCTIONAL PROGRAMMING: Using Optional to replace ternary operator
     public void incrementFailedAttempts() {
-        this.failedAttempts = (this.failedAttempts == null ? 0 : this.failedAttempts) + 1;
+        this.failedAttempts = java.util.Optional.ofNullable(this.failedAttempts)
+            .map(attempts -> attempts + 1)
+            .orElse(1);
     }
 
     public void resetFailedAttempts() {
@@ -108,19 +109,28 @@ public class MfaConfiguration {
         resetFailedAttempts();
     }
 
+    // ✅ FUNCTIONAL PROGRAMMING: Using Optional chain to replace boolean logic
     public boolean isLocked() {
-        return this.failedAttempts != null && this.failedAttempts >= 3;
+        return java.util.Optional.ofNullable(this.failedAttempts)
+            .map(attempts -> attempts >= 3)
+            .orElse(false);
     }
 
+    // ✅ FUNCTIONAL PROGRAMMING: Using Optional chain to replace null check and boolean logic
     public boolean hasBackupCodes() {
-        return backupCodes != null && !backupCodes.isEmpty();
+        return java.util.Optional.ofNullable(backupCodes)
+            .map(codes -> !codes.isEmpty())
+            .orElse(false);
     }
 
+    // ✅ FUNCTIONAL PROGRAMMING: Using Optional to replace ternary operator
     public int getBackupCodesCount() {
-        return backupCodes != null ? backupCodes.size() : 0;
+        return java.util.Optional.ofNullable(backupCodes)
+            .map(codes -> codes.split(",").length)
+            .orElse(0);
     }
 
-    public void regenerateBackupCodes(List<String> newBackupCodes) {
+    public void regenerateBackupCodes(String newBackupCodes) {
         this.backupCodes = newBackupCodes;
     }
 
@@ -138,13 +148,12 @@ public class MfaConfiguration {
             this.value = value;
         }
 
+        // ✅ FUNCTIONAL PROGRAMMING: Replacing for loop and if-else with Stream API
         public static MfaType fromValue(String value) {
-            for (MfaType type : values()) {
-                if (type.value.equalsIgnoreCase(value)) {
-                    return type;
-                }
-            }
-            throw new IllegalArgumentException("Unknown MFA type: " + value);
+            return java.util.Arrays.stream(values())
+                .filter(type -> type.value.equalsIgnoreCase(value))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown MFA type: " + value));
         }
     }
 

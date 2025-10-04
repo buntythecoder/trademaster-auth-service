@@ -3,8 +3,10 @@ package com.trademaster.auth.config;
 import com.trademaster.auth.constants.AuthConstants;
 import com.trademaster.auth.security.JwtAuthenticationFilter;
 import com.trademaster.auth.security.JwtAuthenticationEntryPoint;
+import com.trademaster.auth.security.ServiceApiKeyFilter;
 import com.trademaster.auth.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -50,6 +52,7 @@ public class SecurityConfig {
     private final UserService userService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final ServiceApiKeyFilter serviceApiKeyFilter;
 
     /**
      * Configure HTTP security
@@ -86,10 +89,13 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").hasRole(AuthConstants.ROLE_ADMIN)
                 
                 // API documentation
-                .requestMatchers("/swagger-ui/**", 
+                .requestMatchers("/swagger-ui/**",
                                "/v3/api-docs/**",
                                "/swagger-resources/**",
                                "/webjars/**").permitAll()
+
+                // Internal API endpoints - require SERVICE role (handled by ServiceApiKeyFilter)
+                .requestMatchers("/internal/**").hasRole("SERVICE")
                 
                 // MFA endpoints - require authentication
                 .requestMatchers(AuthConstants.API_V1_AUTH + AuthConstants.ENDPOINT_MFA).authenticated()
@@ -109,8 +115,9 @@ public class SecurityConfig {
                 // All other requests require authentication
                 .anyRequest().authenticated())
             
-            // Add JWT filter before UsernamePasswordAuthenticationFilter
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            // Add custom authentication filters in order
+            .addFilterBefore(serviceApiKeyFilter, UsernamePasswordAuthenticationFilter.class)  // Order 1: Kong API keys
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)  // Order 2: JWT
             
             // Configure security headers
             .headers(headers -> headers

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  auth-service:
+    image: eclipse-temurin:21-jre
+    container_name: auth-service-transaction-fixed
+    networks:
+      - trademaster_backend-network
+    ports:
+      - "8080:8080"
+      - "9080:9080"
+    volumes:
+      - ./build/libs/auth-service-1.0.0.jar:/app/app.jar:ro
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=--enable-preview
+    command: sh -c "java $$JAVA_OPTS -jar /app/app.jar"
+
+networks:
+  trademaster_backend-network:
+    external: true

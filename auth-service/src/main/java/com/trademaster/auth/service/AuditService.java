@@ -12,7 +12,6 @@ import net.logstash.logback.argument.StructuredArguments;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.InetAddress;
 import java.security.MessageDigest;
 import java.util.Map;
 import java.util.Optional;
@@ -60,7 +59,7 @@ public class AuditService {
     /**
      * Functional authentication event logging using railway-oriented programming
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public CompletableFuture<Result<AuthAuditLog, String>> logAuthenticationEvent(
             Long userId, String eventType, String eventStatus,
             String ipAddress, String userAgent, String deviceFingerprint,
@@ -74,29 +73,16 @@ public class AuditService {
     }
     
     /**
-     * Sequential pipeline for audit log creation
+     * Functional pipeline for audit log creation using Railway Programming
      */
     private Function<AuditRequest, Result<AuthAuditLog, String>> createAuditLogPipeline() {
         return request -> {
-            // Sequential processing to avoid type composition issues
             Result<AuditRequest, String> validated = validateAuditRequest().apply(request);
-            if (validated.isFailure()) return Result.failure(validated.getError());
-            
             Result<ParsedAuditData, String> parsed = parseEventEnums().apply(validated);
-            if (parsed.isFailure()) return Result.failure(parsed.getError());
-            
-            Result<RiskAssessedData, String> riskCalculated = calculateRiskScore().apply(parsed);
-            if (riskCalculated.isFailure()) return Result.failure(riskCalculated.getError());
-            
-            Result<AuditLogData, String> built = buildAuditLog().apply(riskCalculated);
-            if (built.isFailure()) return Result.failure(built.getError());
-            
-            Result<AuditLogData, String> hashed = generateBlockchainHash().apply(built);
-            if (hashed.isFailure()) return Result.failure(hashed.getError());
-            
-            Result<AuthAuditLog, String> saved = saveAuditLog().apply(hashed);
-            if (saved.isFailure()) return Result.failure(saved.getError());
-            
+            Result<RiskAssessedData, String> riskAssessed = calculateRiskScore().apply(parsed);
+            Result<AuditLogData, String> auditLog = buildAuditLog().apply(riskAssessed);
+            Result<BlockchainHashedData, String> hashed = generateBlockchainHash().apply(auditLog);
+            Result<SavedAuditData, String> saved = saveAuditLog().apply(hashed);
             return processHighRiskEvents().apply(saved);
         };
     }
@@ -169,7 +155,7 @@ public class AuditService {
                     .ipAddress(parseIpAddressSafely(request.getIpAddress()))
                     .userAgent(request.getUserAgent())
                     .deviceFingerprint(request.getDeviceFingerprint())
-                    .details(Optional.ofNullable(request.getDetails()).orElse(Map.of()))
+                    .details(Optional.ofNullable(request.getDetails()).map(Object::toString).orElse(""))
                     .riskScore(data.riskScore())
                     .sessionId(request.getSessionId())
                     .correlationId(UUID.randomUUID())
@@ -182,7 +168,7 @@ public class AuditService {
     /**
      * Generate blockchain hash using functional approach
      */
-    private Function<Result<AuditLogData, String>, Result<AuditLogData, String>> generateBlockchainHash() {
+    private Function<Result<AuditLogData, String>, Result<BlockchainHashedData, String>> generateBlockchainHash() {
         return result -> result.flatMap(data -> 
             SafeOperations.safelyToResult(() -> {
                 try {
@@ -193,7 +179,7 @@ public class AuditService {
             })
                 .map(hash -> {
                     data.auditLog().setBlockchainHash(hash);
-                    return data;
+                    return new BlockchainHashedData(data, hash);
                 })
         );
     }
@@ -201,18 +187,19 @@ public class AuditService {
     /**
      * Save audit log using functional error handling
      */
-    private Function<Result<AuditLogData, String>, Result<AuthAuditLog, String>> saveAuditLog() {
-        return result -> result.flatMap(data -> 
-            SafeOperations.safelyToResult(() -> auditLogRepository.save(data.auditLog()))
+    private Function<Result<BlockchainHashedData, String>, Result<SavedAuditData, String>> saveAuditLog() {
+        return result -> result.flatMap(data ->
+            SafeOperations.safelyToResult(() -> auditLogRepository.save(data.auditData().auditLog()))
+                .map(savedLog -> new SavedAuditData(savedLog))
         );
     }
     
     /**
      * Process high risk events using functional strategies - replaces if-else
      */
-    private Function<Result<AuthAuditLog, String>, Result<AuthAuditLog, String>> processHighRiskEvents() {
-        return result -> result.map(auditLog -> {
-            
+    private Function<Result<SavedAuditData, String>, Result<AuthAuditLog, String>> processHighRiskEvents() {
+        return result -> result.map(savedData -> {
+            AuthAuditLog auditLog = savedData.savedLog();
             String riskLevel = determineRiskLevel(auditLog.getRiskScore());
             
             // Functional high-risk processing using Optional and strategy pattern
@@ -308,19 +295,13 @@ public class AuditService {
                 .orElse("MODERATE_RISK"));
     }
     
-    private InetAddress parseIpAddressSafely(String ipAddress) {
+    private String parseIpAddressSafely(String ipAddress) {
         return SafeOperations.safely(() -> {
-            try {
-                return InetAddress.getByName(ipAddress);
-            } catch (java.net.UnknownHostException e) {
-                // Fallback to localhost if parsing fails
-                try {
-                    return InetAddress.getByName("127.0.0.1");
-                } catch (java.net.UnknownHostException fallbackException) {
-                    return null;
-                }
+            if (ipAddress == null || ipAddress.trim().isEmpty()) {
+                return "127.0.0.1";
             }
-        }).orElse(null);
+            return ipAddress.trim();
+        }).orElse("127.0.0.1");
     }
     
     private String generateBlockchainHashSafely(AuthAuditLog auditLog, String previousHash) throws Exception {
@@ -354,4 +335,6 @@ public class AuditService {
     private record ParsedAuditData(AuditRequest request, AuthAuditLog.EventType eventType, AuthAuditLog.EventStatus eventStatus) {}
     private record RiskAssessedData(ParsedAuditData parsedData, Integer riskScore) {}
     private record AuditLogData(RiskAssessedData riskData, AuthAuditLog auditLog) {}
+    private record BlockchainHashedData(AuditLogData auditData, String blockchainHash) {}
+    private record SavedAuditData(AuthAuditLog savedLog) {}
 }

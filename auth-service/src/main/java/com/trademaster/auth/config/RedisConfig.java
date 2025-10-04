@@ -15,6 +15,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.session.data.redis.config.annotation.web.http.EnableRedisHttpSession;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Redis Configuration for session management and caching
@@ -57,9 +58,9 @@ public class RedisConfig {
         RedisStandaloneConfiguration redisStandaloneConfiguration = 
             new RedisStandaloneConfiguration(redisHost, redisPort);
         
-        if (redisPassword != null && !redisPassword.isEmpty()) {
-            redisStandaloneConfiguration.setPassword(redisPassword);
-        }
+        Optional.ofNullable(redisPassword)
+            .filter(password -> !password.isEmpty())
+            .ifPresent(redisStandaloneConfiguration::setPassword);
         
         redisStandaloneConfiguration.setDatabase(redisDatabase);
 
@@ -93,17 +94,22 @@ public class RedisConfig {
      * Strategy method to configure serializers based on value type
      */
     private <T> void configureValueSerializers(RedisTemplate<String, T> template, Class<T> valueType) {
-        if (String.class.equals(valueType)) {
-            // String-based serialization for sessions
-            template.setValueSerializer(new StringRedisSerializer());
-            template.setHashValueSerializer(new StringRedisSerializer());
-            template.setDefaultSerializer(new StringRedisSerializer());
-        } else {
-            // JSON-based serialization for general objects
-            template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
-            template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
-            template.setDefaultSerializer(new GenericJackson2JsonRedisSerializer());
-        }
+        Optional.of(String.class.equals(valueType))
+            .filter(isString -> isString)
+            .ifPresentOrElse(
+                isString -> {
+                    // String-based serialization for sessions
+                    template.setValueSerializer(new StringRedisSerializer());
+                    template.setHashValueSerializer(new StringRedisSerializer());
+                    template.setDefaultSerializer(new StringRedisSerializer());
+                },
+                () -> {
+                    // JSON-based serialization for general objects
+                    template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+                    template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+                    template.setDefaultSerializer(new GenericJackson2JsonRedisSerializer());
+                }
+            );
     }
 
     /**

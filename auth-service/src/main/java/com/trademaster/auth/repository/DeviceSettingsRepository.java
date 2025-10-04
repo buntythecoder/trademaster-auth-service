@@ -10,9 +10,9 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface DeviceSettingsRepository extends JpaRepository<DeviceSettings, String> {
+public interface DeviceSettingsRepository extends JpaRepository<DeviceSettings, Long> {
 
-    Optional<DeviceSettings> findByUserId(String userId);
+    Optional<DeviceSettings> findByUserId(Long userId);
 
     @Query("SELECT d FROM DeviceSettings d WHERE d.trustDurationDays > :threshold")
     List<DeviceSettings> findByTrustDurationDaysGreaterThan(@Param("threshold") int threshold);
@@ -23,7 +23,7 @@ public interface DeviceSettingsRepository extends JpaRepository<DeviceSettings, 
     @Query("SELECT d FROM DeviceSettings d WHERE d.notifyNewDevices = true")
     List<DeviceSettings> findByNotifyNewDevicesTrue();
 
-    @Query("SELECT d FROM DeviceSettings d WHERE array_length(d.blockedDevices, 1) > 0")
+    @Query("SELECT d FROM DeviceSettings d WHERE d.blockedDevices IS NOT NULL AND d.blockedDevices != ''")
     List<DeviceSettings> findUsersWithBlockedDevices();
 
     @Query("SELECT AVG(d.trustDurationDays) FROM DeviceSettings d")
@@ -35,9 +35,10 @@ public interface DeviceSettingsRepository extends JpaRepository<DeviceSettings, 
     @Query("SELECT COUNT(d) FROM DeviceSettings d WHERE d.notifyNewDevices = true")
     long countUsersWithNewDeviceNotifications();
 
-    @Query("SELECT COUNT(d) FROM DeviceSettings d WHERE array_length(d.blockedDevices, 1) > 0")
+    @Query("SELECT COUNT(d) FROM DeviceSettings d WHERE d.blockedDevices IS NOT NULL AND d.blockedDevices != ''")
     long countUsersWithBlockedDevices();
 
-    @Query("SELECT SUM(array_length(d.blockedDevices, 1)) FROM DeviceSettings d")
-    Long getTotalBlockedDevicesCount();
+    // Note: This query requires post-processing in service layer to count comma-separated values
+    @Query("SELECT d.blockedDevices FROM DeviceSettings d WHERE d.blockedDevices IS NOT NULL AND d.blockedDevices != ''")
+    List<String> getAllBlockedDevices();
 }

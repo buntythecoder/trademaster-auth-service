@@ -1,19 +1,15 @@
 package com.trademaster.auth.entity;
 
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
-import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Entity
 @Table(name = "user_sessions")
@@ -30,14 +26,14 @@ public class UserSession {
     @EqualsAndHashCode.Include
     private String sessionId;
 
-    @Column(name = "user_id", nullable = false, length = 50)
-    private String userId;
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
 
     @Column(name = "device_fingerprint", length = 255)
     private String deviceFingerprint;
 
-    @Column(name = "ip_address", columnDefinition = "inet")
-    private InetAddress ipAddress;
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
 
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
@@ -60,10 +56,9 @@ public class UserSession {
     @Builder.Default
     private Boolean active = true;
 
-    @Type(JsonType.class)
-    @Column(name = "attributes", columnDefinition = "jsonb")
+    @Column(name = "attributes", columnDefinition = "text")
     @Builder.Default
-    private Map<String, Object> attributes = new java.util.HashMap<>();
+    private String attributes = "";
 
     // Business logic methods
     public boolean isActive() {
@@ -108,18 +103,30 @@ public class UserSession {
     }
 
     public void setAttribute(String key, Object value) {
-        if (this.attributes == null) {
-            this.attributes = new java.util.HashMap<>();
+        // Simple key-value storage in string format
+        if (this.attributes == null || this.attributes.isEmpty()) {
+            this.attributes = key + "=" + value.toString();
+        } else {
+            this.attributes = this.attributes + ";" + key + "=" + value.toString();
         }
-        this.attributes.put(key, value);
     }
 
     public Object getAttribute(String key) {
-        return this.attributes != null ? this.attributes.get(key) : null;
+        if (this.attributes == null || this.attributes.isEmpty()) {
+            return null;
+        }
+        String[] pairs = this.attributes.split(";");
+        for (String pair : pairs) {
+            String[] keyValue = pair.split("=", 2);
+            if (keyValue.length == 2 && keyValue[0].equals(key)) {
+                return keyValue[1];
+            }
+        }
+        return null;
     }
 
     public boolean hasAttribute(String key) {
-        return this.attributes != null && this.attributes.containsKey(key);
+        return getAttribute(key) != null;
     }
 
     // Helper method for audit logging

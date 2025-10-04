@@ -9,6 +9,7 @@ import com.trademaster.auth.repository.SecurityAuditLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.logstash.logback.argument.StructuredArguments;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +34,6 @@ import java.util.stream.IntStream;
  * @version 1.0.0
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class MfaService {
 
@@ -41,6 +41,16 @@ public class MfaService {
     private final SecurityAuditLogRepository securityAuditLogRepository;
     private final EncryptionService encryptionService;
     private final RedisTemplate<String, String> redisTemplate;
+
+    public MfaService(MfaConfigurationRepository mfaConfigurationRepository,
+                      SecurityAuditLogRepository securityAuditLogRepository,
+                      EncryptionService encryptionService,
+                      @Qualifier("stringRedisTemplate") RedisTemplate<String, String> redisTemplate) {
+        this.mfaConfigurationRepository = mfaConfigurationRepository;
+        this.securityAuditLogRepository = securityAuditLogRepository;
+        this.encryptionService = encryptionService;
+        this.redisTemplate = redisTemplate;
+    }
     
     private static final int TOTP_WINDOW_SIZE = 1; // Allow 1 window before/after current
     private static final int TOTP_INTERVAL = 30; // 30 seconds
@@ -53,7 +63,7 @@ public class MfaService {
     public Result<Boolean, String> isUserMfaEnabled(String userId) {
         return SafeOperations.safelyToResult(() -> {
             log.debug("Checking MFA status for user: {}", userId);
-            return mfaConfigurationRepository.countEnabledConfigurationsForUser(userId) > 0;
+            return mfaConfigurationRepository.countEnabledConfigurationsForUser(Long.valueOf(userId)) > 0;
         })
         .mapError(error -> {
             log.error("Error checking MFA status for user {}: {}", userId, error);
@@ -66,54 +76,54 @@ public class MfaService {
      */
     public boolean isUserMfaEnabledLegacy(String userId) {
         return isUserMfaEnabled(userId)
-            .mapError(error -> {
-                log.warn("Using legacy MFA check fallback due to error: {}", error);
-                return false;
-            })
-            .orElse(false);
+            .getOrElse(false);
     }
 
     /**
      * Get all MFA configurations for user
      */
     public List<MfaConfiguration> getUserMfaConfigurations(String userId) {
-        return mfaConfigurationRepository.findByUserId(userId);
+        return mfaConfigurationRepository.findByUserId(Long.valueOf(userId));
     }
 
     /**
      * Get enabled MFA configurations for user
      */
     public List<MfaConfiguration> getEnabledMfaConfigurations(String userId) {
-        return mfaConfigurationRepository.findEnabledConfigurationsForUser(userId);
+        return mfaConfigurationRepository.findEnabledConfigurationsForUser(Long.valueOf(userId));
     }
 
     /**
      * Setup TOTP MFA for user
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public MfaConfiguration setupTotpMfa(String userId, String sessionId) {
-        Optional<MfaConfiguration> existing = mfaConfigurationRepository.findByUserIdAndMfaType(userId, MfaConfiguration.MfaType.TOTP);
+        Optional<MfaConfiguration> existing = mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), MfaConfiguration.MfaType.TOTP);
+
         if (existing.isPresent()) {
             log.warn("TOTP MFA already configured for user: {}", userId);
             throw new IllegalStateException("TOTP MFA already configured for user");
         }
-        
-        try {
-            return createNewTotpConfiguration(userId, sessionId);
-        } catch (Exception e) {
-            log.error("Failed to setup TOTP MFA for user {}: {}", userId, e.getMessage());
-            throw new RuntimeException("Failed to setup TOTP MFA: " + e.getMessage());
-        }
+
+        Result<MfaConfiguration, String> result = SafeOperations.safelyToResult(() -> createNewTotpConfiguration(userId, sessionId));
+
+        return result.fold(
+            error -> {
+                log.error("Failed to setup TOTP MFA for user {}: {}", userId, error);
+                throw new RuntimeException("Failed to setup TOTP MFA: " + error);
+            },
+            success -> success
+        );
     }
 
     /**
      * Verify TOTP code and enable MFA
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public boolean verifyAndEnableTotp(String userId, String totpCode, String sessionId) {
         log.info("Verifying TOTP code for user: {}", userId);
         
-        return mfaConfigurationRepository.findByUserIdAndMfaType(userId, MfaConfiguration.MfaType.TOTP)
+        return mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), MfaConfiguration.MfaType.TOTP)
             .map(config -> processToTotpVerification(config, userId, totpCode, sessionId))
             .orElseGet(() -> {
                 log.warn("No TOTP configuration found for user: {}", userId);
@@ -124,12 +134,12 @@ public class MfaService {
     /**
      * Verify MFA code (TOTP or backup code) using Result pattern
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public Result<Boolean, String> verifyMfaCode(String userId, String code, String sessionId) {
         return SafeOperations.safelyToResult(() -> {
             log.info("Verifying MFA code for user: {}", userId);
             
-            List<MfaConfiguration> configs = mfaConfigurationRepository.findEnabledConfigurationsForUser(userId);
+            List<MfaConfiguration> configs = mfaConfigurationRepository.findEnabledConfigurationsForUser(Long.valueOf(userId));
             
             return Optional.of(configs)
                 .filter(list -> !list.isEmpty())
@@ -148,7 +158,7 @@ public class MfaService {
     /**
      * Legacy method for backward compatibility
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public boolean verifyMfaCodeLegacy(String userId, String code, String sessionId) {
         return verifyMfaCode(userId, code, sessionId)
             .mapError(error -> {
@@ -161,17 +171,17 @@ public class MfaService {
     /**
      * Disable MFA for user
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void disableMfa(String userId, MfaConfiguration.MfaType mfaType, String sessionId) {
         log.info("Disabling MFA type {} for user: {}", mfaType, userId);
         
-        mfaConfigurationRepository.findByUserIdAndMfaType(userId, mfaType)
+        mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), mfaType)
             .ifPresent(config -> {
                 config.disable();
                 mfaConfigurationRepository.save(config);
                 
                 SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                        .userId(userId)
+                        .userId(Long.valueOf(userId))
                         .sessionId(sessionId)
                         .eventType("MFA_DISABLED")
                         .description("MFA disabled for type: " + mfaType)
@@ -186,11 +196,11 @@ public class MfaService {
     /**
      * Generate new backup codes
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public List<String> regenerateBackupCodes(String userId, MfaConfiguration.MfaType mfaType, String sessionId) {
         log.info("Regenerating backup codes for user: {} type: {}", userId, mfaType);
         
-        return mfaConfigurationRepository.findByUserIdAndMfaType(userId, mfaType)
+        return mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), mfaType)
             .map(config -> processBackupCodeRegeneration(config, userId, sessionId))
             .orElseThrow(() -> new IllegalStateException("MFA configuration not found"));
     }
@@ -199,11 +209,12 @@ public class MfaService {
     
     private MfaConfiguration createNewTotpConfiguration(String userId, String sessionId) {
         String secretKey = generateTotpSecret();
-        String encryptedSecret = encryptionService.encrypt(secretKey).getValue();
+        String encryptedSecret = encryptionService.encrypt(secretKey).getValue()
+                .orElseThrow(() -> new RuntimeException("Failed to encrypt secret key"));
         List<String> backupCodes = generateBackupCodes();
         
         MfaConfiguration mfaConfig = MfaConfiguration.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .mfaType(MfaConfiguration.MfaType.TOTP)
                 .secretKey(encryptedSecret)
                 .backupCodes(encryptBackupCodes(backupCodes))
@@ -238,11 +249,13 @@ public class MfaService {
             .collect(Collectors.toList());
     }
 
-    private List<String> encryptBackupCodes(List<String> codes) {
-        return codes.stream()
+    private String encryptBackupCodes(List<String> codes) {
+        List<String> encryptedCodes = codes.stream()
                 .map(encryptionService::encrypt)
-                .map(Result::getValue)
+                .map(result -> result.getValue().orElseThrow(() ->
+                    new RuntimeException("Failed to encrypt backup code")))
                 .toList();
+        return String.join(",", encryptedCodes);
     }
 
     private boolean verifyTotpCode(String secret, String code) {
@@ -260,11 +273,11 @@ public class MfaService {
                 .anyMatch(expectedCode -> expectedCode.equals(code));
         })
         .fold(
-            isValid -> isValid,
             error -> {
                 log.error("Error verifying TOTP code", error);
                 return false;
-            }
+            },
+            isValid -> isValid
         );
     }
 
@@ -304,16 +317,20 @@ public class MfaService {
     private boolean verifyBackupCode(MfaConfiguration config, String code) {
         return Optional.ofNullable(config.getBackupCodes())
             .filter(codes -> !codes.isEmpty())
-            .flatMap(codes -> codes.stream()
-                .filter(encryptedCode -> encryptionService.decrypt(encryptedCode).equals(code))
-                .findFirst()
-                .map(matchedCode -> {
-                    List<String> remainingCodes = codes.stream()
-                        .filter(c -> !c.equals(matchedCode))
-                        .collect(Collectors.toList());
-                    config.regenerateBackupCodes(remainingCodes);
-                    return true;
-                }))
+            .map(codes -> {
+                String[] codesArray = codes.split(",");
+                for (String encryptedCode : codesArray) {
+                    if (encryptionService.decrypt(encryptedCode).getValue().orElse("").equals(code)) {
+                        // Remove the used code
+                        String updatedCodes = codes.replace(encryptedCode + ",", "")
+                                                   .replace("," + encryptedCode, "")
+                                                   .replace(encryptedCode, "");
+                        config.setBackupCodes(updatedCodes);
+                        return true;
+                    }
+                }
+                return false;
+            })
             .orElse(false);
     }
     
@@ -324,7 +341,7 @@ public class MfaService {
         String userIdString = String.valueOf(userId);
         log.info("Generating MFA challenge for user: {}", userIdString);
         
-        List<MfaConfiguration> configs = mfaConfigurationRepository.findEnabledConfigurationsForUser(userIdString);
+        List<MfaConfiguration> configs = mfaConfigurationRepository.findEnabledConfigurationsForUser(Long.valueOf(userIdString));
         
         return Optional.of(configs)
             .filter(list -> !list.isEmpty())
@@ -346,7 +363,8 @@ public class MfaService {
     // Functional helper methods for MFA operations
     
     private boolean processToTotpVerification(MfaConfiguration config, String userId, String totpCode, String sessionId) {
-        String decryptedSecret = encryptionService.decrypt(config.getSecretKey()).getValue();
+        String decryptedSecret = encryptionService.decrypt(config.getSecretKey()).getValue()
+                .orElseThrow(() -> new RuntimeException("Failed to decrypt secret key"));
         
         return Optional.of(verifyTotpCode(decryptedSecret, totpCode))
             .filter(verified -> verified)
@@ -356,7 +374,7 @@ public class MfaService {
                 mfaConfigurationRepository.save(config);
                 
                 SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                        .userId(userId)
+                        .userId(Long.valueOf(userId))
                         .sessionId(sessionId)
                         .eventType("MFA_TOTP_ENABLED")
                         .description("TOTP MFA successfully enabled")
@@ -382,7 +400,8 @@ public class MfaService {
                 boolean configVerified = Optional.of(config.getMfaType())
                     .filter(type -> type == MfaConfiguration.MfaType.TOTP)
                     .map(type -> {
-                        String decryptedSecret = encryptionService.decrypt(config.getSecretKey()).getValue();
+                        String decryptedSecret = encryptionService.decrypt(config.getSecretKey()).getValue()
+                                .orElseThrow(() -> new RuntimeException("Failed to decrypt secret key"));
                         return verifyTotpCode(decryptedSecret, code) || verifyBackupCode(config, code);
                     })
                     .orElse(false);
@@ -404,7 +423,7 @@ public class MfaService {
             });
             
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType(verified ? "MFA_VERIFICATION_SUCCESS" : "MFA_VERIFICATION_FAILED")
                 .description(verified ? "MFA code verified successfully" : "MFA code verification failed")
@@ -427,7 +446,7 @@ public class MfaService {
         mfaConfigurationRepository.save(config);
         
         SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                .userId(userId)
+                .userId(Long.valueOf(userId))
                 .sessionId(sessionId)
                 .eventType("MFA_BACKUP_CODES_REGENERATED")
                 .description("Backup codes regenerated")

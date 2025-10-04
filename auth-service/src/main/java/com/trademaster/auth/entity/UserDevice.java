@@ -1,21 +1,17 @@
 package com.trademaster.auth.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * User Device entity for device fingerprinting and trusted device management
@@ -43,12 +39,17 @@ import java.util.Map;
 public class UserDevice {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     @EqualsAndHashCode.Include
     private java.util.UUID id;
 
-    @Column(name = "user_id", nullable = false, length = 50)
-    private String userId;
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", insertable = false, updatable = false)
+    @JsonIgnore
+    private User user;
 
     @Column(name = "device_fingerprint", nullable = false, length = 255)
     private String deviceFingerprint;
@@ -59,13 +60,13 @@ public class UserDevice {
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
 
-    @Column(name = "ip_address", columnDefinition = "inet")
-    private InetAddress ipAddress;
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
 
     @Column(name = "location", length = 255)
     private String location;
 
-    @Column(name = "trusted")
+    @Column(name = "is_trusted")
     @Builder.Default
     private Boolean trusted = false;
 

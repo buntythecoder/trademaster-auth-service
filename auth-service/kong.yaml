@@ -1,0 +1,611 @@
+# Kong Gateway Configuration for TradeMaster Auth Service
+# Compatible with Kong Gateway 3.x and Kong Ingress Controller
+
+_format_version: "3.0"
+
+# ==================== SERVICES ====================
+services:
+  - name: trademaster-auth-service
+    protocol: http
+    host: auth-service
+    port: 8080
+    retries: 3
+    connect_timeout: 10000
+    write_timeout: 30000
+    read_timeout: 30000
+    tags:
+      - trademaster
+      - auth
+      - production
+
+# ==================== UPSTREAMS ====================
+upstreams:
+  - name: auth-service-upstream
+    algorithm: round-robin
+    hash_on: none
+    hash_fallback: none
+    hash_on_cookie_path: /
+    slots: 10000
+    healthchecks:
+      active:
+        type: http
+        timeout: 5
+        concurrency: 5
+        http_path: /api/v1/actuator/health
+        https_verify_certificate: false
+        healthy:
+          interval: 5
+          http_statuses: [200, 201, 202, 204]
+          successes: 3
+        unhealthy:
+          interval: 5
+          http_statuses: [429, 500, 502, 503, 504]
+          tcp_failures: 3
+          http_failures: 3
+          timeouts: 3
+      passive:
+        type: http
+        healthy:
+          http_statuses: [200, 201, 202, 204, 301, 302, 401, 403, 404]
+          successes: 3
+        unhealthy:
+          http_statuses: [429, 500, 502, 503, 504]
+          tcp_failures: 3
+          http_failures: 3
+          timeouts: 3
+      threshold: 0
+    tags:
+      - trademaster
+      - auth
+    targets:
+      - target: auth-service:8080
+        weight: 100
+        tags:
+          - primary
+
+# ==================== ROUTES ====================
+routes:
+  # Authentication API Routes (External - JWT Protected)
+  - name: auth-api-login
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [POST, OPTIONS]
+    paths: ["/auth/login", "/auth/authenticate"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - login
+      - external
+
+  - name: auth-api-register
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [POST, OPTIONS]
+    paths: ["/auth/register", "/auth/signup"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - register
+      - external
+
+  - name: auth-api-logout
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [POST, OPTIONS]
+    paths: ["/auth/logout"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - logout
+      - external
+
+  - name: auth-api-refresh
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [POST, OPTIONS]
+    paths: ["/auth/refresh", "/auth/token/refresh"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - refresh
+      - external
+
+  - name: auth-api-password
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [POST, PUT, OPTIONS]
+    paths: ["/auth/password/.*", "/auth/forgot-password", "/auth/reset-password"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - password
+      - external
+
+  - name: auth-api-mfa
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, POST, PUT, DELETE, OPTIONS]
+    paths: ["/mfa", "/mfa/.*"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - mfa
+      - external
+
+  - name: auth-api-profile
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, PUT, OPTIONS]
+    paths: ["/auth/profile", "/auth/user", "/auth/me"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - auth
+      - profile
+      - external
+
+  # Health Check Routes (Public)
+  - name: auth-health-check
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, OPTIONS]
+    paths: ["/health", "/auth/health", "/actuator/health"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - health
+      - monitoring
+
+  # Internal Service Routes (Service-to-Service - API Key Protected)
+  - name: auth-internal-api
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, POST, PUT, DELETE, OPTIONS]
+    paths: ["/api/internal/.*"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - internal
+      - service-to-service
+
+  # Greetings Test Routes (Internal - API Key Protected)
+  - name: auth-greetings-test
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, OPTIONS]
+    paths: ["/api/v1/api/internal/v1/greetings", "/api/v1/api/internal/v1/greetings/.*"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - greetings
+      - test
+      - internal
+
+  # Security Audit Routes (Internal - API Key Protected)
+  - name: auth-security-audit
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, POST, OPTIONS]
+    paths: ["/security-audit", "/security-audit/.*"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - security
+      - audit
+      - internal
+
+  # Admin Routes (Restricted)
+  - name: auth-admin
+    service: trademaster-auth-service
+    protocols: [http, https]
+    methods: [GET, POST, PUT, DELETE, OPTIONS]
+    paths: ["/admin", "/admin/.*"]
+    preserve_host: false
+    strip_path: false
+    tags:
+      - admin
+      - restricted
+
+# ==================== PLUGINS ====================
+plugins:
+  # CORS Plugin (Global)
+  - name: cors
+    config:
+      origins:
+        - "https://app.trademaster.com"
+        - "https://admin.trademaster.com"
+        - "http://localhost:3000"  # Development
+        - "http://localhost:5173"  # Vite development
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - HEAD
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - Authorization
+        - X-Auth-Token
+        - X-Correlation-ID
+        - X-Service-API-Key
+        - X-Service-ID
+      exposed_headers:
+        - X-Auth-Token
+        - X-Correlation-ID
+        - X-RateLimit-Limit
+        - X-RateLimit-Remaining
+      credentials: true
+      max_age: 3600
+      preflight_continue: false
+    tags:
+      - cors
+      - global
+
+  # Rate Limiting Plugin (Global)
+  - name: rate-limiting
+    config:
+      minute: 1000      # Auth operations per minute
+      hour: 50000       # Auth operations per hour
+      day: 1000000      # Daily capacity
+      month: 25000000   # Monthly capacity
+      year: 300000000   # Yearly capacity
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      header_name: X-RateLimit-Limit
+      limit_by: consumer
+    tags:
+      - rate-limiting
+      - global
+
+  # Request ID Plugin
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+    tags:
+      - correlation
+      - tracing
+
+  # Prometheus Metrics Plugin
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+    tags:
+      - metrics
+      - monitoring
+
+  # Request Logging Plugin
+  - name: http-log
+    config:
+      http_endpoint: "http://log-aggregator:8080/kong-logs"
+      method: POST
+      timeout: 1000
+      keepalive: 1000
+      content_type: application/json
+      flush_timeout: 2
+      retry_count: 3
+      queue_size: 100
+    tags:
+      - logging
+      - audit
+
+  # JWT Authentication Plugin (Applied to external auth routes)
+  - name: jwt
+    route: auth-api-profile
+    config:
+      uri_param_names:
+        - jwt
+      cookie_names:
+        - jwt
+      header_names:
+        - authorization
+      claims_to_verify:
+        - exp
+        - iat
+      key_claim_name: iss
+      secret_is_base64: false
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - jwt
+
+  - name: jwt
+    route: auth-api-mfa
+    config:
+      uri_param_names:
+        - jwt
+      cookie_names:
+        - jwt
+      header_names:
+        - authorization
+      claims_to_verify:
+        - exp
+        - iat
+      key_claim_name: iss
+      secret_is_base64: false
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - jwt
+
+  # Service API Key Authentication for Internal Routes
+  - name: key-auth
+    route: auth-internal-api
+    config:
+      key_names:
+        - X-Service-API-Key
+        - api-key
+      key_in_header: true
+      key_in_query: false
+      key_in_body: false
+      hide_credentials: false
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - service-api-key
+      - internal
+
+  - name: key-auth
+    route: auth-greetings-test
+    config:
+      key_names:
+        - X-Service-API-Key
+        - api-key
+      key_in_header: true
+      key_in_query: false
+      key_in_body: false
+      hide_credentials: false
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - service-api-key
+      - greetings
+
+  - name: key-auth
+    route: auth-security-audit
+    config:
+      key_names:
+        - X-Service-API-Key
+        - api-key
+      key_in_header: true
+      key_in_query: false
+      key_in_body: false
+      hide_credentials: false
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - service-api-key
+      - security
+
+  # Enhanced Rate Limiting for Authentication
+  - name: rate-limiting
+    route: auth-api-login
+    config:
+      minute: 10       # 10 login attempts per minute per user
+      hour: 100        # 100 login attempts per hour per user
+      day: 500         # 500 login attempts per day per user
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      limit_by: consumer
+    tags:
+      - rate-limiting
+      - login
+
+  - name: rate-limiting
+    route: auth-api-register
+    config:
+      minute: 5        # 5 registration attempts per minute
+      hour: 10         # 10 registration attempts per hour
+      day: 20          # 20 registration attempts per day
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      limit_by: consumer
+    tags:
+      - rate-limiting
+      - register
+
+  # Request Size Limiting
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 1024  # 1KB for auth payloads
+    tags:
+      - request-size
+      - security
+
+  # Admin Authentication (Admin routes only)
+  - name: key-auth
+    route: auth-admin
+    config:
+      key_names:
+        - X-API-Key
+        - api-key
+      key_in_header: true
+      key_in_query: false
+      key_in_body: false
+      hide_credentials: true
+      anonymous: false
+      run_on_preflight: true
+    tags:
+      - auth
+      - admin
+
+  # IP Restriction for Admin
+  - name: ip-restriction
+    route: auth-admin
+    config:
+      allow:
+        - "10.0.0.0/8"      # Internal network
+        - "172.16.0.0/12"   # Docker networks
+        - "192.168.0.0/16"  # Private networks
+        - "127.0.0.1"       # Localhost
+      deny: []
+      message: "Access denied from this IP"
+    tags:
+      - ip-restriction
+      - admin
+      - security
+
+  # Request Termination for Health Checks (Optimization)
+  - name: request-termination
+    route: auth-health-check
+    config:
+      status_code: 200
+      content_type: application/json
+      body: '{"status":"UP","service":"auth-service","version":"1.0.0","timestamp":"{{ now }}"}'
+      echo: false
+      trigger: null
+    tags:
+      - optimization
+      - health
+
+# ==================== CONSUMERS ====================
+consumers:
+  - username: trademaster-auth-app
+    custom_id: auth-app-001
+    tags:
+      - application
+      - authentication
+
+  - username: trademaster-admin
+    custom_id: admin-001
+    tags:
+      - admin
+      - backend
+
+  - username: trademaster-monitor
+    custom_id: monitor-001
+    tags:
+      - monitoring
+      - system
+
+  - username: trading-service
+    custom_id: trading-service-001
+    tags:
+      - service
+      - internal
+
+  - username: notification-service
+    custom_id: notification-service-001
+    tags:
+      - service
+      - internal
+
+  - username: event-bus-service
+    custom_id: event-bus-service-001
+    tags:
+      - service
+      - internal
+
+  - username: subscription-service
+    custom_id: subscription-service-001
+    tags:
+      - service
+      - internal
+
+# ==================== CONSUMER CREDENTIALS ====================
+jwt_secrets:
+  - consumer: trademaster-auth-app
+    key: trademaster-auth-app-key
+    algorithm: HS256
+    secret: "${TRADEMASTER_AUTH_JWT_SECRET}"
+    tags:
+      - jwt-secret
+      - app
+
+  - consumer: trademaster-admin
+    key: trademaster-admin-key
+    algorithm: HS256
+    secret: "${TRADEMASTER_ADMIN_JWT_SECRET}"
+    tags:
+      - jwt-secret
+      - admin
+
+keyauth_credentials:
+  - consumer: trademaster-admin
+    key: "${TRADEMASTER_ADMIN_API_KEY}"
+    tags:
+      - api-key
+      - admin
+
+  - consumer: trademaster-monitor
+    key: "${TRADEMASTER_MONITOR_API_KEY}"
+    tags:
+      - api-key
+      - monitor
+
+  - consumer: trading-service
+    key: "${TRADEMASTER_SERVICE_API_KEY}"
+    tags:
+      - api-key
+      - service
+
+  - consumer: notification-service
+    key: "${TRADEMASTER_SERVICE_API_KEY}"
+    tags:
+      - api-key
+      - service
+
+  - consumer: event-bus-service
+    key: "${TRADEMASTER_SERVICE_API_KEY}"
+    tags:
+      - api-key
+      - service
+
+  - consumer: subscription-service
+    key: "${TRADEMASTER_SERVICE_API_KEY}"
+    tags:
+      - api-key
+      - service
+
+# ==================== CERTIFICATES (HTTPS) ====================
+certificates:
+  - cert: |
+      -----BEGIN CERTIFICATE-----
+      # Your SSL certificate here
+      -----END CERTIFICATE-----
+    key: |
+      -----BEGIN PRIVATE KEY-----
+      # Your private key here
+      -----END PRIVATE KEY-----
+    tags:
+      - ssl
+      - https
+
+# ==================== SNIs ====================
+snis:
+  - name: auth.trademaster.com
+    certificate: certificates[0]
+    tags:
+      - domain
+      - production
+
+  - name: staging-auth.trademaster.com
+    certificate: certificates[0]
+    tags:
+      - domain
+      - staging

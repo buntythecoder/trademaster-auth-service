@@ -23,7 +23,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.InetAddress;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -76,13 +75,13 @@ public class SessionManagementService {
     /**
      * Create a new session with enhanced settings support
      */
-    @Transactional
-    public UserSession createUserSession(String userId, String deviceFingerprint, HttpServletRequest request) {
+    @Transactional(readOnly = false)
+    public UserSession createUserSession(Long userId, String deviceFingerprint, HttpServletRequest request) {
         return SafeOperations.safelyToResult(() -> {
             log.info("Creating session for user: {}", userId);
             
             SessionSettings settings = getOrCreateSessionSettings(userId);
-            SessionCreationContext context = new SessionCreationContext(userId, deviceFingerprint, request, settings);
+            SessionCreationContext context = new SessionCreationContext(String.valueOf(userId), deviceFingerprint, request, settings);
             
             // Sequential function application instead of compose to avoid type issues
             context = enforceConcurrentSessionLimit(context);
@@ -155,12 +154,12 @@ public class SessionManagementService {
             return sessionId;
         });
         
-        if (result.isFailure()) {
-            log.error("Failed to create session for user {}: {}", userId, result.getError());
-            throw new RuntimeException("Session creation failed: " + result.getError());
-        }
-        
-        return result.getValue();
+        return result
+            .mapError(error -> {
+                log.error("Failed to create session for user {}: {}", userId, error);
+                return new RuntimeException("Session creation failed: " + error);
+            })
+            .orElseThrow(RuntimeException::new);
     }
 
     /**
@@ -205,9 +204,10 @@ public class SessionManagementService {
                     return sessionInfo;
                 });
                 
-                if (result.isFailure()) {
-                    log.error("Failed to update session activity {}: {}", sessionId, result.getError());
-                }
+                result.mapError(error -> {
+                    log.error("Failed to update session activity {}: {}", sessionId, error);
+                    return error;
+                });
             });
     }
 
@@ -216,32 +216,28 @@ public class SessionManagementService {
      */
     public void invalidateSession(String sessionId, String reason) {
         try {
-            SessionInfo sessionInfo = getSession(sessionId);
-            if (sessionInfo == null) {
-                return;
-            }
+            Optional.ofNullable(getSession(sessionId))
+                .ifPresent(sessionInfo -> {
+                    // Remove from Redis
+                    String sessionKey = SESSION_PREFIX + sessionId;
+                    sessionRedisTemplate.delete(sessionKey);
 
-            // Remove from Redis
-            String sessionKey = SESSION_PREFIX + sessionId;
-            sessionRedisTemplate.delete(sessionKey);
+                    // Remove from user sessions set
+                    String userSessionsKey = USER_SESSIONS_PREFIX + sessionInfo.getUserId();
+                    sessionRedisTemplate.opsForSet().remove(userSessionsKey, sessionId);
 
-            // Remove from user sessions set
-            String userSessionsKey = USER_SESSIONS_PREFIX + sessionInfo.getUserId();
-            sessionRedisTemplate.opsForSet().remove(userSessionsKey, sessionId);
+                    // Remove from device sessions set
+                    String deviceSessionsKey = DEVICE_SESSIONS_PREFIX + sessionInfo.getDeviceFingerprint();
+                    sessionRedisTemplate.opsForSet().remove(deviceSessionsKey, sessionId);
 
-            // Remove from device sessions set
-            String deviceSessionsKey = DEVICE_SESSIONS_PREFIX + sessionInfo.getDeviceFingerprint();
-            sessionRedisTemplate.opsForSet().remove(deviceSessionsKey, sessionId);
+                    // Log session invalidation
+                    SafeOperations.safely(() -> Long.parseLong(sessionInfo.getUserId()))
+                        .ifPresent(userId -> auditService.logAuthenticationEvent(userId, "SESSION_EXPIRED", "SUCCESS",
+                            sessionInfo.getIpAddress(), sessionInfo.getUserAgent(), sessionInfo.getDeviceFingerprint(),
+                            Map.of("reason", reason, "session_id", sessionId), sessionId));
 
-            // Log session invalidation  
-            Long userId = SafeOperations.safely(() -> Long.parseLong(sessionInfo.getUserId())).orElse(null);
-            if (userId != null) {
-                auditService.logAuthenticationEvent(userId, "SESSION_EXPIRED", "SUCCESS", 
-                    sessionInfo.getIpAddress(), sessionInfo.getUserAgent(), sessionInfo.getDeviceFingerprint(), 
-                    Map.of("reason", reason, "session_id", sessionId), sessionId);
-            }
-
-            log.info("Session invalidated: {} (reason: {})", sessionId, reason);
+                    log.info("Session invalidated: {} (reason: {})", sessionId, reason);
+                });
 
         } catch (Exception e) {
             log.error("Failed to invalidate session {}: {}", sessionId, e.getMessage());
@@ -345,13 +341,13 @@ public class SessionManagementService {
     /**
      * Update session activity with settings-aware extension
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updateUserSessionActivity(String sessionId, HttpServletRequest request) {
         Optional.ofNullable(getUserSession(sessionId))
             .map(session -> processSessionActivityUpdate(session, request))
             .ifPresent(session -> {
                 userSessionRepository.save(session);
-                SessionSettings settings = getOrCreateSessionSettings(session.getUserId());
+                SessionSettings settings = getOrCreateSessionSettings(Long.valueOf(session.getUserId()));
                 storeSessionInRedis(session, settings.getSessionTimeoutMinutes());
             });
     }
@@ -359,27 +355,27 @@ public class SessionManagementService {
     /**
      * Terminate a specific session
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void terminateSession(String sessionId, String reason) {
         log.info("Terminating session: {} (reason: {})", sessionId, reason);
         
-        UserSession session = getUserSession(sessionId);
-        if (session != null) {
-            session.terminate();
-            userSessionRepository.save(session);
-            
-            // Remove from Redis
-            sessionRedisTemplate.delete(SESSION_PREFIX + sessionId);
-            
-            log.info("Session terminated: {} for user: {}", sessionId, session.getUserId());
-        }
+        Optional.ofNullable(getUserSession(sessionId))
+            .ifPresent(session -> {
+                session.terminate();
+                userSessionRepository.save(session);
+
+                // Remove from Redis
+                sessionRedisTemplate.delete(SESSION_PREFIX + sessionId);
+
+                log.info("Session terminated: {} for user: {}", sessionId, session.getUserId());
+            });
     }
 
     /**
      * Terminate all sessions for user
      */
-    @Transactional
-    public void terminateAllUserSessions(String userId, String reason) {
+    @Transactional(readOnly = false)
+    public void terminateAllUserSessions(Long userId, String reason) {
         log.info("Terminating all sessions for user: {} (reason: {})", userId, reason);
         
         VirtualThreadFactory.INSTANCE.runAsync(() -> {
@@ -400,15 +396,15 @@ public class SessionManagementService {
     /**
      * Get session settings for user
      */
-    public SessionSettings getSessionSettings(String userId) {
+    public SessionSettings getSessionSettings(Long userId) {
         return getOrCreateSessionSettings(userId);
     }
 
     /**
      * Update session settings
      */
-    @Transactional
-    public SessionSettings updateSessionSettings(String userId, SessionSettings settings) {
+    @Transactional(readOnly = false)
+    public SessionSettings updateSessionSettings(Long userId, SessionSettings settings) {
         settings.setUserId(userId);
         return sessionSettingsRepository.save(settings);
     }
@@ -417,25 +413,26 @@ public class SessionManagementService {
      * Cleanup expired sessions (scheduled task)
      */
     @Scheduled(cron = "0 */5 * * * ?") // Every 5 minutes
-    @Transactional
+    @Transactional(readOnly = false)
     public void cleanupExpiredUserSessions() {
-        VirtualThreadFactory.INSTANCE.runAsync(() -> {
-            SafeOperations.safelyToResult(() -> {
-                log.debug("Cleaning up expired sessions");
-                
-                LocalDateTime now = LocalDateTime.now();
-                userSessionRepository.deactivateExpiredSessions(now);
-                
-                LocalDateTime cutoffDate = now.minusDays(7);
-                userSessionRepository.deleteByExpiresAtBefore(cutoffDate);
-                
-                return now;
-            })
-            .mapError(error -> {
-                log.error("Session cleanup failed: {}", error);
-                return error;
-            });
-        });
+        try {
+            performSessionCleanup();
+        } catch (Exception e) {
+            log.error("Session cleanup failed: {}", e.getMessage(), e);
+        }
+    }
+
+    @Transactional(readOnly = false)
+    public void performSessionCleanup() {
+        log.debug("Cleaning up expired sessions");
+
+        LocalDateTime now = LocalDateTime.now();
+        userSessionRepository.deactivateExpiredSessions(now);
+
+        LocalDateTime cutoffDate = now.minusDays(7);
+        userSessionRepository.deleteByExpiresAtBefore(cutoffDate);
+
+        log.debug("Session cleanup completed successfully");
     }
 
     // Helper methods and functional support classes
@@ -446,12 +443,12 @@ public class SessionManagementService {
                                        String userAgent, Map<String, Object> sessionData, String sessionId) {}
     
     private SessionCreationContext enforceConcurrentSessionLimit(SessionCreationContext context) {
-        long activeSessions = userSessionRepository.countActiveSessionsForUser(context.getUserId(), LocalDateTime.now());
+        long activeSessions = userSessionRepository.countActiveSessionsForUser(Long.valueOf(context.getUserId()), LocalDateTime.now());
         
         Optional.of(context.getSettings())
             .filter(settings -> !settings.isWithinConcurrentSessionLimit((int) activeSessions))
             .ifPresent(settings -> {
-                List<UserSession> sessions = userSessionRepository.findSessionsByUserIdOrderByLastActivity(context.getUserId());
+                List<UserSession> sessions = userSessionRepository.findSessionsByUserIdOrderByLastActivity(Long.valueOf(context.getUserId()));
                 sessions.stream()
                     .reduce((first, second) -> second) // Get last element (oldest)
                     .ifPresent(oldestSession -> terminateSession(oldestSession.getSessionId(), "CONCURRENT_LIMIT"));
@@ -462,13 +459,13 @@ public class SessionManagementService {
     
     private SessionCreationContext createNewSession(SessionCreationContext context) {
         String sessionId = UUID.randomUUID().toString();
-        InetAddress ipAddress = extractIpAddress(context.getRequest());
+        String ipAddress = extractIpAddress(context.getRequest());
         String userAgent = context.getRequest().getHeader("User-Agent");
         String location = extractLocationFromRequest(context.getRequest());
-        
+
         UserSession session = UserSession.builder()
                 .sessionId(sessionId)
-                .userId(context.getUserId())
+                .userId(Long.valueOf(context.getUserId()))
                 .deviceFingerprint(context.getDeviceFingerprint())
                 .ipAddress(ipAddress)
                 .userAgent(userAgent)
@@ -490,8 +487,8 @@ public class SessionManagementService {
     private SessionCreationContext saveAndCacheSession(SessionCreationContext context) {
         UserSession session = context.getUserSession();
         UserSession savedSession = userSessionRepository.save(session);
-        
-        SessionSettings settings = getOrCreateSessionSettings(session.getUserId());
+
+        SessionSettings settings = getOrCreateSessionSettings(Long.valueOf(session.getUserId()));
         storeSessionInRedis(savedSession, settings.getSessionTimeoutMinutes());
         
         log.info("Session created: {} for user: {}", savedSession.getSessionId(), savedSession.getUserId());
@@ -501,7 +498,7 @@ public class SessionManagementService {
         return context;
     }
     
-    private SessionSettings getOrCreateSessionSettings(String userId) {
+    private SessionSettings getOrCreateSessionSettings(Long userId) {
         return sessionSettingsRepository.findByUserId(userId)
             .orElseGet(() -> {
                 SessionSettings settings = SessionSettings.builder()
@@ -594,7 +591,7 @@ public class SessionManagementService {
    
     
     private UserSession processSessionActivityUpdate(UserSession session, HttpServletRequest request) {
-        SessionSettings settings = getOrCreateSessionSettings(session.getUserId());
+        SessionSettings settings = getOrCreateSessionSettings(Long.valueOf(session.getUserId()));
         
         session.updateLastActivity();
         session.setIpAddress(extractIpAddress(request));
@@ -611,14 +608,15 @@ public class SessionManagementService {
     private SessionInfo buildSessionInfo(UserSession session) {
         return SessionInfo.builder()
                 .sessionId(session.getSessionId())
-                .userId(session.getUserId())
+                .userId(String.valueOf(session.getUserId()))
                 .deviceFingerprint(session.getDeviceFingerprint())
-                .ipAddress(session.getIpAddress().getHostAddress())
+                .ipAddress(session.getIpAddress())
                 .userAgent(session.getUserAgent())
                 .createdAt(session.getCreatedAt())
                 .lastAccessedAt(session.getLastActivity())
                 .active(session.isActive())
-                .metadata(session.getAttributes())
+                .metadata(session.getAttributes() != null ?
+                    Map.of("attributes", session.getAttributes()) : Map.of())
                 .build();
     }
     
@@ -631,7 +629,7 @@ public class SessionManagementService {
     );
     
     private SessionManagementResult processSessionAction(UserSession session, String action) {
-        String userId = session.getUserId();
+        Long userId = Long.valueOf(session.getUserId());
         
         return sessionActionStrategies.entrySet().stream()
             .filter(entry -> entry.getKey().equals(action.toUpperCase()))
@@ -639,7 +637,7 @@ public class SessionManagementService {
             .map(entry -> entry.getValue().apply(session))
             .orElse(SessionManagementResult.builder()
                 .sessionId(session.getSessionId())
-                .userId(userId)
+                .userId(String.valueOf(userId))
                 .action(action)
                 .success(false)
                 .message("Unknown action: " + action)
@@ -647,14 +645,14 @@ public class SessionManagementService {
     }
     
     private SessionManagementResult processSessionRefresh(UserSession session) {
-        SessionSettings settings = getOrCreateSessionSettings(session.getUserId());
+        SessionSettings settings = getOrCreateSessionSettings(Long.valueOf(session.getUserId()));
         session.extendSession(settings.getSessionTimeoutMinutes());
         userSessionRepository.save(session);
         storeSessionInRedis(session, settings.getSessionTimeoutMinutes());
         
         return SessionManagementResult.builder()
             .sessionId(session.getSessionId())
-            .userId(session.getUserId())
+            .userId(String.valueOf(session.getUserId()))
             .action("REFRESH")
             .success(true)
             .message("Session extended successfully")
@@ -666,7 +664,7 @@ public class SessionManagementService {
         
         return SessionManagementResult.builder()
             .sessionId(session.getSessionId())
-            .userId(session.getUserId())
+            .userId(String.valueOf(session.getUserId()))
             .action("TERMINATE")
             .success(true)
             .message("Session terminated successfully")
@@ -678,7 +676,7 @@ public class SessionManagementService {
         
         return SessionManagementResult.builder()
             .sessionId(session.getSessionId())
-            .userId(session.getUserId())
+            .userId(String.valueOf(session.getUserId()))
             .action("VALIDATE")
             .success(isValid)
             .message(isValid ? "Session is valid" : "Session is expired or inactive")
@@ -742,7 +740,7 @@ public class SessionManagementService {
         });
     }
 
-    private InetAddress extractIpAddress(HttpServletRequest request) {
+    private String extractIpAddress(HttpServletRequest request) {
         return SafeOperations.safelyToResult(() -> {
             return Optional.ofNullable(request.getHeader("X-Forwarded-For"))
                 .filter(header -> !header.isEmpty())
@@ -751,22 +749,11 @@ public class SessionManagementService {
                     .filter(header -> !header.isEmpty()))
                 .orElse(request.getRemoteAddr());
         })
-        .flatMap(ip -> SafeOperations.safelyToResult(() -> {
-            try {
-                return InetAddress.getByName(ip);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to parse IP address: " + ip, e);
-            }
-        }))
         .mapError(error -> {
             log.warn("Error extracting IP address: {}", error);
-            try {
-                return InetAddress.getByName(request.getRemoteAddr());
-            } catch (Exception e) {
-                return null;
-            }
+            return request.getRemoteAddr();
         })
-        .orElse(null);
+        .orElse("127.0.0.1");
     }
 
     /**
@@ -821,9 +808,9 @@ public class SessionManagementService {
                 sessionInfo = null;
             }
             // Ensure sessionId is set in case it's missing from JSON
-            if (sessionInfo.getSessionId() == null) {
-                sessionInfo.setSessionId(sessionId);
-            }
+            Optional.of(sessionInfo)
+                .filter(info -> info.getSessionId() == null)
+                .ifPresent(info -> info.setSessionId(sessionId));
             return sessionInfo;
         });
     }
@@ -859,14 +846,13 @@ public class SessionManagementService {
         return sessionIds.stream()
             .map(sessionId -> {
                 String timeKey = SESSION_PREFIX + sessionId + ":created";
-                return SafeOperations.safely(() -> {
-                    String timeStr = sessionRedisTemplate.opsForValue().get(timeKey);
-                    if (timeStr != null) {
-                        long time = Long.parseLong(timeStr);
-                        return new SessionTimestamp(sessionId, LocalDateTime.ofEpochSecond(time / 1000, 0, ZoneOffset.UTC));
-                    }
-                    return null;
-                }).orElse(null);
+                return SafeOperations.safely(() -> sessionRedisTemplate.opsForValue().get(timeKey))
+                    .flatMap(timeStr -> Optional.ofNullable(timeStr)
+                        .map(str -> {
+                            long time = Long.parseLong(str);
+                            return new SessionTimestamp(sessionId, LocalDateTime.ofEpochSecond(time / 1000, 0, ZoneOffset.UTC));
+                        }))
+                    .orElse(null);
             })
             .filter(Objects::nonNull)
             .min(Comparator.comparing(SessionTimestamp::timestamp))
@@ -878,9 +864,8 @@ public class SessionManagementService {
     
     private SessionInfo updateSessionInfo(SessionInfo sessionInfo, String ipAddress) {
         sessionInfo.setLastAccessedAt(LocalDateTime.now());
-        if (ipAddress != null) {
-            sessionInfo.setIpAddress(ipAddress);
-        }
+        Optional.ofNullable(ipAddress)
+            .ifPresent(sessionInfo::setIpAddress);
         return sessionInfo;
     }
     

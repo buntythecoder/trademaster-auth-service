@@ -15,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +63,7 @@ public class SecurityAuditService {
      * Functional security event logging using railway-oriented programming
      */
     @Async
-    @Transactional
+    @Transactional(readOnly = false)
     public CompletableFuture<Result<SecurityAuditLog, String>> logSecurityEvent(
             Long userId, String eventType, String severity, String ipAddress,
             String userAgent, Map<String, Object> eventDetails) {
@@ -172,14 +170,14 @@ public class SecurityAuditService {
             SecurityEventRequest request = assessedEvent.enrichedEvent().request();
             
             return Result.success(SecurityAuditLog.builder()
-                .userId(String.valueOf(request.userId()))
+                .userId(request.userId())
                 .eventType(request.eventType())
                 .severity(request.severity())
                 .ipAddress(parseIpAddressString(request.ipAddress()))
                 .userAgent(request.userAgent())
                 .location(assessedEvent.enrichedEvent().location())
                 .riskScore(assessedEvent.riskScore())
-                .eventDetails(Optional.ofNullable(request.eventDetails()).orElse(Map.of()))
+                .eventDetails(Optional.ofNullable(request.eventDetails()).map(Object::toString).orElse(""))
                 .timestamp(LocalDateTime.now())
                 .build());
         } catch (Exception e) {
@@ -334,18 +332,13 @@ public class SecurityAuditService {
         }).orElse("External IP: " + ipAddress + " (lookup failed)");
     }
     
-    // Helper method to convert String to InetAddress
-    private InetAddress parseIpAddressString(String ipAddress) {
-        try {
-            return InetAddress.getByName(ipAddress);
-        } catch (UnknownHostException e) {
+    // Helper method to validate IP address string
+    private String parseIpAddressString(String ipAddress) {
+        if (ipAddress == null || ipAddress.trim().isEmpty()) {
             log.warn("Invalid IP address: {}", ipAddress);
-            try {
-                return InetAddress.getLocalHost();
-            } catch (UnknownHostException ex) {
-                return InetAddress.getLoopbackAddress();
-            }
+            return "127.0.0.1";
         }
+        return ipAddress.trim();
     }
 
     private String performInternalGeoIpLookup(String ipAddress) {
@@ -393,13 +386,12 @@ public class SecurityAuditService {
 
     private String parseIpAddress(String ipAddress) {
         return SafeOperations.safely(() -> {
-            try {
-                return InetAddress.getByName(ipAddress).getHostAddress();
-            } catch (UnknownHostException e) {
-                return ipAddress;
+            if (ipAddress == null || ipAddress.trim().isEmpty()) {
+                return "127.0.0.1";
             }
+            return ipAddress.trim();
         })
-            .orElse(ipAddress);
+            .orElse(ipAddress != null ? ipAddress : "127.0.0.1");
     }
 
     private String parseGeoIpResponse(String jsonResponse) {
@@ -428,10 +420,14 @@ public class SecurityAuditService {
     
     private String extractJsonField(String json, String fieldName) {
         int start = json.indexOf("\"" + fieldName + "\":\"");
-        if (start == -1) return null;
-        start += fieldName.length() + 4;
-        int end = json.indexOf("\"", start);
-        return end != -1 ? json.substring(start, end) : null;
+        return Optional.of(start)
+            .filter(s -> s != -1)
+            .map(s -> s + fieldName.length() + 4)
+            .map(startPos -> {
+                int end = json.indexOf("\"", startPos);
+                return end != -1 ? json.substring(startPos, end) : null;
+            })
+            .orElse(null);
     }
 
     private boolean isPrivateIp(String ipAddress) {
@@ -441,11 +437,25 @@ public class SecurityAuditService {
 
     private boolean isValidPublicIp(String ipAddress) {
         return SafeOperations.safely(() -> {
-            try {
-                return InetAddress.getByName(ipAddress) != null;
-            } catch (UnknownHostException e) {
+            if (ipAddress == null || ipAddress.trim().isEmpty()) {
                 return false;
             }
+            // Basic IP address pattern validation
+            String[] parts = ipAddress.trim().split("\\.");
+            if (parts.length != 4) {
+                return false;
+            }
+            for (String part : parts) {
+                try {
+                    int num = Integer.parseInt(part);
+                    if (num < 0 || num > 255) {
+                        return false;
+                    }
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+            }
+            return true;
         })
             .orElse(false);
     }
@@ -606,14 +616,14 @@ public class SecurityAuditService {
      * Get user audit logs
      */
     public List<SecurityAuditLog> getUserAuditLogs(String userId, Pageable pageable) {
-        return securityAuditLogRepository.findByUserIdOrderByTimestampDesc(userId, pageable).getContent();
+        return securityAuditLogRepository.findByUserIdOrderByTimestampDesc(Long.valueOf(userId), pageable).getContent();
     }
     
     /**
      * Get security metrics
      */
     public Map<String, Object> getSecurityMetrics(String userId, LocalDateTime from, LocalDateTime to) {
-        List<SecurityAuditLog> logs = securityAuditLogRepository.findByUserIdAndTimestampBetween(userId, from, to);
+        List<SecurityAuditLog> logs = securityAuditLogRepository.findByUserIdAndTimestampBetween(Long.valueOf(userId), from, to);
         
         Map<String, Long> eventCounts = logs.stream()
             .collect(java.util.stream.Collectors.groupingBy(

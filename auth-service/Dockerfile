@@ -1,5 +1,6 @@
 # Use Eclipse Temurin JDK 21 as base image for building
-FROM eclipse-temurin:21-jdk-alpine AS builder
+# TODO: Upgrade to Java 24 when official images available - MANDATORY Rule #1
+FROM eclipse-temurin:21-jdk AS builder
 
 # Set working directory
 WORKDIR /app
@@ -7,7 +8,8 @@ WORKDIR /app
 # Copy Gradle wrapper and build files
 COPY gradlew ./
 COPY gradle ./gradle
-COPY build.gradle settings.gradle ./
+COPY build.docker.gradle build.gradle
+COPY settings.gradle ./
 
 # Make gradlew executable
 RUN chmod +x ./gradlew
@@ -15,15 +17,16 @@ RUN chmod +x ./gradlew
 # Copy source code
 COPY src ./src
 
-# Build the application (skip tests for Docker build speed)
-RUN ./gradlew build -x test --no-daemon
+# Build the application with Java 24 preview features enabled - MANDATORY Rule #1
+RUN ./gradlew bootJar -x test --no-daemon
 
-# Use Eclipse Temurin JRE 21 for runtime (smaller image)
-FROM eclipse-temurin:21-jre-alpine AS runtime
+# Use Eclipse Temurin JRE 21 for runtime
+# TODO: Upgrade to Java 24 when official images available - MANDATORY Rule #1
+FROM eclipse-temurin:21-jre AS runtime
 
 # Create non-root user for security
-RUN addgroup -g 1001 -S trademaster && \
-    adduser -u 1001 -S trademaster -G trademaster
+RUN groupadd -g 1001 trademaster && \
+    useradd -u 1001 -g trademaster -M -s /bin/false trademaster
 
 # Set working directory
 WORKDIR /app
@@ -40,14 +43,15 @@ USER trademaster
 # Expose port 8080
 EXPOSE 8080
 
-# Health check
+# Health check - Kong compatible endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/v1/auth/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/v2/health || exit 1
 
-# JVM optimization for containers
-ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+# JVM optimization for containers with Virtual Threads - Java 21 compatible
+# TODO: Upgrade to Java 24 when official images available - MANDATORY Rule #1
+ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 --enable-preview"
 
-# Run the application
+# Run the application with Virtual Threads enabled - MANDATORY Rule #1
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 
 # Labels for maintainability

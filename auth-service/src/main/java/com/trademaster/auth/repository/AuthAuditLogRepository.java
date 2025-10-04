@@ -50,7 +50,7 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, Long
     /**
      * Find audit logs by IP address
      */
-    List<AuthAuditLog> findByIpAddressOrderByCreatedAtDesc(java.net.InetAddress ipAddress);
+    List<AuthAuditLog> findByIpAddressOrderByCreatedAtDesc(String ipAddress);
     
     /**
      * Find audit logs by ID range for integrity verification

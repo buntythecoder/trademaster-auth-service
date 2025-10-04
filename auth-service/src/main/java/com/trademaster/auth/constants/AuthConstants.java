@@ -149,6 +149,7 @@ public final class AuthConstants {
     
     // Logging Field Constants
     public static final String CORRELATION_ID = "correlationId";
+    public static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
     public static final String USER_ID_FIELD = "userId";
     public static final String SESSION_ID_FIELD = "sessionId";
     public static final String IP_ADDRESS_FIELD = "ipAddress";

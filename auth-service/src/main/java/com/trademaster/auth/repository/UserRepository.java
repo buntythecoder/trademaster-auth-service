@@ -99,7 +99,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("UPDATE User u SET u.lastLoginAt = :loginTime, u.lastLoginIp = :ipAddress, u.deviceFingerprint = :deviceFingerprint, u.updatedAt = :currentTime WHERE u.id = :userId")
     void updateLastLogin(@Param("userId") Long userId, 
                         @Param("loginTime") LocalDateTime loginTime,
-                        @Param("ipAddress") java.net.InetAddress ipAddress,
+                        @Param("ipAddress") String ipAddress,
                         @Param("deviceFingerprint") String deviceFingerprint,
                         @Param("currentTime") LocalDateTime currentTime);
 
@@ -150,7 +150,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * Update mobile number
      */
     @Modifying
-    @Query("UPDATE User u SET u.mobileNumber = :mobileNumber, u.updatedAt = :currentTime WHERE u.id = :userId")
+    @Query("UPDATE User u SET u.phoneNumber = :mobileNumber, u.updatedAt = :currentTime WHERE u.id = :userId")
     void updateMobileNumber(@Param("userId") Long userId, 
                           @Param("mobileNumber") String mobileNumber, 
                           @Param("currentTime") LocalDateTime currentTime);
@@ -204,7 +204,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Find users with MFA enabled
      */
-    @Query("SELECT DISTINCT u FROM User u JOIN u.mfaConfigurations mfa WHERE mfa.isEnabled = true")
+    @Query("SELECT DISTINCT u FROM User u JOIN u.mfaConfigurations mfa WHERE mfa.enabled = true")
     List<User> findUsersWithMfaEnabled();
 
     /**

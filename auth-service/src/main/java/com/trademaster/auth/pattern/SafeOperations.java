@@ -123,13 +123,14 @@ public final class SafeOperations {
         } catch (Exception e) {
             return Result.failure(e.getMessage());
         } finally {
-            if (resource != null) {
-                try {
-                    cleanup.accept(resource);
-                } catch (Exception e) {
-                    // Log cleanup failure but don't override main result
-                }
-            }
+            Optional.ofNullable(resource)
+                .ifPresent(r -> {
+                    try {
+                        cleanup.accept(r);
+                    } catch (Exception e) {
+                        // Log cleanup failure but don't override main result
+                    }
+                });
         }
     }
     

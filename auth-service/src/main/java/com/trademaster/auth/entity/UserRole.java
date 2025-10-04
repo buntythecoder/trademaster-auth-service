@@ -1,6 +1,5 @@
 package com.trademaster.auth.entity;
 
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
@@ -49,10 +48,9 @@ public class UserRole {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Type(JsonType.class)
-    @Column(name = "permissions", columnDefinition = "jsonb")
+    @Column(name = "permissions", columnDefinition = "text")
     @Builder.Default
-    private Map<String, Object> permissions = Map.of();
+    private String permissions = "";
 
     @Column(name = "is_active")
     @Builder.Default
@@ -76,56 +74,35 @@ public class UserRole {
         if (permissions == null || permissions.isEmpty()) {
             return false;
         }
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Object> domainPermissions = (Map<String, Object>) permissions.get(domain);
-        
-        if (domainPermissions == null) {
-            return false;
-        }
-        
-        if (domainPermissions.containsKey("*")) {
-            return true; // Wildcard permission
-        }
-        
-        @SuppressWarnings("unchecked")
-        java.util.List<String> actions = (java.util.List<String>) domainPermissions.get("actions");
-        
-        return actions != null && actions.contains(action);
+
+        // Simple string-based permission check
+        String permissionKey = domain + ":" + action;
+        return permissions.contains(permissionKey) || permissions.contains(domain + ":*");
     }
 
     public void addPermission(String domain, String action) {
         if (permissions == null) {
-            permissions = new java.util.HashMap<>();
+            permissions = "";
         }
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Object> domainPerms = (Map<String, Object>) permissions.computeIfAbsent(domain, k -> new java.util.HashMap<>());
-        
-        @SuppressWarnings("unchecked")
-        java.util.List<String> actions = (java.util.List<String>) domainPerms.computeIfAbsent("actions", k -> new java.util.ArrayList<>());
-        
-        if (!actions.contains(action)) {
-            actions.add(action);
+
+        String permissionKey = domain + ":" + action;
+        if (!permissions.contains(permissionKey)) {
+            permissions = permissions.isEmpty() ? permissionKey : permissions + ";" + permissionKey;
         }
     }
 
     public void removePermission(String domain, String action) {
-        if (permissions == null || !permissions.containsKey(domain)) {
+        if (permissions == null || permissions.isEmpty()) {
             return;
         }
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Object> domainPerms = (Map<String, Object>) permissions.get(domain);
-        
-        @SuppressWarnings("unchecked")
-        java.util.List<String> actions = (java.util.List<String>) domainPerms.get("actions");
-        
-        if (actions != null) {
-            actions.remove(action);
-            if (actions.isEmpty()) {
-                permissions.remove(domain);
-            }
+
+        String permissionKey = domain + ":" + action;
+        permissions = permissions.replace(permissionKey, "").replace(";;", ";").trim();
+        if (permissions.startsWith(";")) {
+            permissions = permissions.substring(1);
+        }
+        if (permissions.endsWith(";")) {
+            permissions = permissions.substring(0, permissions.length() - 1);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.trademaster.auth.service;
 
+import com.trademaster.auth.pattern.Result;
 import com.trademaster.auth.pattern.SafeOperations;
 import com.trademaster.auth.pattern.VirtualThreadFactory;
 import jakarta.mail.MessagingException;
@@ -18,6 +19,7 @@ import org.thymeleaf.TemplateEngine;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Email Service for sending verification and notification emails
@@ -32,6 +34,7 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
+    private final CircuitBreakerService circuitBreakerService;
     // Using VirtualThreadFactory pattern for consistent virtual thread management
     
     @Value("${trademaster.frontend.base-url:http://localhost:3000}")
@@ -44,59 +47,66 @@ public class EmailService {
     private boolean emailEnabled;
 
     /**
-     * Send email verification
+     * Send email verification with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3
      */
-    public void sendEmailVerification(String email, String verificationToken) {
-        try {
-            String verificationUrl = String.format("%s/verify-email?token=%s", 
-                frontendBaseUrl, verificationToken);
-            
-            log.info("Sending email verification to: {} with token: {}", email, verificationToken.substring(0, 8) + "...");
-            
-            String emailBody = buildEmailVerificationBody(verificationUrl);
-            sendEmailInternal(email, "TradeMaster - Verify Your Email", emailBody, verificationUrl);
-            
-        } catch (Exception e) {
-            log.error("Failed to send email verification to {}: {}", email, e.getMessage());
-            throw new RuntimeException("Failed to send verification email", e);
-        }
+    public CompletableFuture<Result<String, String>> sendEmailVerification(String email, String verificationToken) {
+        String verificationUrl = String.format("%s/verify-email?token=%s",
+            frontendBaseUrl, verificationToken);
+
+        log.info("Sending email verification to: {} with token: {}", email, verificationToken.substring(0, 8) + "...");
+
+        return circuitBreakerService.executeEmailOperation(
+            "emailVerification",
+            () -> {
+                String emailBody = buildEmailVerificationBody(verificationUrl);
+                sendEmailInternal(email, "TradeMaster - Verify Your Email", emailBody, verificationUrl);
+                return "Email verification sent successfully";
+            }
+        );
     }
 
     /**
-     * Send password reset email
+     * Send password reset email with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3
      */
-    public void sendPasswordResetEmail(String email, String resetToken) {
-        try {
-            String resetUrl = String.format("%s/reset-password?token=%s", 
-                frontendBaseUrl, resetToken);
-            
-            log.info("Sending password reset email to: {} with token: {}", email, resetToken.substring(0, 8) + "...");
-            
-            String emailBody = buildPasswordResetBody(resetUrl);
-            
-            sendEmailInternal(email, "TradeMaster - Password Reset", emailBody, resetUrl);
-            
-        } catch (Exception e) {
-            log.error("Failed to send password reset email to {}: {}", email, e.getMessage());
-            throw new RuntimeException("Failed to send password reset email", e);
-        }
+    public CompletableFuture<Result<String, String>> sendPasswordResetEmail(String email, String resetToken) {
+        String resetUrl = String.format("%s/reset-password?token=%s",
+            frontendBaseUrl, resetToken);
+
+        log.info("Sending password reset email to: {} with token: {}", email, resetToken.substring(0, 8) + "...");
+
+        return circuitBreakerService.executeEmailOperation(
+            "passwordResetEmail",
+            () -> {
+                String emailBody = buildPasswordResetBody(resetUrl);
+                sendEmailInternal(email, "TradeMaster - Password Reset", emailBody, resetUrl);
+                return "Password reset email sent successfully";
+            }
+        );
     }
 
     /**
-     * Send MFA code via email
+     * Send MFA code via email with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3
      */
-    public void sendMfaCode(String email, String code) {
-        try {
-            log.info("Sending MFA code to: {}", email);
-            
-            String emailBody = buildMfaCodeBody(code);
-            
-            sendEmailInternal(email, "TradeMaster - MFA Verification Code", emailBody, null);
-            
-        } catch (Exception e) {
-            log.error("Failed to send MFA code to {}: {}", email, e.getMessage());
-            throw new RuntimeException("Failed to send MFA code", e);
-        }
+    public CompletableFuture<Result<String, String>> sendMfaCode(String email, String code) {
+        log.info("Sending MFA code to: {}", email);
+
+        return circuitBreakerService.executeMfaOperation(
+            "mfaCodeEmail",
+            () -> {
+                String emailBody = buildMfaCodeBody(code);
+                sendEmailInternal(email, "TradeMaster - MFA Verification Code", emailBody, null);
+                return "MFA code email sent successfully";
+            }
+        );
     }
 
     private String buildEmailVerificationBody(String verificationUrl) {

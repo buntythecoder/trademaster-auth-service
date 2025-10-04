@@ -14,16 +14,20 @@ import java.util.Optional;
 @Repository
 public interface UserSessionRepository extends JpaRepository<UserSession, String> {
 
-    List<UserSession> findByUserId(String userId);
+    @Query("SELECT s FROM UserSession s WHERE s.userId = :userId")
+    List<UserSession> findByUserId(@Param("userId") Long userId);
 
-    List<UserSession> findByUserIdAndActiveTrue(String userId);
+    @Query("SELECT s FROM UserSession s WHERE s.userId = :userId AND s.active = true")
+    List<UserSession> findByUserIdAndActiveTrue(@Param("userId") Long userId);
 
-    Optional<UserSession> findBySessionIdAndActiveTrue(String sessionId);
+    @Query("SELECT s FROM UserSession s WHERE s.sessionId = :sessionId AND s.active = true")
+    Optional<UserSession> findBySessionIdAndActiveTrue(@Param("sessionId") String sessionId);
 
-    List<UserSession> findByDeviceFingerprint(String deviceFingerprint);
+    @Query("SELECT s FROM UserSession s WHERE s.deviceFingerprint = :deviceFingerprint")
+    List<UserSession> findByDeviceFingerprint(@Param("deviceFingerprint") String deviceFingerprint);
 
     @Query("SELECT s FROM UserSession s WHERE s.userId = :userId AND s.active = true AND s.expiresAt > :now")
-    List<UserSession> findActiveSessionsForUser(@Param("userId") String userId, @Param("now") LocalDateTime now);
+    List<UserSession> findActiveSessionsForUser(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Query("SELECT s FROM UserSession s WHERE s.expiresAt < :now AND s.active = true")
     List<UserSession> findExpiredSessions(@Param("now") LocalDateTime now);
@@ -45,19 +49,23 @@ public interface UserSessionRepository extends JpaRepository<UserSession, String
 
     @Modifying
     @Query("UPDATE UserSession s SET s.active = false WHERE s.userId = :userId")
-    void terminateAllSessionsForUser(@Param("userId") String userId);
+    void terminateAllSessionsForUser(@Param("userId") Long userId);
 
     @Modifying
     @Query("UPDATE UserSession s SET s.active = false WHERE s.expiresAt < :now")
     void deactivateExpiredSessions(@Param("now") LocalDateTime now);
 
     @Query("SELECT COUNT(s) FROM UserSession s WHERE s.userId = :userId AND s.active = true AND s.expiresAt > :now")
-    long countActiveSessionsForUser(@Param("userId") String userId, @Param("now") LocalDateTime now);
+    long countActiveSessionsForUser(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Query("SELECT s FROM UserSession s WHERE s.userId = :userId ORDER BY s.lastActivity DESC")
-    List<UserSession> findSessionsByUserIdOrderByLastActivity(@Param("userId") String userId);
+    List<UserSession> findSessionsByUserIdOrderByLastActivity(@Param("userId") Long userId);
 
-    void deleteByExpiresAtBefore(LocalDateTime cutoffDate);
+    @Modifying
+    @Query("DELETE FROM UserSession s WHERE s.expiresAt < :cutoffDate")
+    void deleteByExpiresAtBefore(@Param("cutoffDate") LocalDateTime cutoffDate);
 
-    void deleteByUserId(String userId);
+    @Modifying
+    @Query("DELETE FROM UserSession s WHERE s.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }

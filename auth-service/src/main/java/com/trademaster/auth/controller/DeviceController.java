@@ -36,7 +36,7 @@ public class DeviceController {
             @AuthenticationPrincipal UserDetails userDetails) {
         
         String userId = userDetails.getUsername();
-        List<UserDevice> devices = deviceTrustService.getUserDevices(userId);
+        List<UserDevice> devices = deviceTrustService.getUserDevices(Long.valueOf(userId));
         
         List<DeviceResponse> deviceResponses = devices.stream()
                 .map(DeviceResponse::fromEntity)
@@ -51,7 +51,7 @@ public class DeviceController {
             @AuthenticationPrincipal UserDetails userDetails) {
         
         String userId = userDetails.getUsername();
-        List<UserDevice> trustedDevices = deviceTrustService.getTrustedDevices(userId);
+        List<UserDevice> trustedDevices = deviceTrustService.getTrustedDevices(Long.valueOf(userId));
         
         List<DeviceResponse> deviceResponses = trustedDevices.stream()
                 .map(DeviceResponse::fromEntity)
@@ -70,8 +70,8 @@ public class DeviceController {
         String sessionId = request.getSession().getId();
         
         // Register current device if not exists, then trust it
-        UserDevice device = deviceTrustService.registerDevice(userId, request, sessionId);
-        deviceTrustService.trustDevice(userId, device.getDeviceFingerprint(), sessionId);
+        UserDevice device = deviceTrustService.registerDevice(Long.valueOf(userId), request, sessionId);
+        deviceTrustService.trustDevice(Long.valueOf(userId), device.getDeviceFingerprint(), sessionId);
         
         securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_TRUSTED", device.getDeviceFingerprint(), request);
         
@@ -93,7 +93,7 @@ public class DeviceController {
         String sessionId = request.getSession().getId();
         
         try {
-            deviceTrustService.trustDevice(userId, deviceFingerprint, sessionId);
+            deviceTrustService.trustDevice(Long.valueOf(userId), deviceFingerprint, sessionId);
             
             securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_TRUSTED", deviceFingerprint, request);
             
@@ -119,7 +119,7 @@ public class DeviceController {
         String sessionId = request.getSession().getId();
         
         try {
-            deviceTrustService.revokeTrust(userId, deviceFingerprint, sessionId);
+            deviceTrustService.revokeTrust(Long.valueOf(userId), deviceFingerprint, sessionId);
             
             securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_TRUST_REVOKED", deviceFingerprint, request);
             
@@ -144,7 +144,7 @@ public class DeviceController {
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
         
-        deviceTrustService.blockDevice(userId, deviceFingerprint, sessionId);
+        deviceTrustService.blockDevice(Long.valueOf(userId), deviceFingerprint, sessionId);
         
         securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_BLOCKED", deviceFingerprint, request);
         
@@ -163,7 +163,7 @@ public class DeviceController {
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
         
-        deviceTrustService.unblockDevice(userId, deviceFingerprint, sessionId);
+        deviceTrustService.unblockDevice(Long.valueOf(userId), deviceFingerprint, sessionId);
         
         securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_UNBLOCKED", deviceFingerprint, request);
         
@@ -182,10 +182,10 @@ public class DeviceController {
         String sessionId = request.getSession().getId();
         
         // Register/update current device
-        UserDevice device = deviceTrustService.registerDevice(userId, request, sessionId);
-        
-        boolean trusted = deviceTrustService.isDeviceTrusted(userId, device.getDeviceFingerprint());
-        boolean requiresMfa = deviceTrustService.requiresMfaForDevice(userId, device.getDeviceFingerprint());
+        UserDevice device = deviceTrustService.registerDevice(Long.valueOf(userId), request, sessionId);
+
+        boolean trusted = deviceTrustService.isDeviceTrusted(Long.valueOf(userId), device.getDeviceFingerprint());
+        boolean requiresMfa = deviceTrustService.requiresMfaForDevice(Long.valueOf(userId), device.getDeviceFingerprint());
         
         return ResponseEntity.ok(Map.of(
                 "device", DeviceResponse.fromEntity(device),
@@ -200,7 +200,7 @@ public class DeviceController {
             @AuthenticationPrincipal UserDetails userDetails) {
         
         String userId = userDetails.getUsername();
-        DeviceSettings settings = deviceTrustService.getDeviceSettings(userId);
+        DeviceSettings settings = deviceTrustService.getDeviceSettings(Long.valueOf(userId));
         
         return ResponseEntity.ok(settings);
     }
@@ -215,7 +215,7 @@ public class DeviceController {
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
         
-        DeviceSettings updatedSettings = deviceTrustService.updateDeviceSettings(userId, settings, sessionId);
+        DeviceSettings updatedSettings = deviceTrustService.updateDeviceSettings(Long.valueOf(userId), settings, sessionId);
         
         securityAuditService.logSecurityEvent(Long.parseLong(userId), "DEVICE_SETTINGS_UPDATED", 
                 "INFO", request.getRemoteAddr(), request.getHeader("User-Agent"), 

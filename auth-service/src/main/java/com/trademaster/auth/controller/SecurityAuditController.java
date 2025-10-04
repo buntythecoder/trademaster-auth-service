@@ -26,6 +26,8 @@ import java.time.format.DateTimeFormatter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 import com.trademaster.auth.constants.AuthConstants;
 
@@ -50,9 +52,10 @@ public class SecurityAuditController {
         
         String userId = userDetails.getUsername();
         
-        Sort sort = sortDir.equalsIgnoreCase("desc") ? 
-                Sort.by(sortBy).descending() : 
-                Sort.by(sortBy).ascending();
+        Sort sort = Optional.of(sortDir)
+                .filter(dir -> dir.equalsIgnoreCase("desc"))
+                .map(dir -> Sort.by(sortBy).descending())
+                .orElse(Sort.by(sortBy).ascending());
         
         Pageable pageable = PageRequest.of(page, size, sort);
         List<SecurityAuditLog> auditLogsList = securityAuditService.getUserAuditLogs(userId, pageable);
@@ -105,9 +108,13 @@ public class SecurityAuditController {
         Long userId = Long.valueOf(userIdString);
         
         try {
-            // Parse date strings to LocalDateTime
-            LocalDateTime startDateTime = startDate != null ? LocalDateTime.parse(startDate + AuthConstants.TIME_START_SUFFIX) : LocalDateTime.now().minusDays(AuthConstants.DEFAULT_METRICS_DAYS);
-            LocalDateTime endDateTime = endDate != null ? LocalDateTime.parse(endDate + AuthConstants.TIME_END_SUFFIX) : LocalDateTime.now();
+            // Parse date strings to LocalDateTime using functional approach
+            LocalDateTime startDateTime = Optional.ofNullable(startDate)
+                    .map(date -> LocalDateTime.parse(date + AuthConstants.TIME_START_SUFFIX))
+                    .orElse(LocalDateTime.now().minusDays(AuthConstants.DEFAULT_METRICS_DAYS));
+            LocalDateTime endDateTime = Optional.ofNullable(endDate)
+                    .map(date -> LocalDateTime.parse(date + AuthConstants.TIME_END_SUFFIX))
+                    .orElse(LocalDateTime.now());
             
             // Service method returns CompletableFuture, so we need to handle it
             var futureResult = securityAuditService.exportSecurityEvents(
@@ -115,27 +122,12 @@ public class SecurityAuditController {
             
             var result = futureResult.join(); // Block for simplicity (should use async handling in production)
             
-            if (result.isSuccess()) {
-                String exportData = result.getValue();
-                
-                return ResponseEntity.ok()
-                        .header("Content-Type", "application/csv")
-                        .header("Content-Disposition", "attachment; filename=security-audit-" + 
-                                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm")) + ".csv")
-                        .body(Map.of(
-                            "data", exportData,
-                            "exportedBy", userId,
-                            "exportedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                            "parameters", Map.of(
-                                    "startDate", startDate != null ? startDate : "all-time",
-                                    "endDate", endDate != null ? endDate : "current",
-                                    "eventType", eventType != null ? eventType : "all"
-                            )
-                        ));
-            } else {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Failed to export security events", "details", result.getError()));
-            }
+            return Optional.of(result)
+                    .filter(res -> res.isSuccess())
+                    .map(this::createSuccessfulExportResponse)
+                    .map(responseData -> populateExportParameters(responseData, startDate, endDate, eventType, userId))
+                    .orElse(ResponseEntity.badRequest()
+                            .body(Map.of("error", "Failed to export security events", "details", result.getError())));
         } catch (Exception e) {
             log.error("Failed to export security events", 
                 StructuredArguments.kv("userId", userId),
@@ -164,8 +156,39 @@ public class SecurityAuditController {
                 "dashboardGeneratedAt", java.time.LocalDateTime.now(),
                 "summary", Map.of(
                         "totalHighRiskEvents24h", recentHighRisk.size(),
-                        "weeklyEventCount", metrics.get("total_events")
+                        "weeklyEventCount", Optional.ofNullable(metrics.get("total_events")).orElse(0)
                 )
         ));
+    }
+
+    private ResponseEntity<Map<String, Object>> createSuccessfulExportResponse(
+            com.trademaster.auth.pattern.Result<String, String> result) {
+        String exportData = result.getValue().orElse("No data available");
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/csv")
+                .header("Content-Disposition", "attachment; filename=security-audit-" +
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm")) + ".csv")
+                .body(Map.of("data", exportData));
+    }
+
+    private ResponseEntity<Map<String, Object>> populateExportParameters(
+            ResponseEntity<Map<String, Object>> response,
+            String startDate, String endDate, String eventType, Long userId) {
+
+        Map<String, Object> body = response.getBody();
+        Map<String, Object> enhancedBody = Map.of(
+                "data", body.get("data"),
+                "exportedBy", userId,
+                "exportedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                "parameters", Map.of(
+                        "startDate", Optional.ofNullable(startDate).orElse("all-time"),
+                        "endDate", Optional.ofNullable(endDate).orElse("current"),
+                        "eventType", Optional.ofNullable(eventType).orElse("all")
+                )
+        );
+
+        return ResponseEntity.ok()
+                .headers(response.getHeaders())
+                .body(enhancedBody);
     }
 }

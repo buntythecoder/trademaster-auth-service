@@ -1,13 +1,11 @@
 package com.trademaster.auth.entity;
 
-import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +40,7 @@ public class AuthAuditLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
     @EqualsAndHashCode.Include
     private Long id;
 
@@ -57,8 +56,8 @@ public class AuthAuditLog {
     @Builder.Default
     private EventStatus eventStatus = EventStatus.SUCCESS;
 
-    @Column(name = "ip_address")
-    private InetAddress ipAddress;
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
 
     @Column(name = "user_agent", columnDefinition = "TEXT")
     private String userAgent;
@@ -66,14 +65,12 @@ public class AuthAuditLog {
     @Column(name = "device_fingerprint", length = 512)
     private String deviceFingerprint;
 
-    @Type(JsonType.class)
-    @Column(name = "location", columnDefinition = "jsonb")
-    private Map<String, Object> location;
+    @Column(name = "location", columnDefinition = "text")
+    private String location;
 
-    @Type(JsonType.class)
-    @Column(name = "details", columnDefinition = "jsonb")
+    @Column(name = "details", columnDefinition = "text")
     @Builder.Default
-    private Map<String, Object> details = Map.of();
+    private String details = "";
 
     @Column(name = "risk_score")
     @Builder.Default

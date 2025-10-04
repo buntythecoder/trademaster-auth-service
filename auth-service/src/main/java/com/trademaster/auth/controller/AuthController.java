@@ -257,13 +257,13 @@ public class AuthController {
                 
                 return authenticationService.login(request, httpRequest)
                     .fold(
-                            ResponseEntity::ok,
                         error -> {
                             log.warn("Login failed for email {}: {}", request.getEmail(), error);
                             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthenticationResponse.builder()
                                 .message("Login failed: " + error)
                                 .build());
-                        }
+                        },
+                        ResponseEntity::ok
                     );
             })
             .orElseGet(() -> {
@@ -360,13 +360,13 @@ public class AuthController {
                 return authenticationService.completeMfaVerification(
                         validEmail, mfaToken, mfaCode, httpRequest)
                     .fold(
-                            ResponseEntity::ok,
                         error -> {
                             log.warn("MFA verification failed: {}", error);
                             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthenticationResponse.builder()
                                 .message("MFA verification failed: " + error)
                                 .build());
-                        }
+                        },
+                        ResponseEntity::ok
                     );
             })
             .orElseGet(() -> ResponseEntity.badRequest()
@@ -450,13 +450,13 @@ public class AuthController {
                 return authenticationService.refreshToken(token, httpRequest)
                     .join() // Block for the CompletableFuture result
                     .fold(
-                        response -> ResponseEntity.ok(response),
                         error -> {
                             log.warn("Token refresh failed: {}", error);
                             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthenticationResponse.builder()
                                 .message("Token refresh failed: " + error)
                                 .build());
-                        }
+                        },
+                        response -> ResponseEntity.ok(response)
                     );
             })
             .orElseGet(() -> ResponseEntity.badRequest()
@@ -636,14 +636,14 @@ public class AuthController {
                     return userOpt.isPresent();
                 })
                 .fold(
-                    verified -> verified 
-                        ? ResponseEntity.ok(Map.of("message", "Email verified successfully"))
-                        : ResponseEntity.badRequest().body(Map.of("message", "Invalid or expired verification token")),
                     error -> {
                         log.error("Email verification error: {}", error);
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .body(Map.of("message", "Email verification failed"));
-                    }
+                    },
+                    verified -> verified
+                        ? ResponseEntity.ok(Map.of("message", "Email verified successfully"))
+                        : ResponseEntity.badRequest().body(Map.of("message", "Invalid or expired verification token"))
                 );
             })
             .orElseGet(() -> Optional.ofNullable(token)
@@ -870,14 +870,14 @@ public class AuthController {
                         .orElse(false)
                 )
                 .fold(
-                    success -> success 
-                        ? ResponseEntity.ok(Map.of("message", "Password reset successfully"))
-                        : ResponseEntity.badRequest().body(Map.of("message", "Invalid or expired reset token")),
                     error -> {
                         log.error("Password reset error: {}", error);
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .body(Map.of("message", "Password reset failed"));
-                    }
+                    },
+                    success -> success
+                        ? ResponseEntity.ok(Map.of("message", "Password reset successfully"))
+                        : ResponseEntity.badRequest().body(Map.of("message", "Invalid or expired reset token"))
                 );
             })
             .orElseGet(() -> ResponseEntity.badRequest()

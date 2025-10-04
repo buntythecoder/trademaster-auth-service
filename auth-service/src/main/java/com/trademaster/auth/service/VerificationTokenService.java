@@ -37,7 +37,7 @@ public class VerificationTokenService {
     /**
      * Generate and save email verification token
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public String generateEmailVerificationToken(User user, String ipAddress, String userAgent) {
         // Remove any existing email verification tokens for this user
         verificationTokenRepository.deleteByUserIdAndTokenType(
@@ -67,7 +67,7 @@ public class VerificationTokenService {
     /**
      * Generate and save password reset token
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public String generatePasswordResetToken(User user, String ipAddress, String userAgent) {
         // Remove any existing password reset tokens for this user
         verificationTokenRepository.deleteByUserIdAndTokenType(
@@ -97,7 +97,7 @@ public class VerificationTokenService {
     /**
      * Verify email verification token
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public Optional<User> verifyEmailToken(String token) {
         Optional<VerificationToken> verificationTokenOpt = verificationTokenRepository
             .findValidTokenByTokenAndType(token, VerificationToken.TokenType.EMAIL_VERIFICATION, LocalDateTime.now());
@@ -109,7 +109,7 @@ public class VerificationTokenService {
                 verificationToken.markAsUsed();
                 verificationTokenRepository.save(verificationToken);
                 
-                user.setEmailVerified(true);
+                user = user.withEmailVerified(true);
                 log.info("Email verified successfully for user: {}", user.getId());
                 return user;
             })
@@ -127,32 +127,30 @@ public class VerificationTokenService {
         Optional<VerificationToken> verificationTokenOpt = verificationTokenRepository
             .findValidTokenByTokenAndType(token, VerificationToken.TokenType.PASSWORD_RESET, LocalDateTime.now());
 
-        if (verificationTokenOpt.isEmpty()) {
-            log.warn("Invalid or expired password reset token: {}", token);
-            return Optional.empty();
-        }
-
-        VerificationToken verificationToken = verificationTokenOpt.get();
-        log.info("Valid password reset token found for user: {}", verificationToken.getUser().getId());
-        
-        return Optional.of(verificationToken.getUser());
+        return verificationTokenOpt
+            .map(verificationToken -> {
+                log.info("Valid password reset token found for user: {}", verificationToken.getUser().getId());
+                return verificationToken.getUser();
+            })
+            .or(() -> {
+                log.warn("Invalid or expired password reset token: {}", token);
+                return Optional.empty();
+            });
     }
 
     /**
      * Mark password reset token as used
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void markPasswordResetTokenAsUsed(String token) {
-        Optional<VerificationToken> verificationTokenOpt = verificationTokenRepository.findByToken(token);
-        
-        if (verificationTokenOpt.isPresent()) {
-            VerificationToken verificationToken = verificationTokenOpt.get();
-            verificationToken.markAsUsed();
-            verificationTokenRepository.save(verificationToken);
-            
-            log.info("Password reset token marked as used for user: {}", 
-                    verificationToken.getUser().getId());
-        }
+        verificationTokenRepository.findByToken(token)
+            .ifPresent(verificationToken -> {
+                verificationToken.markAsUsed();
+                verificationTokenRepository.save(verificationToken);
+
+                log.info("Password reset token marked as used for user: {}",
+                        verificationToken.getUser().getId());
+            });
     }
 
     /**
@@ -166,7 +164,7 @@ public class VerificationTokenService {
     /**
      * Clean up expired tokens
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public int cleanupExpiredTokens() {
         int deletedCount = verificationTokenRepository.deleteExpiredTokens(LocalDateTime.now());
         log.info("Cleaned up {} expired verification tokens", deletedCount);

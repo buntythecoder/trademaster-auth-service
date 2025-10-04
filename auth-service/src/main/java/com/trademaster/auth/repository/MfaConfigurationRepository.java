@@ -24,17 +24,20 @@ public interface MfaConfigurationRepository extends JpaRepository<MfaConfigurati
     /**
      * Find MFA configurations by user ID
      */
-    List<MfaConfiguration> findByUserId(String userId);
+    @Query("SELECT m FROM MfaConfiguration m WHERE m.userId = :userId")
+    List<MfaConfiguration> findByUserId(@Param("userId") Long userId);
 
     /**
      * Find MFA configuration by user ID and type
      */
-    Optional<MfaConfiguration> findByUserIdAndMfaType(String userId, MfaConfiguration.MfaType mfaType);
+    @Query("SELECT m FROM MfaConfiguration m WHERE m.userId = :userId AND m.mfaType = :mfaType")
+    Optional<MfaConfiguration> findByUserIdAndMfaType(@Param("userId") Long userId, @Param("mfaType") MfaConfiguration.MfaType mfaType);
 
     /**
      * Find enabled MFA configurations for user
      */
-    List<MfaConfiguration> findByUserIdAndEnabled(String userId, boolean enabled);
+    @Query("SELECT m FROM MfaConfiguration m WHERE m.userId = :userId AND m.enabled = :enabled")
+    List<MfaConfiguration> findByUserIdAndEnabled(@Param("userId") Long userId, @Param("enabled") boolean enabled);
 
     /**
      * Find MFA configurations by type
@@ -44,7 +47,8 @@ public interface MfaConfigurationRepository extends JpaRepository<MfaConfigurati
     /**
      * Check if user has any enabled MFA
      */
-    boolean existsByUserIdAndMfaTypeAndEnabled(String userId, MfaConfiguration.MfaType mfaType, boolean enabled);
+    @Query("SELECT COUNT(m) > 0 FROM MfaConfiguration m WHERE m.userId = :userId AND m.mfaType = :mfaType AND m.enabled = :enabled")
+    boolean existsByUserIdAndMfaTypeAndEnabled(@Param("userId") Long userId, @Param("mfaType") MfaConfiguration.MfaType mfaType, @Param("enabled") boolean enabled);
 
     /**
      * Find all enabled MFA configurations
@@ -55,7 +59,7 @@ public interface MfaConfigurationRepository extends JpaRepository<MfaConfigurati
      * Find enabled configurations for user
      */
     @Query("SELECT m FROM MfaConfiguration m WHERE m.userId = :userId AND m.enabled = true")
-    List<MfaConfiguration> findEnabledConfigurationsForUser(@Param("userId") String userId);
+    List<MfaConfiguration> findEnabledConfigurationsForUser(@Param("userId") Long userId);
 
     /**
      * Find locked configurations (failed attempts >= 3)
@@ -88,7 +92,7 @@ public interface MfaConfigurationRepository extends JpaRepository<MfaConfigurati
      * Count enabled MFA configurations for user
      */
     @Query("SELECT COUNT(m) FROM MfaConfiguration m WHERE m.userId = :userId AND m.enabled = true")
-    long countEnabledConfigurationsForUser(@Param("userId") String userId);
+    long countEnabledConfigurationsForUser(@Param("userId") Long userId);
 
     /**
      * Find stale configurations (not used recently)
@@ -99,5 +103,7 @@ public interface MfaConfigurationRepository extends JpaRepository<MfaConfigurati
     /**
      * Delete all configurations for user
      */
-    void deleteByUserId(String userId);
+    @Modifying
+    @Query("DELETE FROM MfaConfiguration m WHERE m.userId = :userId")
+    void deleteByUserId(@Param("userId") Long userId);
 }

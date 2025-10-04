@@ -155,10 +155,11 @@ public class JwtTokenProvider {
         }
         
         public String build() {
-            if (cachedToken == null) {
-                cachedToken = buildTokenInternal();
-            }
-            return cachedToken;
+            return Optional.ofNullable(cachedToken)
+                    .orElseGet(() -> {
+                        cachedToken = buildTokenInternal();
+                        return cachedToken;
+                    });
         }
         
         private String buildTokenInternal() {
@@ -381,11 +382,11 @@ public class JwtTokenProvider {
             return true;
         })
         .fold(
-            isValid -> isValid,
             error -> {
                 log.error("JWT token validation failed: {}", error);
                 return false;
-            }
+            },
+            isValid -> isValid
         );
     }
 
@@ -399,11 +400,11 @@ public class JwtTokenProvider {
             return expiration.before(new Date());
         })
         .fold(
-            expired -> expired,
             error -> {
                 log.error("Error checking token expiration: {}", error);
                 return true;
-            }
+            },
+            expired -> expired
         );
     }
 
@@ -420,8 +421,8 @@ public class JwtTokenProvider {
             return "false";
         })
         .fold(
-            result -> result,
-            error -> false
+            error -> false,
+            result -> result
         );
     }
 
@@ -447,8 +448,8 @@ public class JwtTokenProvider {
             return "0";
         })
         .fold(
-            result -> result,
-            error -> 0L
+            error -> 0L,
+            result -> result
         );
     }
 
@@ -467,8 +468,8 @@ public class JwtTokenProvider {
             return "false";
         })
         .fold(
-            result -> result,
-            error -> false
+            error -> false,
+            result -> result
         );
     }
 

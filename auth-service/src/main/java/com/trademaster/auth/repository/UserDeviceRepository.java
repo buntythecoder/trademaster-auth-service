@@ -15,16 +15,16 @@ import java.util.UUID;
 @Repository
 public interface UserDeviceRepository extends JpaRepository<UserDevice, UUID> {
 
-    List<UserDevice> findByUserId(String userId);
+    List<UserDevice> findByUserId(Long userId);
 
-    Optional<UserDevice> findByUserIdAndDeviceFingerprint(String userId, String deviceFingerprint);
+    Optional<UserDevice> findByUserIdAndDeviceFingerprint(Long userId, String deviceFingerprint);
 
-    List<UserDevice> findByUserIdAndTrusted(String userId, boolean trusted);
+    List<UserDevice> findByUserIdAndTrusted(Long userId, boolean trusted);
 
     List<UserDevice> findByTrustedTrue();
 
     @Query("SELECT d FROM UserDevice d WHERE d.userId = :userId AND d.trusted = true AND (d.trustExpiry IS NULL OR d.trustExpiry > :now)")
-    List<UserDevice> findActiveTrustedDevicesForUser(@Param("userId") String userId, @Param("now") LocalDateTime now);
+    List<UserDevice> findActiveTrustedDevicesForUser(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Query("SELECT d FROM UserDevice d WHERE d.trustExpiry IS NOT NULL AND d.trustExpiry < :now AND d.trusted = true")
     List<UserDevice> findExpiredTrustedDevices(@Param("now") LocalDateTime now);
@@ -41,15 +41,15 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, UUID> {
     void revokeExpiredTrustedDevices(@Param("now") LocalDateTime now);
 
     @Query("SELECT COUNT(d) FROM UserDevice d WHERE d.userId = :userId AND d.trusted = true")
-    long countTrustedDevicesForUser(@Param("userId") String userId);
+    long countTrustedDevicesForUser(@Param("userId") Long userId);
 
     @Query("SELECT COUNT(d) FROM UserDevice d WHERE d.userId = :userId")
-    long countDevicesForUser(@Param("userId") String userId);
+    long countDevicesForUser(@Param("userId") Long userId);
 
     @Query("SELECT d FROM UserDevice d WHERE d.firstSeen > :since")
     List<UserDevice> findNewDevicesSince(@Param("since") LocalDateTime since);
 
-    void deleteByUserId(String userId);
+    void deleteByUserId(Long userId);
 
-    void deleteByUserIdAndDeviceFingerprint(String userId, String deviceFingerprint);
+    void deleteByUserIdAndDeviceFingerprint(Long userId, String deviceFingerprint);
 }

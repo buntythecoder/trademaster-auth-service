@@ -1,6 +1,5 @@
 package com.trademaster.auth.entity;
 
-import io.hypersistence.utils.hibernate.type.array.StringArrayType;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -13,8 +12,6 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
 
 @Entity
 @Table(name = "device_settings")
@@ -27,9 +24,9 @@ import java.util.List;
 public class DeviceSettings {
 
     @Id
-    @Column(name = "user_id", length = 50)
+    @Column(name = "user_id")
     @EqualsAndHashCode.Include
-    private String userId;
+    private Long userId;
 
     @Column(name = "trust_duration_days")
     @Builder.Default
@@ -43,10 +40,9 @@ public class DeviceSettings {
     @Builder.Default
     private Boolean notifyNewDevices = true;
 
-    @Type(StringArrayType.class)
-    @Column(name = "blocked_devices", columnDefinition = "text[]")
+    @Column(name = "blocked_devices", columnDefinition = "text")
     @Builder.Default
-    private String[] blockedDevices = new String[0];
+    private String blockedDevices = "";
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
@@ -66,27 +62,21 @@ public class DeviceSettings {
     }
 
     public boolean isDeviceBlocked(String deviceFingerprint) {
-        return blockedDevices != null && 
-               Arrays.asList(blockedDevices).contains(deviceFingerprint);
+        return blockedDevices != null && blockedDevices.contains(deviceFingerprint);
     }
 
     public void blockDevice(String deviceFingerprint) {
         if (blockedDevices == null) {
-            blockedDevices = new String[]{deviceFingerprint};
-        } else {
-            List<String> deviceList = new java.util.ArrayList<>(Arrays.asList(blockedDevices));
-            if (!deviceList.contains(deviceFingerprint)) {
-                deviceList.add(deviceFingerprint);
-                blockedDevices = deviceList.toArray(new String[0]);
-            }
+            blockedDevices = "";
+        }
+        if (!blockedDevices.contains(deviceFingerprint)) {
+            blockedDevices = blockedDevices.isEmpty() ? deviceFingerprint : blockedDevices + "," + deviceFingerprint;
         }
     }
 
     public void unblockDevice(String deviceFingerprint) {
-        if (blockedDevices != null) {
-            List<String> deviceList = new java.util.ArrayList<>(Arrays.asList(blockedDevices));
-            deviceList.remove(deviceFingerprint);
-            blockedDevices = deviceList.toArray(new String[0]);
+        if (blockedDevices != null && blockedDevices.contains(deviceFingerprint)) {
+            blockedDevices = blockedDevices.replace(deviceFingerprint + ",", "").replace("," + deviceFingerprint, "").replace(deviceFingerprint, "");
         }
     }
 
@@ -95,7 +85,10 @@ public class DeviceSettings {
     }
 
     public int getBlockedDevicesCount() {
-        return blockedDevices != null ? blockedDevices.length : 0;
+        if (blockedDevices == null || blockedDevices.isEmpty()) {
+            return 0;
+        }
+        return blockedDevices.split(",").length;
     }
 
     // Helper method for audit logging
@@ -105,13 +98,13 @@ public class DeviceSettings {
     }
 
     // Static factory method for default settings
-    public static DeviceSettings createDefault(String userId) {
+    public static DeviceSettings createDefault(Long userId) {
         return DeviceSettings.builder()
                 .userId(userId)
                 .trustDurationDays(30)
                 .requireMfaForUntrusted(true)
                 .notifyNewDevices(true)
-                .blockedDevices(new String[0])
+                .blockedDevices("")
                 .build();
     }
 }

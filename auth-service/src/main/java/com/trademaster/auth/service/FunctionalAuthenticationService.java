@@ -263,18 +263,21 @@ public class FunctionalAuthenticationService {
         }
 
         private CompletableFuture<AuthResult<T, String>> executeWithExponentialBackoff(int currentAttempt) {
-            return original.execute().thenCompose(result -> {
-                if (result.isSuccess() || currentAttempt >= attempts - 1) {
-                    return CompletableFuture.completedFuture(result);
-                }
-                
-                long delayMs = Math.min(1000 * (long) Math.pow(2, currentAttempt), 10000);
-                return CompletableFuture
-                    .runAsync(() -> {
-                        try { Thread.sleep(delayMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    })
-                    .thenCompose(ignored -> executeWithExponentialBackoff(currentAttempt + 1));
-            });
+            return original.execute().thenCompose(result ->
+                Optional.of(result)
+                    .filter(r -> r.isSuccess() || currentAttempt >= attempts - 1)
+                    .map(CompletableFuture::completedFuture)
+                    .orElseGet(() -> retryAfterDelay(currentAttempt))
+            );
+        }
+
+        private CompletableFuture<AuthResult<T, String>> retryAfterDelay(int currentAttempt) {
+            long delayMs = Math.min(1000 * (long) Math.pow(2, currentAttempt), 10000);
+            return CompletableFuture
+                .runAsync(() -> {
+                    try { Thread.sleep(delayMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                })
+                .thenCompose(ignored -> executeWithExponentialBackoff(currentAttempt + 1));
         }
     }
 
@@ -319,7 +322,7 @@ public class FunctionalAuthenticationService {
 
     // Public API Methods using Command Pattern
     @Async
-    @Transactional
+    @Transactional(readOnly = false)
     public CompletableFuture<AuthenticationResponse> registerAsync(RegistrationRequest request, HttpServletRequest httpRequest) {
         return new RegisterCommand(request, httpRequest)
             .withRetry(2)
@@ -328,7 +331,7 @@ public class FunctionalAuthenticationService {
     }
 
     @Async
-    @Transactional
+    @Transactional(readOnly = false)
     public CompletableFuture<AuthenticationResponse> loginAsync(AuthenticationRequest request, HttpServletRequest httpRequest) {
         return new LoginCommand(request, httpRequest)
             .withRetry(1)
@@ -366,16 +369,14 @@ public class FunctionalAuthenticationService {
                     scope.throwIfFailed();
                     
                     // Check results
-                    if (existsCheck.get()) {
-                        return AuthResult.failure("User with this email already exists");
-                    }
-                    
-                    String fingerprint = deviceFingerprint.get();
-                    String ipAddress = getClientIpAddress(httpRequest);
-                    
-                    // Create user and profile
-                    return createUserWithProfile(request, fingerprint, ipAddress, httpRequest);
-                    
+                    return Optional.of(existsCheck.get())
+                        .filter(Boolean::booleanValue)
+                        .map(exists -> AuthResult.<AuthenticationResponse, String>failure("User with this email already exists"))
+                        .orElseGet(() -> {
+                            String fingerprint = deviceFingerprint.get();
+                            String ipAddress = getClientIpAddress(httpRequest);
+                            return createUserWithProfile(request, fingerprint, ipAddress, httpRequest);
+                        });
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return AuthResult.<AuthenticationResponse, String>failure("Registration interrupted");
@@ -383,7 +384,7 @@ public class FunctionalAuthenticationService {
                     return AuthResult.<AuthenticationResponse, String>failure("Registration failed: " + e.getMessage());
                 }
             }).join();
-            
+
         } catch (Exception e) {
             log.error("Registration failed for email {}: {}", request.getEmail(), e.getMessage());
             return AuthResult.failure("Registration failed: " + e.getMessage());
@@ -410,16 +411,13 @@ public class FunctionalAuthenticationService {
 
     private AuthResult<AuthenticationResponse, String> processTokenRefresh(String refreshToken, String deviceFingerprint) {
         try {
-            // Validate refresh token
-            if (jwtTokenProvider.validateToken(refreshToken) && jwtTokenProvider.isRefreshToken(refreshToken)) {
-                Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
-                User user = userService.findById(userId).orElse(null);
-                if (user != null) {
-                    AuthenticationResponse response = generateTokenResponse(user, deviceFingerprint, "");
-                    return AuthResult.success(response);
-                }
-            }
-            return AuthResult.failure("Invalid refresh token");
+            return Optional.of(refreshToken)
+                .filter(token -> jwtTokenProvider.validateToken(token) && jwtTokenProvider.isRefreshToken(token))
+                .map(jwtTokenProvider::getUserIdFromToken)
+                .flatMap(userService::findById)
+                .map(user -> generateTokenResponse(user, deviceFingerprint, ""))
+                .<AuthResult<AuthenticationResponse, String>>map(AuthResult::success)
+                .orElse(AuthResult.<AuthenticationResponse, String>failure("Invalid refresh token"));
                 
         } catch (Exception e) {
             log.error("Token refresh failed: {}", e.getMessage());
@@ -455,73 +453,98 @@ public class FunctionalAuthenticationService {
 
     private static AuthResult<User, String> validateStandardLogin(AuthenticationRequest request) {
         try {
-            String loginId = request.getUsername() != null ? request.getUsername() : request.getEmail();
-            
-            if (request == null || loginId == null || request.getPassword() == null) {
-                return AuthResult.failure("Missing credentials");
-            }
-
-            if (loginId.length() < 3) {
-                return AuthResult.failure("Invalid username format");
-            }
-
-            if (request.getPassword().length() < 8) {
-                return AuthResult.failure("Password too short");
-            }
-
-            User user = User.builder()
-                .id(1L)
-                .email(loginId.contains("@") ? loginId : loginId + "@trademaster.in")
-                .passwordHash("hashed_password")
-                .build();
-
-            return AuthResult.success(user);
+            return validateCredentialsPresent(request)
+                .flatMap(FunctionalAuthenticationService::validateLoginId)
+                .flatMap(FunctionalAuthenticationService::validatePasswordLength)
+                .map(req -> {
+                    String loginId = req.getUsername() != null ? req.getUsername() : req.getEmail();
+                    return User.builder()
+                        .id(1L)
+                        .email(loginId.contains("@") ? loginId : loginId + "@trademaster.in")
+                        .passwordHash("hashed_password")
+                        .build();
+                });
 
         } catch (Exception e) {
             return AuthResult.failure("Authentication failed: " + e.getMessage());
         }
     }
 
+    private static AuthResult<AuthenticationRequest, String> validateCredentialsPresent(AuthenticationRequest request) {
+        return Optional.ofNullable(request)
+            .filter(req -> req.getUsername() != null || req.getEmail() != null)
+            .filter(req -> req.getPassword() != null)
+            .map(AuthResult::<AuthenticationRequest, String>success)
+            .orElse(AuthResult.failure("Missing credentials"));
+    }
+
+    private static AuthResult<AuthenticationRequest, String> validateLoginId(AuthenticationRequest request) {
+        String loginId = request.getUsername() != null ? request.getUsername() : request.getEmail();
+        return Optional.ofNullable(loginId)
+            .filter(id -> id.length() >= 3)
+            .map(id -> AuthResult.<AuthenticationRequest, String>success(request))
+            .orElse(AuthResult.failure("Invalid username format"));
+    }
+
+    private static AuthResult<AuthenticationRequest, String> validatePasswordLength(AuthenticationRequest request) {
+        return Optional.ofNullable(request.getPassword())
+            .filter(pwd -> pwd.length() >= 8)
+            .map(pwd -> AuthResult.<AuthenticationRequest, String>success(request))
+            .orElse(AuthResult.failure("Password too short"));
+    }
+
+    private static AuthResult<AuthenticationRequest, String> validateMfaCodePresent(AuthenticationRequest request) {
+        return Optional.ofNullable(request)
+            .filter(req -> req.getMfaCode() != null)
+            .map(AuthResult::<AuthenticationRequest, String>success)
+            .orElse(AuthResult.failure("MFA code required"));
+    }
+
+    private static AuthResult<AuthenticationRequest, String> validateMfaCodeFormat(AuthenticationRequest request) {
+        return Optional.ofNullable(request.getMfaCode())
+            .filter(code -> code.length() == 6)
+            .map(code -> AuthResult.<AuthenticationRequest, String>success(request))
+            .orElse(AuthResult.failure("Invalid MFA code format"));
+    }
+
     private static AuthResult<User, String> validateMfaLogin(AuthenticationRequest request) {
         try {
-            if (request == null || request.getMfaCode() == null) {
-                return AuthResult.failure("MFA code required");
-            }
-
-            if (request.getMfaCode().length() != 6) {
-                return AuthResult.failure("Invalid MFA code format");
-            }
-
-            User user = User.builder()
-                .id(2L)
-                .email("mfa@trademaster.in")
-                .passwordHash("hashed_password")
-                .build();
-
-            return AuthResult.success(user);
+            return validateMfaCodePresent(request)
+                .flatMap(FunctionalAuthenticationService::validateMfaCodeFormat)
+                .map(req -> User.builder()
+                    .id(2L)
+                    .email("mfa@trademaster.in")
+                    .passwordHash("hashed_password")
+                    .build());
 
         } catch (Exception e) {
             return AuthResult.failure("MFA authentication failed: " + e.getMessage());
         }
     }
 
+    private static AuthResult<AuthenticationRequest, String> validateSocialDataPresent(AuthenticationRequest request) {
+        return Optional.ofNullable(request)
+            .filter(req -> req.getSocialProvider() != null && req.getSocialToken() != null)
+            .map(AuthResult::<AuthenticationRequest, String>success)
+            .orElse(AuthResult.failure("Social login data required"));
+    }
+
+    private static AuthResult<AuthenticationRequest, String> validateSocialTokenFormat(AuthenticationRequest request) {
+        return Optional.ofNullable(request.getSocialToken())
+            .filter(token -> token.length() >= 10)
+            .map(token -> AuthResult.<AuthenticationRequest, String>success(request))
+            .orElse(AuthResult.failure("Invalid social token"));
+    }
+
     private static AuthResult<User, String> validateSocialLogin(AuthenticationRequest request) {
         try {
-            if (request == null || request.getSocialProvider() == null || request.getSocialToken() == null) {
-                return AuthResult.failure("Social login data required");
-            }
-
-            if (request.getSocialToken().length() < 10) {
-                return AuthResult.failure("Invalid social token");
-            }
-
-            User user = User.builder()
-                .id(3L)
-                .email("social_user_" + request.getSocialProvider() + "@trademaster.in")
-                .passwordHash("social_auth_hash")
-                .build();
-
-            return AuthResult.success(user);
+            return validateSocialDataPresent(request)
+                .flatMap(FunctionalAuthenticationService::validateSocialTokenFormat)
+                .map(req -> User.builder()
+                    .id(3L)
+                    .email("social_user_" + req.getSocialProvider() + "@trademaster.in")
+                    .passwordHash("social_auth_hash")
+                    .build());
 
         } catch (Exception e) {
             return AuthResult.failure("Social authentication failed: " + e.getMessage());
@@ -559,7 +582,7 @@ public class FunctionalAuthenticationService {
                 .timezone(request.getTimezone() != null ? request.getTimezone() : "UTC")
                 .riskTolerance(request.getRiskTolerance())
                 .tradingExperience(request.getTradingExperience())
-                .preferences(Map.of("email_notifications", true, "sms_notifications", false))
+                .preferences("email_notifications=true;sms_notifications=false")
                 .createdBy("self-registration")
                 .build();
 
@@ -583,18 +606,26 @@ public class FunctionalAuthenticationService {
         
         try {
             // Validate account status
-            AuthResult<Boolean, String> statusValidation = validateAccountStatus(user);
-            if (!statusValidation.isSuccess()) {
-                return AuthResult.failure(statusValidation.orElse(false).toString());
-            }
+            return validateAccountStatus(user)
+                .flatMap(valid -> proceedWithAuthentication(user, request, deviceFingerprint, ipAddress));
 
+        } catch (Exception e) {
+            handleFailedLoginAsync(request.getEmail(), ipAddress, deviceFingerprint);
+            return AuthResult.failure("Authentication failed: " + e.getMessage());
+        }
+    }
+
+    private AuthResult<AuthenticationResponse, String> proceedWithAuthentication(
+            User user, AuthenticationRequest request, String deviceFingerprint, String ipAddress) {
+
+        try {
             // Perform authentication
             Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
 
             User authenticatedUser = (User) authentication.getPrincipal();
-            
+
             // Handle successful login asynchronously
             handleSuccessfulLoginAsync(authenticatedUser, ipAddress, deviceFingerprint);
 
@@ -642,17 +673,17 @@ public class FunctionalAuthenticationService {
     protected CompletableFuture<Void> assignDefaultRoleAsync(Long userId) {
         return VirtualThreadFactory.INSTANCE.runAsync(() -> {
             try {
-                Optional<UserRole> defaultRole = userRoleRepository.findByRoleName("USER");
-                if (defaultRole.isPresent()) {
-                    UserRoleAssignment assignment = UserRoleAssignment.builder()
-                        .userId(userId)
-                        .roleId(defaultRole.get().getId())
-                        .assignedAt(LocalDateTime.now())
-                        .assignedBy("system")
-                        .isActive(true)
-                        .build();
-                    userRoleAssignmentRepository.save(assignment);
-                }
+                userRoleRepository.findByRoleName("USER")
+                    .ifPresent(role -> {
+                        UserRoleAssignment assignment = UserRoleAssignment.builder()
+                            .userId(userId)
+                            .roleId(role.getId())
+                            .assignedAt(LocalDateTime.now())
+                            .assignedBy("system")
+                            .isActive(true)
+                            .build();
+                        userRoleAssignmentRepository.save(assignment);
+                    });
             } catch (Exception e) {
                 log.error("Failed to assign default role to user {}: {}", userId, e.getMessage());
             }
@@ -696,11 +727,10 @@ public class FunctionalAuthenticationService {
 
     // Utility Methods
     private String getClientIpAddress(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return Optional.ofNullable(request.getHeader("X-Forwarded-For"))
+            .filter(header -> !header.isEmpty())
+            .map(header -> header.split(",")[0].trim())
+            .orElse(request.getRemoteAddr());
     }
 
     private AuthenticationService.UserDto mapUserToDto(User user) {

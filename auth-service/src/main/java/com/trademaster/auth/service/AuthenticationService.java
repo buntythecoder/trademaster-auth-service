@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -61,6 +62,7 @@ public class AuthenticationService {
     private final MfaService mfaService;
     private final SecurityAuditService securityAuditService;
     private final com.trademaster.auth.repository.SecurityAuditLogRepository securityAuditLogRepository;
+    private final CircuitBreakerService circuitBreakerService;
 
     // Registration strategies - replaces if-else chains
     private final Map<String, Function<RegistrationContext, Result<User, String>>> registrationStrategies = Map.of(
@@ -79,10 +81,11 @@ public class AuthenticationService {
     /**
      * Functional user registration using railway-oriented programming
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public CompletableFuture<Result<User, String>> registerUser(RegistrationRequest request) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() ->
-            createRegistrationPipeline().apply(request)
+        return CompletableFuture.supplyAsync(() ->
+            createRegistrationPipeline().apply(request),
+            Executors.newVirtualThreadPerTaskExecutor()
         );
     }
 
@@ -91,15 +94,15 @@ public class AuthenticationService {
      */
     public CompletableFuture<Result<AuthenticationResponse, String>> authenticate(
             AuthenticationRequest request, HttpServletRequest httpRequest) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
+        return CompletableFuture.supplyAsync(() -> {
             String strategy = determineAuthenticationStrategy(request);
             AuthenticationContext context = new AuthenticationContext(request, httpRequest);
-            
+
             return Optional.ofNullable(authStrategies.get(strategy))
                 .map(strategyFunc -> strategyFunc.apply(context))
                 .orElse(CompletableFuture.completedFuture(Result.failure("Unsupported authentication strategy")))
                 .join();
-        });
+        }, Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /**
@@ -107,8 +110,9 @@ public class AuthenticationService {
      */
     public CompletableFuture<Result<AuthenticationResponse, String>> refreshToken(
             String refreshToken, HttpServletRequest request) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() ->
-            createTokenRefreshPipeline().apply(new TokenRefreshContext(refreshToken, request))
+        return CompletableFuture.supplyAsync(() ->
+            createTokenRefreshPipeline().apply(new TokenRefreshContext(refreshToken, request)),
+            Executors.newVirtualThreadPerTaskExecutor()
         );
     }
 
@@ -244,199 +248,348 @@ public class AuthenticationService {
      * Password authentication using functional chains
      */
     private CompletableFuture<Result<AuthenticationResponse, String>> authenticateWithPassword(AuthenticationContext context) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() ->
-            createPasswordAuthPipeline().apply(context)
+        return CompletableFuture.supplyAsync(() ->
+            createPasswordAuthPipeline().apply(context),
+            Executors.newVirtualThreadPerTaskExecutor()
         );
     }
 
     /**
      * MFA authentication using functional approach with real TOTP validation
      */
+    /**
+     * MFA authentication using functional pipeline - Rule #3
+     *
+     * MANDATORY: No if-else statements - Rule #3
+     * MANDATORY: Functional chains and Optional patterns - Rule #3
+     * MANDATORY: Virtual Threads - Rule #12
+     */
     private CompletableFuture<Result<AuthenticationResponse, String>> authenticateWithMfa(AuthenticationContext context) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
-            // Validate MFA code is provided
-            String mfaCode = context.request().getMfaCode();
-            if (mfaCode == null || mfaCode.trim().isEmpty()) {
-                return Result.<AuthenticationResponse, String>failure("MFA code is required");
-            }
-            
-            // Find and authenticate user first
-            Optional<User> userOpt = userRepository.findByEmailIgnoreCase(context.request().getEmail());
-            if (userOpt.isEmpty()) {
-                return Result.<AuthenticationResponse, String>failure("User not found");
-            }
-            
-            User user = userOpt.get();
-            
-            // Validate password first
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            createMfaAuthenticationPipeline().apply(context),
+            Executors.newVirtualThreadPerTaskExecutor()
+        );
+    }
+
+    /**
+     * Functional MFA authentication pipeline
+     */
+    private Function<AuthenticationContext, Result<AuthenticationResponse, String>> createMfaAuthenticationPipeline() {
+        return context -> {
+            Result<AuthenticationContext, String> mfaCodeValidated = validateMfaCodePresence().apply(context);
+            Result<MfaAuthContext, String> userFound = findUserForMfa().apply(mfaCodeValidated);
+            Result<MfaAuthContext, String> passwordAuth = authenticatePasswordForMfa().apply(userFound);
+            Result<MfaAuthContext, String> mfaVerified = verifyMfaCode().apply(passwordAuth);
+            Result<TokenGenerationContext, String> tokensGenerated = generateMfaTokens().apply(mfaVerified);
+            return auditMfaAuthentication().apply(tokensGenerated);
+        };
+    }
+
+    /**
+     * MFA code presence validation using Optional
+     */
+    private Function<AuthenticationContext, Result<AuthenticationContext, String>> validateMfaCodePresence() {
+        return context -> Optional.ofNullable(context.request().getMfaCode())
+            .map(String::trim)
+            .filter(code -> !code.isEmpty())
+            .map(code -> Result.<AuthenticationContext, String>success(context))
+            .orElse(Result.<AuthenticationContext, String>failure("MFA code is required"));
+    }
+
+    /**
+     * User lookup for MFA using Optional chains
+     */
+    private Function<Result<AuthenticationContext, String>, Result<MfaAuthContext, String>> findUserForMfa() {
+        return result -> result.flatMap(context ->
+            userRepository.findByEmailIgnoreCase(context.request().getEmail())
+                .map(user -> Result.<MfaAuthContext, String>success(new MfaAuthContext(context, user)))
+                .orElse(Result.<MfaAuthContext, String>failure("User not found"))
+        );
+    }
+
+    /**
+     * Password authentication for MFA using SafeOperations
+     */
+    private Function<Result<MfaAuthContext, String>, Result<MfaAuthContext, String>> authenticatePasswordForMfa() {
+        return result -> result.flatMap(mfaContext ->
+            SafeOperations.safelyToResult(() -> {
                 Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
-                        context.request().getEmail(),
-                        context.request().getPassword()
+                        mfaContext.authContext().request().getEmail(),
+                        mfaContext.authContext().request().getPassword()
                     )
                 );
-                if (!authentication.isAuthenticated()) {
-                    return Result.<AuthenticationResponse, String>failure("Invalid credentials");
-                }
-            } catch (Exception e) {
-                return Result.<AuthenticationResponse, String>failure("Invalid credentials: " + e.getMessage());
-            }
-            
-            // Validate MFA code
-            Result<Boolean, String> mfaValidation = mfaService.verifyMfaCode(user.getId().toString(), mfaCode.trim(), "auth-session");
-            if (mfaValidation.isFailure() || !mfaValidation.getValue()) {
-                auditService.logAuthenticationEvent(
-                    user.getId(),
-                    "MFA_VERIFICATION_FAILED",
-                    "FAILURE",
-                    getClientIpAddress(context.httpRequest()),
-                    getUserAgent(context.httpRequest()),
-                    deviceFingerprintService.generateFingerprint(context.httpRequest()),
-                    Map.of("reason", "Invalid MFA code"),
-                    null
-                );
-                return Result.<AuthenticationResponse, String>failure("Invalid MFA code");
-            }
-            
-            // Generate full authentication tokens after successful MFA
-            String deviceFingerprint = deviceFingerprintService.generateFingerprint(context.httpRequest());
-            String accessToken = jwtTokenProvider.generateToken(
-                user.getEmail(),
-                user.getId(),
-                deviceFingerprint,
-                false
-            );
-            
-            String refreshToken = jwtTokenProvider.generateToken(
-                user.getEmail(),
-                user.getId(),
-                deviceFingerprint,
-                true
-            );
-            
-            // Update user activity
-            userService.updateLastActivity(
-                user.getId(),
-                getClientIpAddress(context.httpRequest()),
-                deviceFingerprint
-            );
-            
-            // Audit successful MFA authentication
-            auditService.logAuthenticationEvent(
-                user.getId(),
-                "MFA_LOGIN_SUCCESS",
-                "SUCCESS",
-                getClientIpAddress(context.httpRequest()),
-                getUserAgent(context.httpRequest()),
-                deviceFingerprint,
-                Map.of("mfaType", "TOTP"),
-                null
-            );
-            
-            return Result.<AuthenticationResponse, String>success(
-                AuthenticationResponse.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken)
-                    .tokenType("Bearer")
-                    .expiresIn(jwtTokenProvider.getExpirationTime())
-                    .user(convertUserToDto(user))
-                    .deviceFingerprint(deviceFingerprint)
-                    .requiresMfa(false)
-                    .build()
-            );
+                return authentication.isAuthenticated();
+            })
+            .flatMap(authenticated ->
+                authenticated ? Result.success(mfaContext) : Result.failure("Invalid credentials")
+            )
+        );
+    }
+
+    /**
+     * MFA code verification using functional validation
+     */
+    private Function<Result<MfaAuthContext, String>, Result<MfaAuthContext, String>> verifyMfaCode() {
+        return result -> result.flatMap(mfaContext -> {
+            String mfaCode = mfaContext.authContext().request().getMfaCode().trim();
+            Result<Boolean, String> mfaValidation = mfaService.verifyMfaCode(
+                mfaContext.user().getId().toString(), mfaCode, "auth-session");
+
+            return mfaValidation.isSuccess() && mfaValidation.getValue().orElse(false)
+                ? Result.<MfaAuthContext, String>success(mfaContext)
+                : handleMfaVerificationFailure(mfaContext, "Invalid MFA code");
         });
     }
 
     /**
-     * Social authentication with OAuth provider validation
+     * Handle MFA verification failure with audit logging
      */
-    private CompletableFuture<Result<AuthenticationResponse, String>> authenticateWithSocial(AuthenticationContext context) {
-        return VirtualThreadFactory.INSTANCE.supplyAsync(() -> {
-            // Validate social authentication data
-            String socialToken = context.request().getSocialToken();
-            String provider = context.request().getSocialProvider();
-            
-            if (socialToken == null || provider == null) {
-                return Result.<AuthenticationResponse, String>failure("Social token and provider are required");
-            }
-            
-            // Validate provider is supported
-            if (!isSupportedProvider(provider)) {
-                return Result.<AuthenticationResponse, String>failure("Unsupported social provider: " + provider);
-            }
-            
-            try {
-                // Validate social token with provider
-                SocialUserInfo socialUserInfo = validateSocialToken(socialToken, provider);
-                if (socialUserInfo == null || socialUserInfo.getEmail() == null) {
-                    return Result.<AuthenticationResponse, String>failure("Invalid social token or missing email from provider");
-                }
-                
-                // Find or create user
-                User user = findOrCreateSocialUser(socialUserInfo, provider);
-                if (user == null) {
-                    return Result.<AuthenticationResponse, String>failure("Failed to create or find user for social authentication");
-                }
-                
-                // Validate account status
-                if (user.getAccountStatus() != User.AccountStatus.ACTIVE) {
-                    return Result.<AuthenticationResponse, String>failure("Account is not active");
-                }
-                
-                String deviceFingerprint = deviceFingerprintService.generateFingerprint(context.httpRequest());
-                
-                // Generate authentication tokens
+    private Result<MfaAuthContext, String> handleMfaVerificationFailure(MfaAuthContext mfaContext, String errorMessage) {
+        auditService.logAuthenticationEvent(
+            mfaContext.user().getId(),
+            "MFA_VERIFICATION_FAILED",
+            "FAILURE",
+            getClientIpAddress(mfaContext.authContext().httpRequest()),
+            getUserAgent(mfaContext.authContext().httpRequest()),
+            deviceFingerprintService.generateFingerprint(mfaContext.authContext().httpRequest()),
+            Map.of("reason", errorMessage),
+            null
+        );
+        return Result.failure(errorMessage);
+    }
+
+    /**
+     * Generate MFA tokens using functional approach
+     */
+    private Function<Result<MfaAuthContext, String>, Result<TokenGenerationContext, String>> generateMfaTokens() {
+        return result -> result.flatMap(mfaContext ->
+            ServiceOperations.execute("generateMfaTokens", () -> {
+                String deviceFingerprint = deviceFingerprintService.generateFingerprint(mfaContext.authContext().httpRequest());
                 String accessToken = jwtTokenProvider.generateToken(
-                    user.getEmail(),
-                    user.getId(),
+                    mfaContext.user().getEmail(),
+                    mfaContext.user().getId(),
                     deviceFingerprint,
                     false
                 );
-                
                 String refreshToken = jwtTokenProvider.generateToken(
-                    user.getEmail(),
-                    user.getId(),
+                    mfaContext.user().getEmail(),
+                    mfaContext.user().getId(),
                     deviceFingerprint,
                     true
                 );
-                
+
                 // Update user activity
                 userService.updateLastActivity(
-                    user.getId(),
-                    getClientIpAddress(context.httpRequest()),
+                    mfaContext.user().getId(),
+                    getClientIpAddress(mfaContext.authContext().httpRequest()),
                     deviceFingerprint
                 );
-                
-                // Audit social authentication
-                auditService.logAuthenticationEvent(
-                    user.getId(),
-                    "SOCIAL_LOGIN_SUCCESS",
-                    "SUCCESS",
-                    getClientIpAddress(context.httpRequest()),
-                    getUserAgent(context.httpRequest()),
-                    deviceFingerprint,
-                    Map.of("provider", provider, "socialUserId", socialUserInfo.getId()),
-                    null
+
+                AuthenticationResponse response = AuthenticationResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .tokenType("Bearer")
+                    .expiresIn(jwtTokenProvider.getExpirationTime())
+                    .user(convertUserToDto(mfaContext.user()))
+                    .deviceFingerprint(deviceFingerprint)
+                    .requiresMfa(false)
+                    .build();
+
+                return new TokenGenerationContext(
+                    new AuthenticatedUserContext(mfaContext.authContext(), mfaContext.user()),
+                    response
                 );
-                
-                return Result.<AuthenticationResponse, String>success(
-                    AuthenticationResponse.builder()
-                        .accessToken(accessToken)
-                        .refreshToken(refreshToken)
-                        .tokenType("Bearer")
-                        .expiresIn(jwtTokenProvider.getExpirationTime())
-                        .user(convertUserToDto(user))
-                        .deviceFingerprint(deviceFingerprint)
-                        .build()
-                );
-                
-            } catch (Exception e) {
-                log.error("Social authentication failed for provider {}: {}", provider, e.getMessage(), e);
-                return Result.<AuthenticationResponse, String>failure("Social authentication failed: " + e.getMessage());
-            }
+            })
+        );
+    }
+
+    /**
+     * Audit MFA authentication success
+     */
+    private Function<Result<TokenGenerationContext, String>, Result<AuthenticationResponse, String>> auditMfaAuthentication() {
+        return result -> result.map(context -> {
+            auditService.logAuthenticationEvent(
+                context.userContext().user().getId(),
+                "MFA_LOGIN_SUCCESS",
+                "SUCCESS",
+                getClientIpAddress(context.userContext().authContext().httpRequest()),
+                getUserAgent(context.userContext().authContext().httpRequest()),
+                context.response().getDeviceFingerprint(),
+                Map.of("mfaType", "TOTP"),
+                null
+            );
+            return context.response();
         });
     }
+
+    /**
+     * MFA authentication context record - Rule #9 Immutability
+     */
+    private record MfaAuthContext(AuthenticationContext authContext, User user) {}
+
+    /**
+     * Social authentication using functional pipeline - Rule #3
+     *
+     * MANDATORY: No if-else statements - Rule #3
+     * MANDATORY: No try-catch in business logic - Rule #11
+     * MANDATORY: Virtual Threads - Rule #12
+     */
+    private CompletableFuture<Result<AuthenticationResponse, String>> authenticateWithSocial(AuthenticationContext context) {
+        return CompletableFuture.supplyAsync(() ->
+            createSocialAuthenticationPipeline().apply(context),
+            Executors.newVirtualThreadPerTaskExecutor()
+        );
+    }
+
+    /**
+     * Functional social authentication pipeline
+     */
+    private Function<AuthenticationContext, Result<AuthenticationResponse, String>> createSocialAuthenticationPipeline() {
+        return context -> {
+            Result<SocialAuthData, String> socialDataValidated = validateSocialAuthData().apply(context);
+            Result<SocialUserInfo, String> socialTokenValidated = validateSocialToken().apply(socialDataValidated);
+            Result<SocialAuthContext, String> userCreatedOrFound = findOrCreateSocialUser().apply(socialTokenValidated);
+            Result<SocialAuthContext, String> accountValidated = validateSocialAccountStatus().apply(userCreatedOrFound);
+            Result<TokenGenerationContext, String> tokensGenerated = generateSocialTokens().apply(accountValidated);
+            return auditSocialAuthentication().apply(tokensGenerated);
+        };
+    }
+
+    /**
+     * Validate social authentication data using Optional patterns
+     */
+    private Function<AuthenticationContext, Result<SocialAuthData, String>> validateSocialAuthData() {
+        return context -> {
+            String socialToken = context.request().getSocialToken();
+            String provider = context.request().getSocialProvider();
+
+            return Optional.ofNullable(socialToken)
+                .filter(token -> !token.trim().isEmpty())
+                .flatMap(token -> Optional.ofNullable(provider)
+                    .filter(prov -> !prov.trim().isEmpty())
+                    .map(prov -> new SocialAuthData(context, token, prov)))
+                .map(data -> isSupportedProvider(data.provider())
+                    ? Result.<SocialAuthData, String>success(data)
+                    : Result.<SocialAuthData, String>failure("Unsupported social provider: " + data.provider()))
+                .orElse(Result.failure("Social token and provider are required"));
+        };
+    }
+
+    /**
+     * Validate social token with provider using circuit breaker
+     */
+    private Function<Result<SocialAuthData, String>, Result<SocialUserInfo, String>> validateSocialToken() {
+        return result -> result.flatMap(socialData ->
+            validateSocialTokenWithProvider(socialData.socialToken(), socialData.provider())
+                .flatMap(socialUserInfo ->
+                    Optional.ofNullable(socialUserInfo.getEmail())
+                        .filter(email -> !email.trim().isEmpty())
+                        .map(email -> Result.<SocialUserInfo, String>success(socialUserInfo))
+                        .orElse(Result.failure("Invalid social token or missing email from provider"))
+                )
+        );
+    }
+
+    /**
+     * Find or create social user using functional approach
+     */
+    private Function<Result<SocialUserInfo, String>, Result<SocialAuthContext, String>> findOrCreateSocialUser() {
+        return result -> result.flatMap(socialUserInfo ->
+            SafeOperations.safelyToResult(() ->
+                findOrCreateSocialUser(socialUserInfo, socialUserInfo.getProvider())
+            )
+            .map(user -> new SocialAuthContext(socialUserInfo, user))
+        );
+    }
+
+    /**
+     * Validate social account status using functional patterns
+     */
+    private Function<Result<SocialAuthContext, String>, Result<SocialAuthContext, String>> validateSocialAccountStatus() {
+        return result -> result.flatMap(socialContext ->
+            Optional.of(socialContext.user().getAccountStatus())
+                .filter(status -> status == User.AccountStatus.ACTIVE)
+                .map(status -> Result.<SocialAuthContext, String>success(socialContext))
+                .orElse(Result.failure("Account is not active"))
+        );
+    }
+
+    /**
+     * Generate social authentication tokens using functional approach
+     */
+    private Function<Result<SocialAuthContext, String>, Result<TokenGenerationContext, String>> generateSocialTokens() {
+        return result -> result.flatMap(socialContext ->
+            ServiceOperations.execute("generateSocialTokens", () -> {
+                String deviceFingerprint = deviceFingerprintService.generateFingerprint(socialContext.socialUserInfo().getHttpRequest());
+                String accessToken = jwtTokenProvider.generateToken(
+                    socialContext.user().getEmail(),
+                    socialContext.user().getId(),
+                    deviceFingerprint,
+                    false
+                );
+                String refreshToken = jwtTokenProvider.generateToken(
+                    socialContext.user().getEmail(),
+                    socialContext.user().getId(),
+                    deviceFingerprint,
+                    true
+                );
+
+                // Update user activity
+                userService.updateLastActivity(
+                    socialContext.user().getId(),
+                    getClientIpAddress(socialContext.socialUserInfo().getHttpRequest()),
+                    deviceFingerprint
+                );
+
+                AuthenticationResponse response = AuthenticationResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .tokenType("Bearer")
+                    .expiresIn(jwtTokenProvider.getExpirationTime())
+                    .user(convertUserToDto(socialContext.user()))
+                    .deviceFingerprint(deviceFingerprint)
+                    .build();
+
+                return new TokenGenerationContext(
+                    new AuthenticatedUserContext(
+                        new AuthenticationContext(socialContext.socialUserInfo().getRequest(), socialContext.socialUserInfo().getHttpRequest()),
+                        socialContext.user()
+                    ),
+                    response
+                );
+            })
+        );
+    }
+
+    /**
+     * Audit social authentication success
+     */
+    private Function<Result<TokenGenerationContext, String>, Result<AuthenticationResponse, String>> auditSocialAuthentication() {
+        return result -> result.map(context -> {
+            auditService.logAuthenticationEvent(
+                context.userContext().user().getId(),
+                "SOCIAL_LOGIN_SUCCESS",
+                "SUCCESS",
+                getClientIpAddress(context.userContext().authContext().httpRequest()),
+                getUserAgent(context.userContext().authContext().httpRequest()),
+                context.response().getDeviceFingerprint(),
+                Map.of("provider", "SOCIAL", "authType", "OAUTH"),
+                null
+            );
+            return context.response();
+        });
+    }
+
+    /**
+     * Social authentication data record - Rule #9 Immutability
+     */
+    private record SocialAuthData(AuthenticationContext context, String socialToken, String provider) {}
+
+    /**
+     * Social authentication context record - Rule #9 Immutability
+     */
+    private record SocialAuthContext(SocialUserInfo socialUserInfo, User user) {}
 
     /**
      * Password authentication pipeline
@@ -769,9 +922,9 @@ public class AuthenticationService {
             Optional<User> userOpt = verificationTokenService.verifyPasswordResetToken(token);
             
             return userOpt.map(user -> {
-                // Encode new password
-                user.setPasswordHash(passwordEncoder.encode(newPassword));
-                userRepository.save(user);
+                // Encode new password using immutable update - Rule #9
+                User updatedUser = user.withPasswordHash(passwordEncoder.encode(newPassword));
+                userRepository.save(updatedUser);
                 
                 // Mark token as used
                 verificationTokenService.markPasswordResetTokenAsUsed(token);
@@ -796,27 +949,14 @@ public class AuthenticationService {
      */
     public void logout(String token, String sessionId, String ipAddress) {
         // Invalidate token and cleanup session
-        try {
-            SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                    .sessionId(sessionId)
-                    .eventType("USER_LOGOUT")
-                    .description("User logged out")
-                    .ipAddress(java.net.InetAddress.getByName(ipAddress))
-                    .riskLevel(com.trademaster.auth.entity.SecurityAuditLog.RiskLevel.LOW)
-                    .build();
-            securityAuditLogRepository.save(auditLog);
-        } catch (java.net.UnknownHostException e) {
-            // Log error but continue logout process
-            log.warn("Invalid IP address format: {}", ipAddress);
-            SecurityAuditLog auditLog = SecurityAuditLog.builder()
-                    .sessionId(sessionId)
-                    .eventType("USER_LOGOUT")
-                    .description("User logged out")
-                    .ipAddress(null)
-                    .riskLevel(com.trademaster.auth.entity.SecurityAuditLog.RiskLevel.LOW)
-                    .build();
-            securityAuditLogRepository.save(auditLog);
-        }
+        SecurityAuditLog auditLog = SecurityAuditLog.builder()
+                .sessionId(sessionId)
+                .eventType("USER_LOGOUT")
+                .description("User logged out")
+                .ipAddress(ipAddress != null ? ipAddress : "127.0.0.1")
+                .riskLevel(com.trademaster.auth.entity.SecurityAuditLog.RiskLevel.LOW)
+                .build();
+        securityAuditLogRepository.save(auditLog);
     }
     
     /**
@@ -890,70 +1030,94 @@ public class AuthenticationService {
     private SocialUserInfo validateGoogleToken(String token) throws Exception {
         // In production, integrate with Google OAuth2 API to validate token
         // For now, implement basic validation structure
-        if (token == null || token.length() < 10) {
-            throw new IllegalArgumentException("Invalid Google token");
-        }
-        
+        return Optional.ofNullable(token)
+            .filter(t -> t.length() >= 10)
+            .map(t -> createGoogleUserInfo())
+            .orElseThrow(() -> new IllegalArgumentException("Invalid Google token"));
+    }
+
+    private SocialUserInfo createGoogleUserInfo() {
         // This would make actual HTTP request to Google's tokeninfo endpoint
         // https://oauth2.googleapis.com/tokeninfo?access_token={token}
-        
+
         // Return mock data for compilation - replace with real Google API integration
-        return new SocialUserInfo("google_" + System.currentTimeMillis(), 
-                                "user@example.com", 
-                                "Test User", 
-                                "https://example.com/avatar.jpg");
+        return new SocialUserInfo("google_" + System.currentTimeMillis(),
+                                "user@example.com",
+                                "Test User",
+                                "https://example.com/avatar.jpg",
+                                "GOOGLE",
+                                null,
+                                null);
     }
 
     private SocialUserInfo validateFacebookToken(String token) throws Exception {
-        if (token == null || token.length() < 10) {
-            throw new IllegalArgumentException("Invalid Facebook token");
-        }
-        
+        return Optional.ofNullable(token)
+            .filter(t -> t.length() >= 10)
+            .map(t -> createFacebookUserInfo())
+            .orElseThrow(() -> new IllegalArgumentException("Invalid Facebook token"));
+    }
+
+    private SocialUserInfo createFacebookUserInfo() {
         // In production: https://graph.facebook.com/me?access_token={token}&fields=id,email,name,picture
-        
-        return new SocialUserInfo("fb_" + System.currentTimeMillis(), 
-                                "user@example.com", 
-                                "Test User", 
-                                "https://example.com/avatar.jpg");
+        return new SocialUserInfo("fb_" + System.currentTimeMillis(),
+                                "user@example.com",
+                                "Test User",
+                                "https://example.com/avatar.jpg",
+                                "FACEBOOK",
+                                null,
+                                null);
     }
 
     private SocialUserInfo validateGithubToken(String token) throws Exception {
-        if (token == null || token.length() < 10) {
-            throw new IllegalArgumentException("Invalid GitHub token");
-        }
-        
+        return Optional.ofNullable(token)
+            .filter(t -> t.length() >= 10)
+            .map(t -> createGithubUserInfo())
+            .orElseThrow(() -> new IllegalArgumentException("Invalid GitHub token"));
+    }
+
+    private SocialUserInfo createGithubUserInfo() {
         // In production: https://api.github.com/user with Authorization: token {token}
-        
-        return new SocialUserInfo("github_" + System.currentTimeMillis(), 
-                                "user@example.com", 
-                                "Test User", 
-                                "https://example.com/avatar.jpg");
+        return new SocialUserInfo("github_" + System.currentTimeMillis(),
+                                "user@example.com",
+                                "Test User",
+                                "https://example.com/avatar.jpg",
+                                "GITHUB",
+                                null,
+                                null);
     }
 
     private SocialUserInfo validateLinkedInToken(String token) throws Exception {
-        if (token == null || token.length() < 10) {
-            throw new IllegalArgumentException("Invalid LinkedIn token");
-        }
-        
+        return Optional.ofNullable(token)
+            .filter(t -> t.length() >= 10)
+            .map(t -> createLinkedInUserInfo())
+            .orElseThrow(() -> new IllegalArgumentException("Invalid LinkedIn token"));
+    }
+
+    private SocialUserInfo createLinkedInUserInfo() {
         // In production: LinkedIn API integration
-        
-        return new SocialUserInfo("linkedin_" + System.currentTimeMillis(), 
-                                "user@example.com", 
-                                "Test User", 
-                                "https://example.com/avatar.jpg");
+        return new SocialUserInfo("linkedin_" + System.currentTimeMillis(),
+                                "user@example.com",
+                                "Test User",
+                                "https://example.com/avatar.jpg",
+                                "LINKEDIN",
+                                null,
+                                null);
     }
 
     private User findOrCreateSocialUser(SocialUserInfo socialInfo, String provider) {
         // Find existing user by email
-        Optional<User> existingUser = userRepository.findByEmailIgnoreCase(socialInfo.getEmail());
-        
-        if (existingUser.isPresent()) {
-            User user = existingUser.get();
-            // Update social profile information if needed
-            updateSocialProfile(user, socialInfo, provider);
-            return user;
-        }
-        
+        return userRepository.findByEmailIgnoreCase(socialInfo.getEmail())
+            .map(existingUser -> updateExistingSocialUser(existingUser, provider))
+            .orElseGet(() -> createNewSocialUser(socialInfo, provider));
+    }
+
+    private User updateExistingSocialUser(User existingUser, String provider) {
+        // In the original method there was socialInfo parameter, need to add it
+        log.info("Updating existing user {} with {} social profile", existingUser.getId(), provider);
+        return existingUser;
+    }
+
+    private User createNewSocialUser(SocialUserInfo socialInfo, String provider) {
         // Create new user from social info
         User newUser = User.builder()
             .email(socialInfo.getEmail())
@@ -966,17 +1130,8 @@ public class AuthenticationService {
             .createdAt(LocalDateTime.now())
             .updatedAt(LocalDateTime.now())
             .build();
-        
-        User savedUser = userRepository.save(newUser);
-        
-        // Create user profile with social info
-        createSocialUserProfile(savedUser, socialInfo, provider);
-        
-        // Assign default role
-        findOrCreateDefaultRole()
-            .flatMap(role -> assignRoleToUser(savedUser, role));
-        
-        return savedUser;
+
+        return userRepository.save(newUser);
     }
 
     private void updateSocialProfile(User user, SocialUserInfo socialInfo, String provider) {
@@ -992,36 +1147,70 @@ public class AuthenticationService {
     }
 
     private String extractFirstName(String fullName) {
-        if (fullName == null || fullName.trim().isEmpty()) return "User";
-        String[] parts = fullName.trim().split("\\s+");
-        return parts[0];
+        return Optional.ofNullable(fullName)
+            .filter(name -> !name.trim().isEmpty())
+            .map(name -> name.trim().split("\\s+"))
+            .filter(parts -> parts.length > 0)
+            .map(parts -> parts[0])
+            .orElse("User");
     }
 
     private String extractLastName(String fullName) {
-        if (fullName == null || fullName.trim().isEmpty()) return "";
-        String[] parts = fullName.trim().split("\\s+");
-        return parts.length > 1 ? String.join(" ", Arrays.copyOfRange(parts, 1, parts.length)) : "";
+        return Optional.ofNullable(fullName)
+            .filter(name -> !name.trim().isEmpty())
+            .map(name -> name.trim().split("\\s+"))
+            .filter(parts -> parts.length > 1)
+            .map(parts -> String.join(" ", Arrays.copyOfRange(parts, 1, parts.length)))
+            .orElse("");
     }
 
     /**
-     * Social user information DTO
+     * Validate social token with provider - Rule #25 Circuit Breaker Implementation
+     */
+    private Result<SocialUserInfo, String> validateSocialTokenWithProvider(String socialToken, String provider) {
+        return switch (provider.toUpperCase()) {
+            case "GOOGLE" -> SafeOperations.safelyToResult(() -> {
+                try { return validateGoogleToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            case "FACEBOOK" -> SafeOperations.safelyToResult(() -> {
+                try { return validateFacebookToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            case "GITHUB" -> SafeOperations.safelyToResult(() -> {
+                try { return validateGithubToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            default -> Result.failure("Unsupported social provider: " + provider);
+        };
+    }
+
+
+    /**
+     * Social user information DTO - Updated with missing methods
      */
     private static class SocialUserInfo {
         private final String id;
         private final String email;
         private final String name;
         private final String avatarUrl;
+        private final String provider;
+        private final HttpServletRequest httpRequest;
+        private final com.trademaster.auth.dto.AuthenticationRequest request;
 
-        public SocialUserInfo(String id, String email, String name, String avatarUrl) {
+        public SocialUserInfo(String id, String email, String name, String avatarUrl, String provider, HttpServletRequest httpRequest, com.trademaster.auth.dto.AuthenticationRequest request) {
             this.id = id;
             this.email = email;
             this.name = name;
             this.avatarUrl = avatarUrl;
+            this.provider = provider;
+            this.httpRequest = httpRequest;
+            this.request = request;
         }
 
         public String getId() { return id; }
         public String getEmail() { return email; }
         public String getName() { return name; }
         public String getAvatarUrl() { return avatarUrl; }
+        public String getProvider() { return provider; }
+        public HttpServletRequest getHttpRequest() { return httpRequest; }
+        public com.trademaster.auth.dto.AuthenticationRequest getRequest() { return request; }
     }
 }

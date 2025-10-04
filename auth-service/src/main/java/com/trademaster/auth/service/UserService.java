@@ -13,7 +13,6 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.InetAddress;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -89,7 +88,7 @@ public class UserService implements UserDetailsService {
     /**
      * Save user
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public User save(User user) {
         User savedUser = userRepository.save(user);
         log.info("User saved: {}", savedUser.getEmail());
@@ -99,18 +98,17 @@ public class UserService implements UserDetailsService {
     /**
      * Update last activity (login tracking)
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updateLastActivity(Long userId, String ipAddress, String deviceFingerprint) {
         SafeOperations.safelyToResult(() -> {
-            InetAddress inetAddress;
-            try {
-                inetAddress = InetAddress.getByName(ipAddress);
-            } catch (Exception e) {
-                log.warn("Failed to parse IP address {}: {}", ipAddress, e.getMessage());
-                inetAddress = InetAddress.getLoopbackAddress();
+            // Validate IP address format (basic validation)
+            String validatedIp = ipAddress;
+            if (ipAddress == null || ipAddress.trim().isEmpty()) {
+                log.warn("Invalid IP address provided: {}", ipAddress);
+                validatedIp = "127.0.0.1";
             }
-            
-            userRepository.updateLastLogin(userId, LocalDateTime.now(), inetAddress, deviceFingerprint, LocalDateTime.now());
+
+            userRepository.updateLastLogin(userId, LocalDateTime.now(), validatedIp, deviceFingerprint, LocalDateTime.now());
             
             auditService.logAuthenticationEvent(userId, "LOGIN_SUCCESS", "SUCCESS", 
                 ipAddress, null, deviceFingerprint, null, null);
@@ -127,7 +125,7 @@ public class UserService implements UserDetailsService {
     /**
      * Handle failed login attempt using functional composition
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void handleFailedLogin(String email, String ipAddress, String deviceFingerprint) {
         SafeOperations.safelyToResult(() -> {
             findByEmail(email)
@@ -144,7 +142,7 @@ public class UserService implements UserDetailsService {
     /**
      * Handle successful login using functional composition
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void handleSuccessfulLogin(User user, String ipAddress, String deviceFingerprint) {
         SafeOperations.safelyToResult(() -> {
             // Reset failed login attempts
@@ -165,7 +163,7 @@ public class UserService implements UserDetailsService {
     /**
      * Lock user account
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void lockUserAccount(Long userId, int lockDurationMinutes) {
         LocalDateTime lockUntil = LocalDateTime.now().plusMinutes(lockDurationMinutes);
         userRepository.lockUserAccount(userId, lockUntil, LocalDateTime.now());
@@ -176,7 +174,7 @@ public class UserService implements UserDetailsService {
     /**
      * Unlock user account
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void unlockUserAccount(Long userId) {
         userRepository.unlockUserAccount(userId, LocalDateTime.now());
         
@@ -189,7 +187,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update account status
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updateAccountStatus(Long userId, User.AccountStatus status) {
         User.AccountStatus oldStatus = userRepository.findById(userId)
                 .map(User::getAccountStatus)
@@ -207,7 +205,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update email verification status
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void verifyEmail(Long userId) {
         userRepository.updateEmailVerificationStatus(userId, true, LocalDateTime.now());
         
@@ -220,7 +218,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update phone verification status
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void verifyPhone(Long userId) {
         userRepository.updatePhoneVerificationStatus(userId, true, LocalDateTime.now());
         
@@ -233,31 +231,27 @@ public class UserService implements UserDetailsService {
     /**
      * Complete mobile verification with SMS code validation
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public Result<Boolean, String> verifyMobile(Long userId, String mobileNumber, String verificationCode) {
         return SafeOperations.safelyToResult(() -> {
             // Find user
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                throw new IllegalArgumentException("User not found: " + userId);
-            }
-            
-            User user = userOpt.get();
-            
-            // Validate mobile number format
-            if (!isValidMobileNumber(mobileNumber)) {
-                throw new IllegalArgumentException("Invalid mobile number format: " + mobileNumber);
-            }
-            
-            // Validate verification code
-            if (verificationCode == null || verificationCode.trim().length() != 6) {
-                throw new IllegalArgumentException("Invalid verification code format");
-            }
-            
-            // Check if verification code is valid (in production, validate against SMS service)
-            if (!isValidSmsVerificationCode(userId, mobileNumber, verificationCode.trim())) {
-                throw new SecurityException("Invalid or expired verification code");
-            }
+            // Functional validation chain using Railway Programming
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+            // Validate using functional composition
+            Optional.of(mobileNumber)
+                    .filter(this::isValidMobileNumber)
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid mobile number format: " + mobileNumber));
+
+            String trimmedCode = Optional.ofNullable(verificationCode)
+                    .map(String::trim)
+                    .filter(code -> code.length() == 6)
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid verification code format"));
+
+            Optional.of(trimmedCode)
+                    .filter(code -> isValidSmsVerificationCode(userId, mobileNumber, code))
+                    .orElseThrow(() -> new SecurityException("Invalid or expired verification code"));
             
             // Update user's mobile number and verification status
             userRepository.updateMobileNumber(userId, mobileNumber, LocalDateTime.now());
@@ -287,16 +281,14 @@ public class UserService implements UserDetailsService {
      */
     public Result<String, String> sendMobileVerificationCode(Long userId, String mobileNumber) {
         return SafeOperations.safelyToResult(() -> {
-            // Find user
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                throw new IllegalArgumentException("User not found: " + userId);
-            }
-            
-            // Validate mobile number
-            if (!isValidMobileNumber(mobileNumber)) {
-                throw new IllegalArgumentException("Invalid mobile number format: " + mobileNumber);
-            }
+            // Find user using functional approach
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+            // Validate mobile number using functional approach
+            Optional.of(mobileNumber)
+                    .filter(this::isValidMobileNumber)
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid mobile number format: " + mobileNumber));
             
             // Generate 6-digit verification code
             String verificationCode = generateSmsVerificationCode();
@@ -304,11 +296,10 @@ public class UserService implements UserDetailsService {
             // Store verification code (in production, use Redis with TTL)
             storeSmsVerificationCode(userId, mobileNumber, verificationCode);
             
-            // Send SMS (in production, integrate with SMS service like Twilio, AWS SNS)
-            boolean smsSent = sendSmsVerificationCode(mobileNumber, verificationCode);
-            if (!smsSent) {
-                throw new RuntimeException("Failed to send SMS verification code");
-            }
+            // Send SMS using functional approach
+            Optional.of(sendSmsVerificationCode(mobileNumber, verificationCode))
+                    .filter(Boolean::booleanValue)
+                    .orElseThrow(() -> new RuntimeException("Failed to send SMS verification code"));
             
             // Audit SMS sent
             auditService.logAuthenticationEvent(userId, "SMS_VERIFICATION_SENT", "SUCCESS", 
@@ -326,10 +317,10 @@ public class UserService implements UserDetailsService {
 
     // Helper methods for mobile verification
     private boolean isValidMobileNumber(String mobileNumber) {
-        if (mobileNumber == null) return false;
-        // Basic validation - in production use proper regex for international numbers
-        String cleaned = mobileNumber.replaceAll("[^0-9+]", "");
-        return cleaned.length() >= 10 && cleaned.length() <= 15;
+        return Optional.ofNullable(mobileNumber)
+            .map(number -> number.replaceAll("[^0-9+]", ""))
+            .filter(cleaned -> cleaned.length() >= 10 && cleaned.length() <= 15)
+            .isPresent();
     }
 
     private String generateSmsVerificationCode() {
@@ -366,84 +357,92 @@ public class UserService implements UserDetailsService {
     }
 
     private String maskMobileNumber(String mobileNumber) {
-        if (mobileNumber == null || mobileNumber.length() < 4) return "****";
-        return "*".repeat(mobileNumber.length() - 4) + mobileNumber.substring(mobileNumber.length() - 4);
+        return Optional.ofNullable(mobileNumber)
+                .filter(number -> number.length() >= 4)
+                .map(number -> "*".repeat(number.length() - 4) + number.substring(number.length() - 4))
+                .orElse("****");
     }
 
     /**
      * Update KYC status with validation and document verification
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public Result<Boolean, String> updateKycStatus(Long userId, User.KycStatus newStatus, Map<String, Object> kycDocuments, String verificationReason) {
+        return findUser(userId)
+            .flatMap(user -> validateKycTransition(user, newStatus))
+            .flatMap(user -> validateApprovalDocuments(user, newStatus, kycDocuments))
+            .flatMap(user -> persistKycUpdate(user.getId(), newStatus, kycDocuments))
+            .flatMap(user -> auditKycChange(user, newStatus, verificationReason, kycDocuments))
+            .map(user -> true);
+    }
+
+    private Result<User, String> findUser(Long userId) {
+        return userRepository.findById(userId)
+            .map(Result::<User, String>success)
+            .orElse(Result.failure("User not found: " + userId));
+    }
+
+    private Result<User, String> validateKycTransition(User user, User.KycStatus newStatus) {
+        return Optional.of(user)
+            .filter(u -> isValidKycStatusTransition(u.getKycStatus(), newStatus))
+            .map(Result::<User, String>success)
+            .orElse(Result.failure("Invalid KYC status transition from " + user.getKycStatus() + " to " + newStatus));
+    }
+
+    private Result<User, String> validateApprovalDocuments(User user, User.KycStatus newStatus, Map<String, Object> kycDocuments) {
+        if (newStatus == User.KycStatus.APPROVED) {
+            return validateDocumentsForApproval(kycDocuments)
+                .map(valid -> user);
+        }
+        return Result.success(user);
+    }
+
+    private Result<Boolean, String> validateDocumentsForApproval(Map<String, Object> kycDocuments) {
+        return Optional.of(kycDocuments)
+            .filter(this::hasRequiredKycDocuments)
+            .filter(this::validateKycDocuments)
+            .map(docs -> Result.<Boolean, String>success(true))
+            .orElse(Result.failure("KYC document validation failed"));
+    }
+
+    private Result<User, String> persistKycUpdate(Long userId, User.KycStatus newStatus, Map<String, Object> kycDocuments) {
         return SafeOperations.safelyToResult(() -> {
-            // Find user
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                throw new IllegalArgumentException("User not found: " + userId);
-            }
-            
-            User user = userOpt.get();
-            User.KycStatus oldStatus = user.getKycStatus();
-            
-            // Validate KYC status transition
-            if (!isValidKycStatusTransition(oldStatus, newStatus)) {
-                throw new IllegalStateException("Invalid KYC status transition from " + oldStatus + " to " + newStatus);
-            }
-            
-            // Validate required documents for APPROVED status
-            if (newStatus == User.KycStatus.APPROVED) {
-                if (!hasRequiredKycDocuments(kycDocuments)) {
-                    throw new IllegalArgumentException("Required KYC documents missing for verification");
-                }
-                
-                // Validate document integrity
-                if (!validateKycDocuments(kycDocuments)) {
-                    throw new SecurityException("KYC document validation failed");
-                }
-            }
-            
-            // Update KYC status in database
             userRepository.updateKycStatus(userId, newStatus, LocalDateTime.now());
-            
-            // Update user profile with KYC documents if provided
-            if (kycDocuments != null && !kycDocuments.isEmpty()) {
-                updateUserProfileKycDocuments(userId, kycDocuments);
-            }
-            
-            // Create audit log entry
+            Optional.ofNullable(kycDocuments)
+                .filter(docs -> !docs.isEmpty())
+                .ifPresent(docs -> updateUserProfileKycDocuments(userId, docs));
+            return userRepository.findById(userId).orElseThrow();
+        });
+    }
+
+    private Result<User, String> auditKycChange(User user, User.KycStatus newStatus, String verificationReason, Map<String, Object> kycDocuments) {
+        return SafeOperations.safelyToResult(() -> {
+            User.KycStatus oldStatus = user.getKycStatus();
+
             Map<String, Object> auditDetails = Map.of(
                 "old_status", oldStatus,
                 "new_status", newStatus,
-                "verification_reason", verificationReason != null ? verificationReason : "Manual update",
-                "documents_count", kycDocuments != null ? kycDocuments.size() : 0
+                "verification_reason", Optional.ofNullable(verificationReason).orElse("Manual update"),
+                "documents_count", Optional.ofNullable(kycDocuments).map(Map::size).orElse(0)
             );
-            
-            auditService.logAuthenticationEvent(userId, "KYC_STATUS_CHANGED", "SUCCESS", 
+
+            auditService.logAuthenticationEvent(user.getId(), "KYC_STATUS_CHANGED", "SUCCESS",
                 null, null, null, auditDetails, null);
-            
-            // Send notification for status changes
+
             sendKycStatusNotification(user, oldStatus, newStatus);
+
+            log.info("KYC status updated for user {}: {} -> {} (reason: {})",
+                    user.getId(), oldStatus, newStatus, verificationReason);
+
+            return user;
             
-            log.info("KYC status updated for user {}: {} -> {} (reason: {})", 
-                    userId, oldStatus, newStatus, verificationReason);
-            
-            return true;
-            
-        }).mapError(error -> {
-            // Audit failed KYC update
-            auditService.logAuthenticationEvent(userId, "KYC_STATUS_UPDATE_FAILED", "FAILURE", 
-                null, null, null, 
-                Map.of("target_status", newStatus, "error", error), null);
-            
-            log.error("KYC status update failed for user {}: {}", userId, error);
-            return "KYC status update failed: " + error;
         });
     }
 
     /**
      * Legacy method for backward compatibility
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updateKycStatus(Long userId, User.KycStatus status) {
         updateKycStatus(userId, status, null, "Legacy update");
     }
@@ -452,30 +451,31 @@ public class UserService implements UserDetailsService {
      * Validate KYC status transition rules
      */
     private boolean isValidKycStatusTransition(User.KycStatus from, User.KycStatus to) {
-        if (from == to) return true;
-        
-        return switch (from) {
-            case PENDING -> Set.of(User.KycStatus.IN_PROGRESS, User.KycStatus.REJECTED).contains(to);
-            case IN_PROGRESS -> Set.of(User.KycStatus.APPROVED, User.KycStatus.REJECTED, User.KycStatus.PENDING).contains(to);
-            case APPROVED -> Set.of(User.KycStatus.IN_PROGRESS).contains(to);
-            case REJECTED -> Set.of(User.KycStatus.PENDING, User.KycStatus.IN_PROGRESS).contains(to);
-        };
+        return Optional.of(from)
+            .filter(f -> f == to)
+            .map(f -> true)
+            .orElseGet(() -> switch (from) {
+                case PENDING -> Set.of(User.KycStatus.IN_PROGRESS, User.KycStatus.REJECTED).contains(to);
+                case IN_PROGRESS -> Set.of(User.KycStatus.APPROVED, User.KycStatus.REJECTED, User.KycStatus.PENDING).contains(to);
+                case APPROVED -> Set.of(User.KycStatus.IN_PROGRESS).contains(to);
+                case REJECTED -> Set.of(User.KycStatus.PENDING, User.KycStatus.IN_PROGRESS).contains(to);
+            });
     }
 
     /**
      * Check if required KYC documents are present
      */
     private boolean hasRequiredKycDocuments(Map<String, Object> documents) {
-        if (documents == null || documents.isEmpty()) return false;
-        
-        // Required documents for verification
         Set<String> requiredDocs = Set.of(
             "identity_document",    // Government ID, Passport, Driver's License
             "address_proof",        // Utility bill, Bank statement
             "selfie_with_id"        // Selfie holding identity document
         );
-        
-        return requiredDocs.stream().allMatch(documents::containsKey);
+
+        return Optional.ofNullable(documents)
+            .filter(docs -> !docs.isEmpty())
+            .map(docs -> requiredDocs.stream().allMatch(docs::containsKey))
+            .orElse(false);
     }
 
     /**
@@ -488,35 +488,38 @@ public class UserService implements UserDetailsService {
         // 3. OCR verification
         // 4. Face matching between selfie and ID
         // 5. Document authenticity checks
-        
-        for (Map.Entry<String, Object> entry : documents.entrySet()) {
-            String docType = entry.getKey();
-            Object docData = entry.getValue();
-            
-            // Basic validation
-            if (docData == null) {
+
+        return documents.entrySet().stream()
+            .allMatch(entry -> validateDocumentEntry(entry.getKey(), entry.getValue()));
+    }
+
+    private boolean validateDocumentEntry(String docType, Object docData) {
+        return Optional.ofNullable(docData)
+            .filter(data -> {
+                boolean valid = isValidDocumentStructure(docType, data);
+                Optional.of(valid)
+                    .filter(Boolean::booleanValue)
+                    .orElseGet(() -> {
+                        log.warn("Invalid document structure for type: {}", docType);
+                        return false;
+                    });
+                return valid;
+            })
+            .map(data -> true)
+            .orElseGet(() -> {
                 log.warn("Missing document data for type: {}", docType);
                 return false;
-            }
-            
-            // Validate document structure
-            if (!isValidDocumentStructure(docType, docData)) {
-                log.warn("Invalid document structure for type: {}", docType);
-                return false;
-            }
-        }
-        
-        return true;
+            });
     }
 
     private boolean isValidDocumentStructure(String docType, Object docData) {
-        // Basic structure validation
-        if (docData instanceof Map<?, ?> docMap) {
-            return docMap.containsKey("filename") && 
-                   docMap.containsKey("content_type") && 
-                   docMap.containsKey("size");
-        }
-        return false;
+        return Optional.of(docData)
+            .filter(data -> data instanceof Map<?, ?>)
+            .map(data -> (Map<?, ?>) data)
+            .filter(docMap -> docMap.containsKey("filename") &&
+                             docMap.containsKey("content_type") &&
+                             docMap.containsKey("size"))
+            .isPresent();
     }
 
     private void updateUserProfileKycDocuments(Long userId, Map<String, Object> kycDocuments) {
@@ -541,80 +544,57 @@ public class UserService implements UserDetailsService {
     /**
      * Update subscription tier with validation and billing integration
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public Result<Boolean, String> updateSubscriptionTier(Long userId, User.SubscriptionTier newTier, String changeReason) {
+        return findUser(userId)
+            .flatMap(user -> validateSubscriptionTierChange(user, newTier))
+            .flatMap(user -> validateKycForTier(user, newTier))
+            .flatMap(user -> persistSubscriptionUpdate(user.getId(), newTier, changeReason))
+            .map(user -> true);
+    }
+
+    private Result<User, String> validateSubscriptionTierChange(User user, User.SubscriptionTier newTier) {
+        return Optional.of(user)
+            .filter(u -> isValidSubscriptionTierChange(u, u.getSubscriptionTier(), newTier))
+            .map(Result::<User, String>success)
+            .orElse(Result.failure("Invalid subscription tier change from " + user.getSubscriptionTier() + " to " + newTier));
+    }
+
+    private Result<User, String> validateKycForTier(User user, User.SubscriptionTier newTier) {
+        return Optional.of(newTier)
+            .filter(this::requiresKycForTier)
+            .filter(tier -> user.getKycStatus() != User.KycStatus.APPROVED)
+            .map(tier -> Result.<User, String>failure("KYC approval required for " + newTier + " subscription tier"))
+            .orElse(Result.success(user));
+    }
+
+    private Result<User, String> persistSubscriptionUpdate(Long userId, User.SubscriptionTier newTier, String changeReason) {
         return SafeOperations.safelyToResult(() -> {
-            // Find user
-            Optional<User> userOpt = userRepository.findById(userId);
-            if (userOpt.isEmpty()) {
-                throw new IllegalArgumentException("User not found: " + userId);
-            }
-            
-            User user = userOpt.get();
-            User.SubscriptionTier oldTier = user.getSubscriptionTier();
-            
-            // Validate subscription tier change
-            if (!isValidSubscriptionTierChange(user, oldTier, newTier)) {
-                throw new IllegalStateException("Invalid subscription tier change from " + oldTier + " to " + newTier);
-            }
-            
-            // Check KYC requirements for premium tiers
-            if (requiresKycForTier(newTier) && user.getKycStatus() != User.KycStatus.APPROVED) {
-                throw new IllegalStateException("KYC approval required for " + newTier + " subscription tier");
-            }
-            
-            // Update subscription tier
             userRepository.updateSubscriptionTier(userId, newTier, LocalDateTime.now());
-            
-            // Create audit log
-            Map<String, Object> auditDetails = Map.of(
-                "old_tier", oldTier,
-                "new_tier", newTier,
-                "change_reason", changeReason != null ? changeReason : "Manual update",
-                "kyc_status", user.getKycStatus()
-            );
-            
-            auditService.logAuthenticationEvent(userId, "SUBSCRIPTION_TIER_CHANGED", "SUCCESS", 
-                null, null, null, auditDetails, null);
-            
-            // Send notification
-            sendSubscriptionTierNotification(user, oldTier, newTier);
-            
-            log.info("Subscription tier updated for user {}: {} -> {} (reason: {})", 
-                    userId, oldTier, newTier, changeReason);
-            
-            return true;
-            
-        }).mapError(error -> {
-            auditService.logAuthenticationEvent(userId, "SUBSCRIPTION_TIER_UPDATE_FAILED", "FAILURE", 
-                null, null, null, 
-                Map.of("target_tier", newTier, "error", error), null);
-            
-            log.error("Subscription tier update failed for user {}: {}", userId, error);
-            return "Subscription tier update failed: " + error;
+            return userRepository.findById(userId).orElseThrow();
         });
     }
 
     /**
      * Legacy method for backward compatibility
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updateSubscriptionTier(Long userId, User.SubscriptionTier tier) {
         updateSubscriptionTier(userId, tier, "Legacy update");
     }
 
     private boolean isValidSubscriptionTierChange(User user, User.SubscriptionTier from, User.SubscriptionTier to) {
-        // Basic validation rules
-        if (from == to) return true;
-        
-        // Account must be active for upgrades
-        if (user.getAccountStatus() != User.AccountStatus.ACTIVE && 
-            to.ordinal() > from.ordinal()) {
-            return false;
-        }
-        
-        // Additional business rules can be added here
-        return true;
+        return Optional.of(from)
+            .filter(f -> f == to)
+            .map(f -> true)
+            .orElseGet(() -> validateTierUpgradeEligibility(user, from, to));
+    }
+
+    private boolean validateTierUpgradeEligibility(User user, User.SubscriptionTier from, User.SubscriptionTier to) {
+        return Optional.of(to.ordinal() > from.ordinal())
+            .filter(Boolean::booleanValue)
+            .map(isUpgrade -> user.getAccountStatus() == User.AccountStatus.ACTIVE)
+            .orElse(true); // Downgrades are always allowed
     }
 
     private boolean requiresKycForTier(User.SubscriptionTier tier) {
@@ -633,7 +613,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update password
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void updatePassword(Long userId, String passwordHash) {
         userRepository.updatePassword(userId, passwordHash, LocalDateTime.now());
         
@@ -646,7 +626,7 @@ public class UserService implements UserDetailsService {
     /**
      * Process account unlocks for users whose lock period has expired using functional approach
      */
-    @Transactional
+    @Transactional(readOnly = false)
     public void processAccountUnlocks() {
         SafeOperations.safelyToResult(() -> {
             List<User> usersToUnlock = userRepository.findUsersToUnlock(LocalDateTime.now());

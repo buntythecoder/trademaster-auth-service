@@ -75,56 +75,65 @@ public class PasswordPolicyService {
         String password = context.getPassword();
         int minLength = context.getMinimumLength();
         int maxLength = context.getMaximumLength();
-        
-        if (password.length() < minLength) {
-            return Result.failure("Password must be at least " + minLength + " characters long");
-        }
-        if (password.length() > maxLength) {
-            return Result.failure("Password cannot exceed " + maxLength + " characters");
-        }
-        return Result.success(true);
+
+        return Optional.of(password.length())
+                .filter(len -> len >= minLength)
+                .filter(len -> len <= maxLength)
+                .<Result<Boolean, String>>map(len -> Result.success(true))
+                .orElseGet(() -> password.length() < minLength
+                        ? Result.<Boolean, String>failure("Password must be at least " + minLength + " characters long")
+                        : Result.<Boolean, String>failure("Password cannot exceed " + maxLength + " characters"));
     }
     
     private Result<Boolean, String> validateComplexity(PasswordValidationContext context) {
         String password = context.getPassword();
-        List<String> errors = new ArrayList<>();
-        
-        if (context.isRequireUppercase() && !UPPERCASE_PATTERN.matcher(password).find()) {
-            errors.add("uppercase letter");
-        }
-        if (context.isRequireLowercase() && !LOWERCASE_PATTERN.matcher(password).find()) {
-            errors.add("lowercase letter");
-        }
-        if (context.isRequireNumbers() && !DIGIT_PATTERN.matcher(password).find()) {
-            errors.add("number");
-        }
-        if (context.isRequireSpecialCharacters() && !SPECIAL_CHAR_PATTERN.matcher(password).find()) {
-            errors.add("special character");
-        }
-        
-        return errors.isEmpty() 
-            ? Result.success(true)
-            : Result.failure("Password must contain at least one " + String.join(", ", errors));
+
+        List<String> errors = Stream.of(
+                createComplexityCheck(context.isRequireUppercase(), UPPERCASE_PATTERN, password, "uppercase letter"),
+                createComplexityCheck(context.isRequireLowercase(), LOWERCASE_PATTERN, password, "lowercase letter"),
+                createComplexityCheck(context.isRequireNumbers(), DIGIT_PATTERN, password, "number"),
+                createComplexityCheck(context.isRequireSpecialCharacters(), SPECIAL_CHAR_PATTERN, password, "special character")
+        )
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .toList();
+
+        return Optional.of(errors)
+                .filter(List::isEmpty)
+                .<Result<Boolean, String>>map(e -> Result.success(true))
+                .orElse(Result.<Boolean, String>failure("Password must contain at least one " + String.join(", ", errors)));
+    }
+
+    /**
+     * Helper method for complexity checks using functional approach
+     */
+    private Optional<String> createComplexityCheck(boolean required, java.util.regex.Pattern pattern,
+                                                   String password, String requirement) {
+        return Optional.of(required)
+                .filter(Boolean::booleanValue)
+                .filter(req -> !pattern.matcher(password).find())
+                .map(req -> requirement);
     }
     
     private Result<Boolean, String> validateEmailConstraint(PasswordValidationContext context) {
-        String password = context.getPassword();
-        String email = context.getEmail();
-        
-        if (email != null && !email.isEmpty()) {
-            String localPart = email.split("@")[0];
-            if (password.toLowerCase().contains(localPart.toLowerCase())) {
-                return Result.failure("Password cannot contain parts of your email address");
-            }
-        }
-        
-        String username = context.getUsername();
-        if (username != null && !username.isEmpty() && 
-            password.toLowerCase().contains(username.toLowerCase())) {
-            return Result.failure("Password cannot contain your username");
-        }
-        
-        return Result.success(true);
+        String password = context.getPassword().toLowerCase();
+
+        // Check email constraint using functional approach
+        Result<Boolean, String> emailCheck = Optional.ofNullable(context.getEmail())
+                .filter(email -> !email.isEmpty())
+                .map(email -> email.split("@")[0].toLowerCase())
+                .filter(localPart -> password.contains(localPart))
+                .map(localPart -> Result.<Boolean, String>failure("Password cannot contain parts of your email address"))
+                .orElse(Result.success(true));
+
+        // Check username constraint using functional composition
+        return emailCheck.isSuccess()
+                ? Optional.ofNullable(context.getUsername())
+                    .filter(username -> !username.isEmpty())
+                    .filter(username -> password.contains(username.toLowerCase()))
+                    .map(username -> Result.<Boolean, String>failure("Password cannot contain your username"))
+                    .orElse(Result.success(true))
+                : emailCheck;
     }
     
     private Result<Boolean, String> validateCommonPasswords(PasswordValidationContext context) {

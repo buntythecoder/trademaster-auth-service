@@ -481,14 +481,14 @@ public class MetricsConfiguration {
                 .increment();
             apiRequestDuration.record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             
-            if (statusCode >= AuthConstants.HTTP_CLIENT_ERROR_THRESHOLD) {
-                Counter.builder("auth.api.errors")
+            java.util.Optional.of(statusCode)
+                .filter(code -> code >= AuthConstants.HTTP_CLIENT_ERROR_THRESHOLD)
+                .ifPresent(code -> Counter.builder("auth.api.errors")
                     .tag("endpoint", endpoint)
-                    .tag("status_code", String.valueOf(statusCode))
+                    .tag("status_code", String.valueOf(code))
                     .tag("service", "auth")
                     .register(meterRegistry)
-                    .increment();
-            }
+                    .increment());
         }
         
         // System Metrics Methods
@@ -512,19 +512,20 @@ public class MetricsConfiguration {
                 .tag("service", "auth")
                 .register(meterRegistry));
             
-            if (hit) {
-                Counter.builder("auth.cache.hits")
-                    .tag("operation", operation)
-                    .tag("service", "auth")
-                    .register(meterRegistry)
-                    .increment();
-            } else {
-                Counter.builder("auth.cache.misses")
-                    .tag("operation", operation)
-                    .tag("service", "auth")
-                    .register(meterRegistry)
-                    .increment();
-            }
+            java.util.Optional.of(hit)
+                .filter(wasHit -> wasHit)
+                .ifPresentOrElse(
+                    wasHit -> Counter.builder("auth.cache.hits")
+                        .tag("operation", operation)
+                        .tag("service", "auth")
+                        .register(meterRegistry)
+                        .increment(),
+                    () -> Counter.builder("auth.cache.misses")
+                        .tag("operation", operation)
+                        .tag("service", "auth")
+                        .register(meterRegistry)
+                        .increment()
+                );
         }
         
         // Business Metrics Update Methods
@@ -542,13 +543,12 @@ public class MetricsConfiguration {
         
         // Utility Methods
         private String sanitizeUserAgent(String userAgent) {
-            if (userAgent == null || userAgent.trim().isEmpty()) {
-                return "unknown";
-            }
-            // Extract basic browser/app info, remove detailed version numbers for privacy
-            return userAgent.length() > AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH 
-                ? userAgent.substring(0, AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH) 
-                : userAgent;
+            return java.util.Optional.ofNullable(userAgent)
+                .filter(ua -> !ua.trim().isEmpty())
+                .map(ua -> ua.length() > AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH
+                    ? ua.substring(0, AuthConstants.MAX_USER_AGENT_DISPLAY_LENGTH)
+                    : ua)
+                .orElse("unknown");
         }
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -153,14 +154,14 @@ public class RateLimitingService {
                                 int requests, int windowMinutes, String operation) {
         Bucket bucket = getOrCreateBucket(bucketMap, identifier, requests, windowMinutes);
         boolean allowed = bucket.tryConsume(1);
-        
-        if (!allowed) {
-            log.warn("Rate limit exceeded for {} operation. Identifier: {}", operation, identifier);
-        } else {
-            log.debug("Rate limit check passed for {} operation. Identifier: {}, Remaining: {}", 
-                     operation, identifier, bucket.getAvailableTokens());
-        }
-        
+        Optional.of(allowed)
+                .filter(Boolean::booleanValue)
+                .ifPresentOrElse(
+                        a -> log.debug("Rate limit check passed for {} operation. Identifier: {}, Remaining: {}",
+                                operation, identifier, bucket.getAvailableTokens()),
+                        () -> log.warn("Rate limit exceeded for {} operation. Identifier: {}", operation, identifier)
+                );
+
         return allowed;
     }
 
