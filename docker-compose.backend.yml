@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: trademaster_main
       POSTGRES_USER: trademaster_admin
       POSTGRES_PASSWORD: trademaster_secure_pass
-      POSTGRES_MULTIPLE_DATABASES: trademaster_trading,trademaster_eventbus,trademaster_users,trademaster_agents,kong
+      POSTGRES_MULTIPLE_DATABASES: trademaster_trading,trademaster_eventbus,trademaster_users,trademaster_auth,trademaster_broker_auth,trademaster_agents,trademaster_notifications,trademaster_subscriptions,kong
     ports:
       - "5432:5432"
     volumes:
@@ -137,9 +137,9 @@ services:
       - SERVER_PORT=8081
       - MANAGEMENT_SERVER_PORT=9081
       - SPRING_THREADS_VIRTUAL_ENABLED=true
-      - SPRING_FLYWAY_ENABLED=true
+      - SPRING_FLYWAY_ENABLED=false
       - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=create
       - SPRING_REDIS_HOST=redis
       - SPRING_REDIS_PORT=6379
       - MANAGEMENT_TRACING_ENABLED=true
@@ -153,6 +153,7 @@ services:
       - SERVICE_NAME=events
       - SERVICE_KEY_DISCOVERY_ENABLED=true
       - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      - TRADEMASTER_SECURITY_SERVICE_API_KEY=pTB9KkzqJWNkFDUJHIFyDv5b1tSUpP4q
       # Internal Service URLs (via Kong Gateway)
       - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
       - MARKET_DATA_INTERNAL_URL=http://kong:8000/internal/market-data
@@ -183,6 +184,185 @@ services:
       retries: 5
       start_period: 90s
 
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "9080:9080"  # Management port
+      - "5005:5005"  # Debug port (ADD THIS)
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul,docker
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      # Override Spring Cloud Consul configuration
+      - SPRING_CLOUD_CONSUL_HOST=consul
+      - SPRING_CLOUD_CONSUL_PORT=8500
+      - SPRING_CLOUD_CONSUL_DISCOVERY_HOSTNAME=auth-service
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/trademaster_auth?currentSchema=public
+      - SPRING_DATASOURCE_USERNAME=trademaster_admin
+      - SPRING_DATASOURCE_PASSWORD=trademaster_secure_pass
+      - DB_USERNAME=trademaster_admin
+      - DB_PASSWORD=trademaster_secure_pass
+      - SPRING_FLYWAY_SCHEMAS=public
+      - SPRING_FLYWAY_DEFAULT_SCHEMA=public
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_REPOSITORIES_ENABLED=false
+      - HOST_IP=auth-service
+      # CHANGE THIS LINE - Add debug parameters
+      - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      - SERVER_PORT=8080
+      - MANAGEMENT_SERVER_PORT=9080
+      - SERVER_SERVLET_CONTEXT_PATH=  # Remove context-path (controllers have /api/v1 prefix)
+      - SPRING_THREADS_VIRTUAL_ENABLED=true
+      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_AUTOCONFIGURE_EXCLUDE=org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - FLYWAY_ENABLED=false
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=false
+      - SPRING_FLYWAY_VALIDATE_ON_MIGRATE=false
+      - SPRING_FLYWAY_CHECK_LOCATION=false
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=create
+      - SPRING_JPA_HIBERNATE_HBM2DDL_AUTO=create
+      - SPRING_JPA_DEFER_DATASOURCE_INITIALIZATION=true
+      - LOGGING_LEVEL_ROOT=INFO
+      - LOGGING_PATTERN_CONSOLE=%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+      - LOGGING_CONFIG=
+      - LOGGING_FILE_NAME=
+      - SPRING_OUTPUT_ANSI_ENABLED=never
+      - MANAGEMENT_TRACING_ENABLED=true
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=auth
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      # Internal Service URLs (via Kong Gateway)
+      - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
+      - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
+      - BROKER_AUTH_SERVICE_INTERNAL_URL=http://kong:8000/internal/broker-auth
+      - SUBSCRIPTION_SERVICE_INTERNAL_URL=http://kong:8000/internal/subscription
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+      # JWT Configuration
+      - JWT_SECRET=your-256-bit-secret-key-here-change-in-production-must-be-at-least-32-characters
+      - JWT_EXPIRATION=900000
+      - JWT_REFRESH_EXPIRATION=86400000
+      - JWT_ISSUER=trademaster-auth-service
+      # Management endpoints
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,metrics,prometheus,circuitbreakers
+      - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
+      - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+    volumes:
+      - kong_secrets:/kong/secrets:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s # Broker Authentication Service
+  broker-auth-service:
+    build:
+      context: ./broker-auth-service
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+      - "9084:9084"  # Management port
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul,docker
+      # Enable Consul for proper service registration
+      - SPRING_CLOUD_CONSUL_ENABLED=true
+      - SPRING_CLOUD_CONSUL_DISCOVERY_ENABLED=true
+      - SPRING_CLOUD_CONSUL_CONFIG_ENABLED=false
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      # Disable Vault to fix authentication error
+      - SPRING_CLOUD_VAULT_ENABLED=false
+      - SPRING_CLOUD_VAULT_AUTHENTICATION=NONE
+      # Database configuration - proper JDBC URL without embedded credentials
+      # Using SPRING_DATASOURCE_* variables that match application-docker.yml expectations
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/trademaster_broker_auth
+      - SPRING_DATASOURCE_USERNAME=trademaster_admin
+      - SPRING_DATASOURCE_PASSWORD=trademaster_secure_pass
+      # Also keeping DATABASE_* for backward compatibility
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/trademaster_broker_auth
+      - DATABASE_USERNAME=trademaster_admin
+      - DATABASE_PASSWORD=trademaster_secure_pass
+      # JPA and Flyway settings (use working service pattern)
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
+      # Redis configuration - matching application-docker.yml expectations
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - HOST_IP=broker-auth-service
+      - CONSUL_INSTANCE_HOSTNAME=broker-auth-service
+      - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview"
+      - SERVER_PORT=8084
+      - MANAGEMENT_SERVER_PORT=9084
+      - SPRING_THREADS_VIRTUAL_ENABLED=true
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - MANAGEMENT_TRACING_ENABLED=true
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=broker-auth
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      # Internal Service URLs (via Kong Gateway)
+      - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
+      - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
+      - RISK_SERVICE_INTERNAL_URL=http://kong:8000/internal/risk
+      - PORTFOLIO_SERVICE_INTERNAL_URL=http://kong:8000/internal/portfolio
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+    volumes:
+      - kong_secrets:/kong/secrets:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9084/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
   # Trading Service
   trading-service:
     build:
@@ -202,16 +382,17 @@ services:
       - REDIS_PORT=6379
       - EVENT_BUS_URL=http://event-bus-service:8081
       - HOST_IP=trading-service
+      - HOSTNAME=trading-service
       - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview"
       - SERVER_PORT=8083
+      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
       - MANAGEMENT_SERVER_PORT=9083
       - SPRING_THREADS_VIRTUAL_ENABLED=true
       - MANAGEMENT_TRACING_ENABLED=true
       - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
       - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
-      - SPRING_FLYWAY_ENABLED=true
-      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
-      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info,prometheus,circuitbreakers
       - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
       - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
@@ -224,6 +405,7 @@ services:
       - SERVICE_NAME=trading
       - SERVICE_KEY_DISCOVERY_ENABLED=true
       - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      - TRADEMASTER_SECURITY_SERVICE_API_KEY=pTB9KkzqJWNkFDUJHIFyDv5b1tSUpP4q
       # Internal Service URLs (via Kong Gateway)
       - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
       - MARKET_DATA_INTERNAL_URL=http://kong:8000/internal/market-data
@@ -246,7 +428,184 @@ services:
       - backend-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:9083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+      - "9085:9085"  # Management port
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul,docker
+      - "SPRING_CONFIG_IMPORT=optional:consul:"
+      - "SPRING_CLOUD_CONSUL_CONFIG_ENABLED=true"
+      - "SPRING_CLOUD_CONSUL_CONFIG_IMPORT_CHECK_ENABLED=true"
+      - "SPRING_CLOUD_CONSUL_DISCOVERY_ENABLED=true"
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - "SPRING_CLOUD_CONSUL_HOST=consul"
+      - "SPRING_CLOUD_CONSUL_PORT=8500"
+      - CONSUL_INSTANCE_HOSTNAME=notification-service
+      - HOSTNAME=notification-service
+      - SERVER_PORT=8085
+      - MANAGEMENT_SERVER_PORT=9085
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=trademaster_notifications
+      - DB_USERNAME=trademaster_admin
+      - DB_PASSWORD=trademaster_secure_pass
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/trademaster_notifications
+      - SPRING_DATASOURCE_USERNAME=trademaster_admin
+      - SPRING_DATASOURCE_PASSWORD=trademaster_secure_pass
+      - SPRING_FLYWAY_ENABLED=true
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USERNAME=noreply@trademaster.com
+      - KONG_GATEWAY_ENABLED=true
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_PROXY_URL=http://kong:8000
+      - JWT_SECRET=your-256-bit-secret-key-here-must-be-at-least-32-characters
+      - JWT_EXPIRATION=86400
+      - JWT_REFRESH_EXPIRATION=604800
+      - JWT_ISSUER=trademaster-notification-service
+      - JWT_AUDIENCE=trademaster-clients
+      - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview"
+      - SPRING_THREADS_VIRTUAL_ENABLED=true
+      - MANAGEMENT_TRACING_ENABLED=true
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info,prometheus,notification
+      - SPRING_FLYWAY_ENABLED=true
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
+      - SPRING_FLYWAY_VALIDATE_ON_MIGRATE=true
+      - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
+      - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=notification
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      # Circuit Breaker and Resilience Configuration
+      - SPRING_CLOUD_CONSUL_ENABLED=true
+      - SPRING_CLOUD_CONSUL_CONFIG_ENABLED=true
+      # Notification Configuration
+      - EMAIL_NOTIFICATIONS_ENABLED=true   # Enabled but will gracefully handle missing SMTP
+      - SMS_NOTIFICATIONS_ENABLED=true     # Enabled but will gracefully handle missing Twilio
+      - IN_APP_NOTIFICATIONS_ENABLED=true
+    volumes:
+      - kong_secrets:/kong/secrets:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9085/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Subscription Service
+  subscription-service:
+    build:
+      context: ./subscription-service
+      dockerfile: Dockerfile.runtime
+    ports:
+      - "8086:8086"
+      - "9086:9086"  # Management port
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul,docker
+      - "SPRING_CONFIG_IMPORT=optional:consul:"
+      - "SPRING_CLOUD_CONSUL_CONFIG_ENABLED=false"
+      - "SPRING_CLOUD_CONSUL_CONFIG_IMPORT_CHECK_ENABLED=false"
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - CONSUL_INSTANCE_HOSTNAME=subscription-service
+      - HOSTNAME=subscription-service
+      - SERVER_PORT=8086
+      - MANAGEMENT_SERVER_PORT=9086
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=trademaster_subscriptions
+      - DB_USERNAME=trademaster_admin
+      - DB_PASSWORD=trademaster_secure_pass
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/trademaster_subscriptions
+      - SPRING_DATASOURCE_USERNAME=trademaster_admin
+      - SPRING_DATASOURCE_PASSWORD=trademaster_secure_pass
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview"
+      - SPRING_THREADS_VIRTUAL_ENABLED=true
+      - MANAGEMENT_TRACING_ENABLED=true
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info,prometheus,subscription
+      - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
+      - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=subscription
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      - TRADEMASTER_SECURITY_SERVICE_API_KEY=pTB9KkzqJWNkFDUJHIFyDv5b1tSUpP4q
+      # Internal Service URLs (via Kong Gateway)
+      - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
+      - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+    volumes:
+      - kong_secrets:/kong/secrets:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9086/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -339,10 +698,10 @@ services:
 
   # Kong Dynamic API Key Setup Service
   kong-dynamic-key-setup:
-    image: curlimages/curl:8.1.2
+    image: alpine:3.18
     command: >
       sh -c "
-        apk add --no-cache bash jq openssl &&
+        apk add --no-cache bash curl jq openssl &&
         chmod +x /kong/config/kong-dynamic-key-setup.sh &&
         /kong/config/kong-dynamic-key-setup.sh
       "
@@ -361,10 +720,10 @@ services:
 
   # Service Key Discovery Helper
   service-key-discovery:
-    image: curlimages/curl:8.1.2
+    image: alpine:3.18
     command: >
       sh -c "
-        apk add --no-cache bash jq &&
+        apk add --no-cache bash curl jq &&
         chmod +x /kong/config/service-key-discovery.sh &&
         echo 'Key discovery service ready. Services can discover keys using:' &&
         echo '  /kong/config/service-key-discovery.sh --service [SERVICE_NAME]' &&

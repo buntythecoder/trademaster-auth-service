@@ -241,6 +241,7 @@ plugins:
         - X-Correlation-ID
         - X-Service-API-Key
         - X-Service-ID
+        - X-Device-Fingerprint
       exposed_headers:
         - X-Auth-Token
         - X-Correlation-ID

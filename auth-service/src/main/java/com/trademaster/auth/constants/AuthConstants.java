@@ -109,10 +109,10 @@ public final class AuthConstants {
     public static final String ENDPOINT_PROFILE = "/api/v1/profile/**";
     public static final String ENDPOINT_ADMIN = "/api/v1/admin/**";
     
-    // CORS Origins
+    // CORS Origins (NOT USED - Kong Gateway handles CORS)
     public static final String[] ALLOWED_ORIGINS = {
         "http://localhost:3000",
-        "http://localhost:8080", 
+        "http://localhost:8080",
         "https://*.trademaster.com",
         "https://trademaster.com"
     };

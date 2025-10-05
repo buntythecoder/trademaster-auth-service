@@ -1,7 +1,7 @@
 server:
   port: 8080
-  servlet:
-    context-path: /api/v1
+#  servlet:
+#    context-path: /api/v1  # Removed - controllers already have /api/v1 prefix
   error:
     include-message: always
     include-binding-errors: always

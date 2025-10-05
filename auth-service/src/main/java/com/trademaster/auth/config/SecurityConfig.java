@@ -62,9 +62,9 @@ public class SecurityConfig {
         http
             // Disable CSRF for JWT-based API
             .csrf(AbstractHttpConfigurer::disable)
-            
-            // Configure CORS
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+            // Disable CORS - Kong Gateway handles CORS at API Gateway level
+            .cors(AbstractHttpConfigurer::disable)
             
             // Configure session management (stateless for JWT)
             .sessionManagement(session -> 
