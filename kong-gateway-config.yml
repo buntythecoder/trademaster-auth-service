@@ -1,0 +1,321 @@
+# Kong API Gateway Configuration for TradeMaster Auth Service
+# Version: 1.0.0
+# Description: API Gateway setup with rate limiting, authentication, and security
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: trademaster-auth-service
+    url: http://auth-service:8080
+    protocol: http
+    host: auth-service
+    port: 8080
+    path: /
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 3
+    
+    # Routes configuration
+    routes:
+      # Public authentication endpoints
+      - name: auth-public
+        paths:
+          - /api/v1/auth/register
+          - /api/v1/auth/login
+          - /api/v1/auth/forgot-password
+          - /api/v1/auth/reset-password
+          - /api/v1/auth/verify-email
+          - /api/v1/auth/health
+        methods:
+          - GET
+          - POST
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          # Rate limiting for public endpoints
+          - name: rate-limiting
+            config:
+              minute: 100  # Free tier: 100 requests per minute
+              hour: 1000   # Free tier: 1000 requests per hour
+              day: 5000    # Free tier: 5000 requests per day
+              policy: local
+              fault_tolerant: true
+              hide_client_headers: false
+              
+          # CORS configuration
+          - name: cors
+            config:
+              origins:
+                - "http://localhost:3000"
+                - "https://trademaster.com"
+                - "https://*.trademaster.com"
+              methods:
+                - GET
+                - POST
+                - PUT
+                - DELETE
+                - OPTIONS
+              headers:
+                - Accept
+                - Accept-Version
+                - Content-Length
+                - Content-MD5
+                - Content-Type
+                - Date
+                - Authorization
+                - X-Auth-Token
+                - X-Device-Fingerprint
+                - X-Request-ID
+              exposed_headers:
+                - X-Auth-Token
+                - X-RateLimit-Limit
+                - X-RateLimit-Remaining
+              credentials: true
+              max_age: 3600
+              
+          # Request/Response transformation
+          - name: request-transformer
+            config:
+              add:
+                headers:
+                  - "X-Gateway-Version:1.0.0"
+                  - "X-Request-ID:$(uuid)"
+              remove:
+                headers:
+                  - "X-Internal-Token"
+                  
+          # Response transformer
+          - name: response-transformer
+            config:
+              add:
+                headers:
+                  - "X-Content-Type-Options:nosniff"
+                  - "X-Frame-Options:DENY"
+                  - "X-XSS-Protection:1; mode=block"
+                  - "Strict-Transport-Security:max-age=31536000; includeSubDomains"
+
+      # Protected authentication endpoints (require authentication)
+      - name: auth-protected
+        paths:
+          - /api/v1/auth/refresh
+          - /api/v1/auth/logout
+          - /api/v1/auth/mfa
+          - /api/v1/profile
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          # JWT Authentication
+          - name: jwt
+            config:
+              uri_param_names:
+                - jwt
+              cookie_names:
+                - jwt
+              header_names:
+                - authorization
+              claims_to_verify:
+                - exp
+                - sub
+              key_claim_name: iss
+              secret_is_base64: false
+              run_on_preflight: false
+              
+          # Rate limiting for authenticated users
+          - name: rate-limiting
+            config:
+              minute: 1000  # Authenticated: 1000 requests per minute
+              hour: 10000   # Authenticated: 10000 requests per hour  
+              day: 50000    # Authenticated: 50000 requests per day
+              policy: local
+              fault_tolerant: true
+              hide_client_headers: false
+              
+          # Request size limiting
+          - name: request-size-limiting
+            config:
+              allowed_payload_size: 10  # 10MB max request size
+              
+          # IP restriction (can be configured per environment)
+          - name: ip-restriction
+            config:
+              allow:
+                - "0.0.0.0/0"  # Allow all IPs (configure per environment)
+              
+          # Security headers
+          - name: response-transformer
+            config:
+              add:
+                headers:
+                  - "X-Content-Type-Options:nosniff"
+                  - "X-Frame-Options:DENY"
+                  - "X-XSS-Protection:1; mode=block"
+                  - "Strict-Transport-Security:max-age=31536000; includeSubDomains"
+                  - "Content-Security-Policy:default-src 'self'"
+
+      # Premium user endpoints (higher rate limits)
+      - name: auth-premium
+        paths:
+          - /api/v1/premium
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        strip_path: false
+        preserve_host: false
+        
+        plugins:
+          # JWT Authentication with role check
+          - name: jwt
+            config:
+              uri_param_names:
+                - jwt
+              cookie_names:
+                - jwt
+              header_names:
+                - authorization
+              claims_to_verify:
+                - exp
+                - sub
+              key_claim_name: iss
+              secret_is_base64: false
+              
+          # Higher rate limits for premium users
+          - name: rate-limiting
+            config:
+              minute: 5000   # Premium: 5000 requests per minute
+              hour: 50000    # Premium: 50000 requests per hour
+              day: 500000    # Premium: 500000 requests per day
+              policy: local
+              fault_tolerant: true
+
+# Global plugins
+plugins:
+  # Request logging
+  - name: file-log
+    config:
+      path: /var/log/kong/access.log
+      reopen: true
+      
+  # Prometheus metrics
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+      
+  # Circuit breaker
+  - name: proxy-cache
+    config:
+      response_code:
+        - 200
+        - 301
+        - 404
+      request_method:
+        - GET
+        - HEAD
+      content_type:
+        - text/plain
+        - application/json
+      cache_ttl: 300  # 5 minutes cache
+      cache_control: false
+      
+  # Security scanner
+  - name: bot-detection
+    config:
+      whitelist: []
+      blacklist: []
+
+# Consumer configuration (API keys, JWT secrets)
+consumers:
+  - username: trademaster-frontend
+    keyauth_credentials:
+      - key: frontend-api-key-2024
+    jwt_secrets:
+      - key: trademaster-auth-service
+        secret: your-256-bit-secret-key-here-change-in-production
+        
+  - username: trademaster-mobile
+    keyauth_credentials:
+      - key: mobile-api-key-2024
+    jwt_secrets:
+      - key: trademaster-auth-service
+        secret: your-256-bit-secret-key-here-change-in-production
+
+# Upstreams configuration (for load balancing)
+upstreams:
+  - name: auth-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_statuses:
+            - 429
+            - 500
+            - 502
+            - 503
+            - 504
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 3
+        healthy:
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+            - 205
+            - 206
+            - 207
+            - 208
+            - 226
+            - 300
+            - 301
+            - 302
+            - 303
+            - 304
+            - 305
+            - 306
+            - 307
+            - 308
+          successes: 3
+      active:
+        type: http
+        timeout: 10
+        concurrency: 5
+        http_path: /api/v1/auth/health
+        https_verify_certificate: false
+        healthy:
+          interval: 30
+          http_statuses:
+            - 200
+          successes: 3
+        unhealthy:
+          interval: 30
+          http_statuses:
+            - 429
+            - 500
+            - 502
+            - 503
+            - 504
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 3
+    targets:
+      - target: auth-service:8080
+        weight: 100

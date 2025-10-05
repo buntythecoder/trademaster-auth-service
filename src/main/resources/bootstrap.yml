@@ -1,0 +1,92 @@
+# ✅ CONSUL BOOTSTRAP CONFIGURATION
+# This file loads before application.yml for Consul integration
+# TradeMaster Golden Specification Compliance
+
+spring:
+  application:
+    name: auth-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # ✅ CONSUL CONFIG IMPORT (MANDATORY for Spring Boot 2.4+)
+  config:
+    import: "optional:consul:"
+
+  # ✅ Allow bean definition overriding for Consul health indicator
+  main:
+    allow-bean-definition-overriding: true
+
+  # Spring Cloud Consul Configuration
+  cloud:
+    # ✅ Disable problematic Spring Cloud Bus function definitions
+    function:
+      definition: ""
+    consul:
+      host: consul
+      port: 8500
+      scheme: ${CONSUL_SCHEME:http}
+
+      # ✅ CONSUL CONFIG - Load configuration from Consul KV store
+      config:
+        enabled: ${CONSUL_CONFIG_ENABLED:true}
+        format: YAML
+        prefix: config
+        default-context: ${spring.application.name}
+        data-key: data
+        watch:
+          enabled: true
+          delay: 1000
+          wait-time: 55
+        fail-fast: false
+
+      # ✅ CONSUL SERVICE DISCOVERY - Register service with Consul
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+        register: true
+        prefer-ip-address: true
+        hostname: ${HOSTNAME:localhost}
+        port: ${SERVER_PORT:8080}
+        service-name: ${spring.application.name}
+        instance-id: ${spring.application.name}-${random.int[10000,99999]}
+        health-check-path: "/actuator/health"
+        health-check-interval: 10s
+        health-check-timeout: 10s
+        health-check-critical-timeout: 30s
+        heartbeat:
+          enabled: true
+        tags:
+          - "version=1.0.0"
+          - "environment=${SPRING_PROFILES_ACTIVE:dev}"
+          - "java=24"
+          - "virtual-threads=enabled"
+          - "sla-critical=25ms"
+          - "microservice=auth-service"
+          - "kong-upstream=auth-service"
+          - "internal-api=/api/internal/v1/auth"
+          - "external-api=/api/v1/auth"
+        metadata:
+          management_context-path: "/actuator"
+          health_path: "/actuator/health"
+          metrics_path: "/actuator/metrics"
+          info_path: "/actuator/info"
+          openapi_path: "/v3/api-docs"
+          swagger_path: "/swagger-ui.html"
+          supported_features: "JWT,MFA,DEVICE_MANAGEMENT,SECURITY_AUDIT"
+          performance_target: "authentication-25ms"
+
+      # ✅ CONSUL RETRY CONFIGURATION
+      retry:
+        enabled: true
+        initial-interval: 1000
+        max-interval: 2000
+        max-attempts: 6
+        multiplier: 1.1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always

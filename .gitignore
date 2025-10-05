@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+*.jar
+*.war
+*.ear
+*.class
+.gradle/
+gradle-wrapper.jar
+BOOT-INF/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+.nyc_output/
+coverage/
