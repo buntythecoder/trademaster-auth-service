@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: payment-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  cloud:
+    consul:
+      host: ${CONSUL_HOST:consul}
+      port: ${CONSUL_PORT:8500}
+      config:
+        enabled: true
+        format: YAML
+        default-context: application
+        profile-separator: ','
+        data-key: data
+        prefix: config
+        watch:
+          enabled: true
+          delay: 1000
+
+# TradeMaster Custom Configuration
+trademaster:
+  consul:
+    datacenter: ${CONSUL_DATACENTER:trademaster-dc}

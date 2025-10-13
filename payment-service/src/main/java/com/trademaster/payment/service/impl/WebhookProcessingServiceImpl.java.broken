@@ -1,0 +1,453 @@
+package com.trademaster.payment.service.impl;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trademaster.payment.domain.Result;
+import com.trademaster.payment.domain.WebhookEvent;
+import com.trademaster.payment.entity.PaymentTransaction;
+import com.trademaster.payment.entity.WebhookLog;
+import com.trademaster.payment.enums.PaymentGateway;
+import com.trademaster.payment.enums.PaymentStatus;
+import com.trademaster.payment.repository.WebhookLogRepository;
+import com.trademaster.payment.service.PaymentProcessingService;
+import com.trademaster.payment.service.WebhookProcessingService;
+import com.trademaster.payment.service.gateway.PaymentGatewayFactory;
+import com.trademaster.payment.util.ResultUtil;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+/**
+ * Webhook Processing Service Implementation
+ * Functional webhook processing with pattern matching on sealed types
+ *
+ * Compliance:
+ * - Rule 3: Functional Programming First - NO if-else, NO loops, NO try-catch in business logic
+ * - Rule 4: Advanced Design Patterns - Strategy pattern with sealed types, Factory delegation
+ * - Rule 5: Cognitive Complexity ≤ 7 per method
+ * - Rule 11: Railway programming with Result types and flatMap chains
+ * - Rule 12: Virtual Threads with CompletableFuture for async operations
+ * - Rule 14: Pattern matching on sealed WebhookEvent types
+ * - Rule 15: Structured logging with correlation IDs
+ * - Rule 24: Circuit breaker through PaymentGatewayFactory
+ *
+ * @author TradeMaster Development Team
+ * @version 1.0.0
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class WebhookProcessingServiceImpl implements WebhookProcessingService {
+
+    private final PaymentGatewayFactory gatewayFactory;
+    private final PaymentProcessingService paymentProcessingService;
+    private final WebhookLogRepository webhookLogRepository;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final MeterRegistry meterRegistry;
+    private final ObjectMapper objectMapper;
+
+    @Value("${payment.webhook.secret.razorpay:}")
+    private String razorpayWebhookSecret;
+
+    @Value("${payment.webhook.secret.stripe:}")
+    private String stripeWebhookSecret;
+
+    @Value("${kafka.topics.webhook:webhook-events}")
+    private String WEBHOOK_TOPIC;
+
+    // Virtual Thread Executor for async operations (Rule 12)
+    private static final Executor VIRTUAL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+
+    /**
+     * Process incoming webhook with Railway programming
+     * Complexity: 6 (within ≤7 limit)
+     */
+    @Override
+    @Transactional
+    public CompletableFuture<Result<WebhookEvent, String>> processWebhook(
+            PaymentGateway gateway,
+            String payload,
+            String signature,
+            Map<String, String> headers
+    ) {
+        String correlationId = generateCorrelationId();
+        log.info("Processing webhook: correlationId={}, gateway={}", correlationId, gateway);
+
+        return CompletableFuture.supplyAsync(
+            () -> getWebhookSecret(gateway)
+                .flatMap(secret -> verifyWebhookSignature(gateway, payload, signature, secret))
+                .flatMap(valid -> parsePayloadToMap(payload))
+                .flatMap(payloadMap -> parseWebhookEvent(gateway, payloadMap))
+                .flatMap(event -> handleWebhookEvent(event, correlationId).map(_ -> event))
+                .peek(event -> logWebhook(gateway, payload, event, "SUCCESS", correlationId))
+                .peek(event -> recordSuccessMetrics(gateway))
+                .peek(event -> publishWebhookEvent(event, correlationId))
+                .peekError(error -> logFailedWebhook(gateway, payload, error, correlationId))
+                .peekError(error -> recordFailureMetrics(gateway, error)),
+            VIRTUAL_EXECUTOR
+        );
+    }
+
+    /**
+     * Handle webhook event with pattern matching on sealed type
+     * NO if-else - uses switch expression on sealed interface
+     * Complexity: 5 (within ≤7 limit)
+     */
+    @Override
+    public Result<String, String> handleWebhookEvent(WebhookEvent event, String correlationId) {
+        log.info("Handling webhook event: correlationId={}, eventType={}",
+                correlationId, event.eventType());
+
+        return switch (event) {
+            case WebhookEvent.PaymentSucceeded success ->
+                updateTransactionStatus(success.paymentId(), PaymentStatus.COMPLETED,
+                    success.payload(), correlationId);
+
+            case WebhookEvent.PaymentFailed failed ->
+                updateTransactionStatus(failed.paymentId(), PaymentStatus.FAILED,
+                    failed.payload(), correlationId);
+
+            case WebhookEvent.PaymentAuthorized authorized ->
+                updateTransactionStatus(authorized.paymentId(), PaymentStatus.AUTHORIZED,
+                    authorized.payload(), correlationId);
+
+            case WebhookEvent.PaymentCaptured captured ->
+                updateTransactionStatus(captured.paymentId(), PaymentStatus.COMPLETED,
+                    captured.payload(), correlationId);
+
+            case WebhookEvent.RefundProcessed refund ->
+                updateTransactionStatus(refund.paymentId(), PaymentStatus.REFUNDED,
+                    refund.payload(), correlationId);
+
+            case WebhookEvent.RefundFailed refundFailed ->
+                logRefundFailure(refundFailed, correlationId);
+
+            case WebhookEvent.Unknown unknown ->
+                logUnknownEvent(unknown, correlationId);
+        };
+    }
+
+    /**
+     * Verify webhook signature using gateway factory
+     * Delegates to PaymentGatewayFactory (circuit breaker protected)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    @Override
+    public Result<Boolean, String> verifyWebhookSignature(
+            PaymentGateway gateway,
+            String payload,
+            String signature,
+            String secret
+    ) {
+        return gatewayFactory.verifyWebhookSignature(gateway, payload, signature, secret)
+            .flatMap(this::validateSignatureVerification);
+    }
+
+    /**
+     * Parse webhook payload into typed event
+     * Uses WebhookEvent factory method with pattern matching
+     * Complexity: 3 (within ≤7 limit)
+     */
+    @Override
+    public Result<WebhookEvent, String> parseWebhookEvent(
+            PaymentGateway gateway,
+            Map<String, Object> payload
+    ) {
+        return WebhookEvent.fromRawEvent(gateway, extractEventType(payload), payload)
+            .peek(event -> log.debug("Webhook event parsed: gateway={}, eventType={}",
+                gateway, event.eventType()));
+    }
+
+    /**
+     * Log webhook for audit trail
+     * Immutable WebhookLog entity with builder pattern
+     * Complexity: 4 (within ≤7 limit)
+     */
+    @Override
+    public Result<WebhookLog, String> logWebhook(
+            PaymentGateway gateway,
+            String payload,
+            WebhookEvent event,
+            String status,
+            String correlationId
+    ) {
+        return ResultUtil.safely(() -> {
+            WebhookLog log = WebhookLog.builder()
+                .gateway(gateway)
+                .eventType(event.eventType())
+                .payload(payload)
+                .status(status)
+                .correlationId(correlationId)
+                .receivedAt(Instant.now())
+                .build();
+
+            return webhookLogRepository.save(log);
+        }).mapError(Throwable::getMessage);
+    }
+
+    /**
+     * Replay failed webhook from audit log
+     * Functional replay with transaction recovery
+     * Complexity: 5 (within ≤7 limit)
+     */
+    @Override
+    @Transactional
+    public CompletableFuture<Result<String, String>> replayWebhook(Long webhookLogId) {
+        log.info("Replaying webhook: webhookLogId={}", webhookLogId);
+
+        return CompletableFuture.supplyAsync(
+            () -> findWebhookLog(webhookLogId)
+                .flatMap(this::validateReplayEligibility)
+                .flatMap(webhookLog -> parsePayloadToMap(webhookLog.getPayload())
+                    .flatMap(payload -> parseWebhookEvent(webhookLog.getGateway(), payload))
+                    .flatMap(event -> handleWebhookEvent(event, webhookLog.getCorrelationId()))
+                    .map(_ -> "Webhook replayed successfully: " + webhookLogId)),
+            VIRTUAL_EXECUTOR
+        );
+    }
+
+    /**
+     * Get webhook history with optional filters
+     * Functional query with Optional-based filtering
+     * Complexity: 4 (within ≤7 limit)
+     */
+    @Override
+    public Result<Page<WebhookLog>, String> getWebhookHistory(
+            Optional<PaymentGateway> gateway,
+            Optional<String> status,
+            Pageable pageable
+    ) {
+        return ResultUtil.safely(() ->
+            gateway.flatMap(g -> status.map(s ->
+                webhookLogRepository.findByGatewayAndStatus(g, s, pageable)
+            ).or(() -> Optional.of(
+                webhookLogRepository.findByGateway(g, pageable)
+            ))).or(() -> status.map(s ->
+                webhookLogRepository.findByStatus(s, pageable)
+            )).orElseGet(() ->
+                webhookLogRepository.findAll(pageable)
+            )
+        ).mapError(Throwable::getMessage);
+    }
+
+    // ==================== Private Helper Methods (Functional) ====================
+
+    /**
+     * Update transaction status from webhook event
+     * Railway programming with Result flatMap chain
+     * Complexity: 5 (within ≤7 limit)
+     */
+    private Result<String, String> updateTransactionStatus(
+            String paymentId,
+            PaymentStatus newStatus,
+            Map<String, Object> gatewayResponse,
+            String correlationId
+    ) {
+        return paymentProcessingService.getTransactionByGatewayPaymentId(paymentId)
+            .flatMap(transaction ->
+                paymentProcessingService.updateTransactionStatus(
+                    transaction.getId(), newStatus, gatewayResponse))
+            .map(transaction -> logTransactionUpdate(transaction, correlationId))
+            .map(PaymentTransaction::getId)
+            .map(UUID::toString);
+    }
+
+    /**
+     * Validate signature verification result
+     * Functional validation (NO if-else)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<Boolean, String> validateSignatureVerification(Boolean isValid) {
+        return Optional.of(isValid)
+            .filter(valid -> valid)
+            .map(Result::<Boolean, String>success)
+            .orElseGet(() -> Result.failure("Invalid webhook signature"));
+    }
+
+    /**
+     * Get webhook secret by gateway
+     * Pattern matching for gateway-specific secrets (NO if-else)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<String, String> getWebhookSecret(PaymentGateway gateway) {
+        return switch (gateway) {
+            case RAZORPAY, UPI -> Result.success(razorpayWebhookSecret);
+            case STRIPE -> Result.success(stripeWebhookSecret);
+        };
+    }
+
+    /**
+     * Parse JSON payload to Map
+     * Functional JSON parsing (NO try-catch)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    @SuppressWarnings("unchecked")
+    private Result<Map<String, Object>, String> parsePayloadToMap(String payload) {
+        return ResultUtil.safely(() -> objectMapper.readValue(payload, Map.class))
+            .mapError(error -> "Failed to parse webhook payload: " + error.getMessage());
+    }
+
+    /**
+     * Extract event type from payload
+     * Functional data extraction (NO if-else)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private String extractEventType(Map<String, Object> payload) {
+        return Optional.ofNullable(payload.get("event"))
+            .map(Object::toString)
+            .orElseGet(() -> Optional.ofNullable(payload.get("type"))
+                .map(Object::toString)
+                .orElse("unknown"));
+    }
+
+    /**
+     * Find webhook log by ID
+     * Functional repository query with Optional
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<WebhookLog, String> findWebhookLog(Long webhookLogId) {
+        return webhookLogRepository.findById(webhookLogId)
+            .map(Result::<WebhookLog, String>success)
+            .orElseGet(() -> Result.failure("Webhook log not found: " + webhookLogId));
+    }
+
+    /**
+     * Validate webhook log is eligible for replay
+     * Functional validation (NO if-else)
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<WebhookLog, String> validateReplayEligibility(WebhookLog webhookLog) {
+        return Optional.of(webhookLog)
+            .filter(log -> "FAILED".equals(log.getStatus()) || "INVALID_SIGNATURE".equals(log.getStatus()))
+            .map(Result::<WebhookLog, String>success)
+            .orElseGet(() -> Result.failure("Webhook not eligible for replay: " + webhookLog.getStatus()));
+    }
+
+    /**
+     * Log refund failure event
+     * Structured logging with correlation ID
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<String, String> logRefundFailure(
+            WebhookEvent.RefundFailed event,
+            String correlationId
+    ) {
+        log.warn("Refund failed: correlationId={}, refundId={}, paymentId={}, error={}",
+                correlationId, event.refundId(), event.paymentId(), event.errorMessage());
+        return Result.success("Refund failure logged");
+    }
+
+    /**
+     * Log unknown event type
+     * Structured logging for monitoring
+     * Complexity: 2 (within ≤7 limit)
+     */
+    private Result<String, String> logUnknownEvent(
+            WebhookEvent.Unknown event,
+            String correlationId
+    ) {
+        log.info("Unknown webhook event: correlationId={}, gateway={}, eventType={}",
+                correlationId, event.gateway(), event.eventType());
+        return Result.success("Unknown event logged");
+    }
+
+    /**
+     * Log transaction update for audit trail
+     * Returns transaction for chaining
+     * Complexity: 1 (within ≤7 limit)
+     */
+    private PaymentTransaction logTransactionUpdate(
+            PaymentTransaction transaction,
+            String correlationId
+    ) {
+        log.info("Transaction updated from webhook: correlationId={}, transactionId={}, status={}",
+                correlationId, transaction.getId(), transaction.getStatus());
+        return transaction;
+    }
+
+    /**
+     * Log failed webhook processing
+     * Structured error logging
+     * Complexity: 1 (within ≤7 limit)
+     */
+    private void logFailedWebhook(
+            PaymentGateway gateway,
+            String payload,
+            String error,
+            String correlationId
+    ) {
+        log.error("Webhook processing failed: correlationId={}, gateway={}, error={}",
+                correlationId, gateway, error);
+        logWebhook(gateway, payload, null, "FAILED", correlationId);
+    }
+
+    /**
+     * Publish webhook event to Kafka
+     * Async event publishing with virtual threads
+     * Complexity: 4 (within ≤7 limit)
+     */
+    private void publishWebhookEvent(WebhookEvent event, String correlationId) {
+        CompletableFuture.runAsync(() -> {
+            Map<String, Object> eventData = Map.of(
+                "eventType", "WEBHOOK_PROCESSED",
+                "gateway", event.gateway().name(),
+                "webhookEventType", event.eventType(),
+                "correlationId", correlationId,
+                "timestamp", Instant.now().toString()
+            );
+
+            kafkaTemplate.send(WEBHOOK_TOPIC, correlationId, eventData);
+            log.info("Webhook event published: correlationId={}", correlationId);
+        }, VIRTUAL_EXECUTOR);
+    }
+
+    /**
+     * Record success metrics for monitoring
+     * Prometheus counter increment
+     * Complexity: 1 (within ≤7 limit)
+     */
+    private void recordSuccessMetrics(PaymentGateway gateway) {
+        Counter.builder("webhook.processed")
+            .tag("gateway", gateway.name())
+            .tag("status", "success")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    /**
+     * Record failure metrics for monitoring
+     * Prometheus counter with error tag
+     * Complexity: 1 (within ≤7 limit)
+     */
+    private void recordFailureMetrics(PaymentGateway gateway, String error) {
+        Counter.builder("webhook.processed")
+            .tag("gateway", gateway.name())
+            .tag("status", "failed")
+            .tag("error", error)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    /**
+     * Generate unique correlation ID
+     * UUID-based correlation for distributed tracing
+     * Complexity: 1 (within ≤7 limit)
+     */
+    private String generateCorrelationId() {
+        return "webhook-" + UUID.randomUUID().toString();
+    }
+}

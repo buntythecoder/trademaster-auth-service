@@ -32,10 +32,10 @@ tasks.named('test') {
     useJUnitPlatform()
     testLogging {
         events "passed", "skipped", "failed"
-        exceptionFormat "full"
-        showCauses true
-        showExceptions true
-        showStackTraces true
+        exceptionFormat = "full"
+        showCauses = true
+        showExceptions = true
+        showStackTraces = true
     }
 }
 
@@ -57,14 +57,22 @@ ext {
 }
 
 dependencies {
+    // TradeMaster Common Library (Rule #27 - Standards Compliance)
+    implementation project(':trademaster-common-service-lib')
+
     // Spring Boot Starters
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
+
+    // Spring Cloud - Service Discovery
+    implementation 'org.springframework.cloud:spring-cloud-starter-consul-discovery'
+    implementation 'org.springframework.cloud:spring-cloud-starter-consul-config'
     
     // Database
     implementation 'org.postgresql:postgresql'
@@ -133,6 +141,7 @@ dependencies {
     testImplementation 'com.h2database:h2'
     testImplementation 'org.mockito:mockito-inline:5.2.0'
     testImplementation 'org.awaitility:awaitility'
+    testImplementation 'org.wiremock:wiremock-standalone:3.3.1'
 }
 
 dependencyManagement {

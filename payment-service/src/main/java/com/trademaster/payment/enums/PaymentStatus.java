@@ -14,6 +14,7 @@ import lombok.Getter;
 public enum PaymentStatus {
     PENDING("Payment initiated but not processed"),
     PROCESSING("Payment being processed by gateway"),
+    AUTHORIZED("Payment authorized but not yet captured"),
     COMPLETED("Payment successfully completed"),
     FAILED("Payment failed"),
     CANCELLED("Payment cancelled by user"),

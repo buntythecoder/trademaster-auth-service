@@ -1,0 +1,282 @@
+# Kong Configuration for Payment Service
+# Per TradeMaster Golden Specification
+#
+# This configuration defines Kong routes, services, and plugins
+# for the Payment Service with dynamic API key authentication
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  # Payment Service - External API
+  - name: payment-service-external
+    url: http://payment-service:8085/api/v1
+    protocol: http
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+
+    routes:
+      - name: payment-external-route
+        paths:
+          - /api/v1/payment
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        strip_path: false
+        preserve_host: true
+
+    plugins:
+      # JWT Authentication for external APIs
+      - name: jwt
+        enabled: true
+        config:
+          uri_param_names:
+            - jwt
+          cookie_names: []
+          claims_to_verify:
+            - exp
+          key_claim_name: iss
+          secret_is_base64: false
+          anonymous: null
+          run_on_preflight: true
+          maximum_expiration: 0
+
+      # Rate Limiting
+      - name: rate-limiting
+        enabled: true
+        config:
+          second: 100
+          minute: 1000
+          hour: 10000
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+
+      # CORS
+      - name: cors
+        enabled: true
+        config:
+          origins:
+            - http://localhost:3000
+            - https://trademaster.app
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Authorization
+            - Content-Type
+            - X-Correlation-ID
+          exposed_headers:
+            - X-Auth-Token
+          credentials: true
+          max_age: 3600
+
+      # Request/Response Logging
+      - name: http-log
+        enabled: true
+        config:
+          http_endpoint: http://logging-service:8088/logs
+          method: POST
+          timeout: 10000
+          keepalive: 60000
+          retry_count: 3
+          queue_size: 100
+          flush_timeout: 2
+          custom_fields_by_lua:
+            correlation_id: "return kong.request.get_header('X-Correlation-ID')"
+
+  # Payment Service - Internal API
+  - name: payment-service-internal
+    url: http://payment-service:8085/api/internal/v1
+    protocol: http
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 2
+
+    routes:
+      - name: payment-internal-route
+        paths:
+          - /api/internal/v1/payment
+        methods:
+          - GET
+          - POST
+          - PUT
+        strip_path: false
+        preserve_host: true
+
+    plugins:
+      # API Key Authentication for internal services
+      - name: key-auth
+        enabled: true
+        config:
+          key_names:
+            - X-API-Key
+          key_in_header: true
+          key_in_query: false
+          key_in_body: false
+          hide_credentials: true
+          anonymous: null
+          run_on_preflight: true
+
+      # Internal Service Rate Limiting (higher limits)
+      - name: rate-limiting
+        enabled: true
+        config:
+          second: 500
+          minute: 5000
+          hour: 50000
+          policy: local
+          fault_tolerant: true
+
+  # Payment Service - Health Check
+  - name: payment-service-health
+    url: http://payment-service:8085/api/v2/health
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 5000
+    read_timeout: 5000
+    retries: 1
+
+    routes:
+      - name: payment-health-route
+        paths:
+          - /api/v2/health/payment
+        methods:
+          - GET
+        strip_path: true
+        preserve_host: false
+
+    plugins:
+      # No authentication for health checks
+      - name: request-termination
+        enabled: false
+
+# Consumer for internal services
+consumers:
+  - username: portfolio-service
+    custom_id: portfolio-service-001
+    keyauth_credentials:
+      - key: portfolio_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - portfolio
+
+  - username: subscription-service
+    custom_id: subscription-service-001
+    keyauth_credentials:
+      - key: subscription_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - subscription
+
+  - username: trading-service
+    custom_id: trading-service-001
+    keyauth_credentials:
+      - key: trading_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - trading
+
+# Global Plugins
+plugins:
+  # Correlation ID injection
+  - name: correlation-id
+    enabled: true
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+  # Request Size Limiting
+  - name: request-size-limiting
+    enabled: true
+    config:
+      allowed_payload_size: 10
+      size_unit: megabytes
+      require_content_length: false
+
+  # IP Restriction (configure per environment)
+  - name: ip-restriction
+    enabled: false
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+      deny: []
+      status: 403
+      message: "Access denied"
+
+# Upstreams configuration for load balancing
+upstreams:
+  - name: payment-service-upstream
+    algorithm: round-robin
+    hash_on: none
+    hash_fallback: none
+    hash_on_cookie_path: /
+    slots: 10000
+    healthchecks:
+      active:
+        type: http
+        http_path: /api/v2/health
+        timeout: 5
+        concurrency: 10
+        healthy:
+          interval: 10
+          http_statuses:
+            - 200
+            - 201
+          successes: 2
+        unhealthy:
+          interval: 5
+          http_statuses:
+            - 429
+            - 500
+            - 503
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 5
+      passive:
+        type: http
+        healthy:
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+            - 205
+            - 206
+            - 207
+            - 208
+            - 226
+            - 300
+            - 301
+            - 302
+            - 303
+            - 304
+            - 305
+            - 306
+            - 307
+            - 308
+          successes: 5
+        unhealthy:
+          http_statuses:
+            - 429
+            - 500
+            - 503
+          tcp_failures: 2
+          timeouts: 7
+          http_failures: 5
+    targets:
+      - target: payment-service:8085
+        weight: 100

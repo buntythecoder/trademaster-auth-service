@@ -1,5 +1,8 @@
 package com.trademaster.payment.service;
 
+import com.trademaster.common.functional.Result;
+import com.trademaster.payment.dto.EncryptedCardData;
+import com.trademaster.payment.util.ResultUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -224,5 +227,25 @@ public class EncryptionService {
         if (sensitiveData != null) {
             java.util.Arrays.fill(sensitiveData, (byte) 0);
         }
+    }
+
+    /**
+     * Encrypt card data (card number and CVV)
+     * Returns Result type with encrypted data or error message
+     *
+     * Compliance:
+     * - Rule 11: Railway programming with Result types
+     * - PCI DSS: Encrypt sensitive card data before storage
+     *
+     * @param cardNumber Plain-text card number
+     * @param cvv Plain-text CVV
+     * @return Result with EncryptedCardData or error message
+     */
+    public Result<EncryptedCardData, String> encryptCardData(String cardNumber, String cvv) {
+        return ResultUtil.tryExecute(() -> {
+            String encryptedCardNumber = encrypt(cardNumber);
+            String encryptedCvv = cvv != null ? encrypt(cvv) : null;
+            return new EncryptedCardData(encryptedCardNumber, encryptedCvv);
+        }).mapError(Throwable::getMessage);
     }
 }

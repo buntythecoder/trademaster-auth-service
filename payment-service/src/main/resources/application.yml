@@ -1,16 +1,52 @@
+# Import common library configuration (serves as defaults)
+# Service-specific properties below will override common defaults
+spring:
+  config:
+    import: optional:classpath:application-common.yml
+
+  application:
+    name: payment-service
+
 server:
   port: 8085
   servlet:
     context-path: /api/v1
 
 spring:
-  application:
-    name: payment-service
-  
+
   # MANDATORY: Virtual Threads Configuration
   threads:
     virtual:
       enabled: true
+
+  # Consul Service Discovery Configuration
+  cloud:
+    consul:
+      enabled: true
+      host: ${CONSUL_HOST:consul}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        enabled: true
+        register: true
+        deregister: true
+        prefer-ip-address: true
+        health-check-path: /actuator/health
+        health-check-interval: 10s
+        health-check-timeout: 5s
+        health-check-critical-timeout: 30s
+        fail-fast: false
+        query-passing: true
+        catalog-services-watch-delay: 1000
+        catalog-services-watch-timeout: 2
+      config:
+        enabled: true
+        format: YAML
+        default-context: application
+        profile-separator: ','
+        data-key: data
+        watch:
+          enabled: true
+          delay: 1000
   
   # Database Configuration
   datasource:
@@ -175,6 +211,26 @@ security:
       key-length: 256
     token-expiry: 3600
 
+# TradeMaster Security Configuration - Kong Integration
+trademaster:
+  security:
+    # Internal API Key for service-to-service authentication
+    internal-api-key: ${INTERNAL_API_KEY:trademaster_internal_dev_key}
+
+  # Service URLs for internal communication
+  services:
+    portfolio-service-url: ${PORTFOLIO_SERVICE_URL:http://localhost:8083}
+    subscription-service-url: ${SUBSCRIPTION_SERVICE_URL:http://localhost:8084}
+    notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+    trading-service-url: ${TRADING_SERVICE_URL:http://localhost:8082}
+
+  # Kong API Gateway Configuration
+  kong:
+    gateway-url: ${KONG_GATEWAY_URL:http://localhost:8000}
+    admin-url: ${KONG_ADMIN_URL:http://localhost:8001}
+    health-check-path: /api/v2/health
+    service-name: payment-service
+
 # Rate Limiting Configuration
 rate-limiting:
   payment:
@@ -216,6 +272,26 @@ management:
       application: trademaster
       service: payment-service
       environment: ${spring.profiles.active:local}
+
+# OpenAPI / Swagger Configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    disable-swagger-default-url: true
+    display-request-duration: true
+    tags-sorter: alpha
+    operations-sorter: alpha
+    doc-expansion: none
+    default-models-expand-depth: 1
+    default-model-rendering: model
+    filter: true
+  show-actuator: true
+  default-produces-media-type: application/json
+  default-consumes-media-type: application/json
 
 # Logging Configuration
 logging:
