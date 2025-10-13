@@ -1,0 +1,15 @@
+rootProject.name = 'trademaster'
+
+// Include all microservices
+include 'payment-service'
+include 'market-data-service'
+include 'trademaster-common-service-lib'
+
+// Add more services as they adopt common library
+// include 'auth-service'
+// include 'broker-auth-service'
+// include 'subscription-service'
+include 'trading-service'
+// include 'notification-service'
+// include 'event-bus-service'
+// include 'portfolio-service'
