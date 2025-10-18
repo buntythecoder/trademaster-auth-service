@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -179,19 +180,19 @@ public class NewsAggregationService {
         return news;
     }
 
+    /**
+     * Check if news is breaking using functional Stream API
+     * Rule #3: Stream API with anyMatch instead of loop with early return
+     */
     private boolean isBreakingNews(String content) {
-        String lowerContent = content.toLowerCase();
-        String[] breakingKeywords = {
-            "breaking", "urgent", "alert", "just in", "developing", 
+        Set<String> breakingKeywords = Set.of(
+            "breaking", "urgent", "alert", "just in", "developing",
             "flash", "immediate", "emergency", "unprecedented"
-        };
-        
-        for (String keyword : breakingKeywords) {
-            if (lowerContent.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
+        );
+        String lowerContent = content.toLowerCase();
+
+        return breakingKeywords.stream()
+            .anyMatch(lowerContent::contains);
     }
 
     private String generateContentHash(String content) {

@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;

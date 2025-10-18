@@ -1,0 +1,382 @@
+# Kong Configuration for Market Data Service
+# Per TradeMaster Golden Specification
+#
+# This configuration defines Kong routes, services, and plugins
+# for the Market Data Service with dynamic API key authentication
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  # Market Data Service - External API
+  - name: market-data-service-external
+    url: http://market-data-service:8084/api/v1
+    protocol: http
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+
+    routes:
+      - name: market-data-external-route
+        paths:
+          - /api/v1/market-data
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        strip_path: false
+        preserve_host: true
+
+    plugins:
+      # JWT Authentication for external APIs
+      - name: jwt
+        enabled: true
+        config:
+          uri_param_names:
+            - jwt
+          cookie_names: []
+          claims_to_verify:
+            - exp
+          key_claim_name: iss
+          secret_is_base64: false
+          anonymous: null
+          run_on_preflight: true
+          maximum_expiration: 0
+
+      # Rate Limiting (higher for market data due to real-time requirements)
+      - name: rate-limiting
+        enabled: true
+        config:
+          second: 200
+          minute: 2000
+          hour: 20000
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+
+      # CORS
+      - name: cors
+        enabled: true
+        config:
+          origins:
+            - http://localhost:3000
+            - https://trademaster.app
+            - https://trademaster.com
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Authorization
+            - Content-Type
+            - X-Correlation-ID
+          exposed_headers:
+            - X-Auth-Token
+            - X-RateLimit-Remaining
+          credentials: true
+          max_age: 3600
+
+      # Request/Response Logging
+      - name: http-log
+        enabled: true
+        config:
+          http_endpoint: http://logging-service:8088/logs
+          method: POST
+          timeout: 10000
+          keepalive: 60000
+          retry_count: 3
+          queue_size: 100
+          flush_timeout: 2
+          custom_fields_by_lua:
+            correlation_id: "return kong.request.get_header('X-Correlation-ID')"
+
+      # Response Cache for market data (short TTL)
+      - name: proxy-cache
+        enabled: true
+        config:
+          request_method:
+            - GET
+          response_code:
+            - 200
+          content_type:
+            - application/json
+          cache_ttl: 5  # 5 seconds for real-time market data
+          strategy: memory
+          cache_control: false
+
+  # Market Data Service - Internal API
+  - name: market-data-service-internal
+    url: http://market-data-service:8084/api/internal
+    protocol: http
+    connect_timeout: 30000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 2
+
+    routes:
+      - name: market-data-internal-route
+        paths:
+          - /api/internal/market-data
+        methods:
+          - GET
+          - POST
+          - PUT
+        strip_path: false
+        preserve_host: true
+
+    plugins:
+      # API Key Authentication for internal services
+      - name: key-auth
+        enabled: true
+        config:
+          key_names:
+            - X-API-Key
+          key_in_header: true
+          key_in_query: false
+          key_in_body: false
+          hide_credentials: true
+          anonymous: null
+          run_on_preflight: true
+
+      # Internal Service Rate Limiting (very high limits for internal calls)
+      - name: rate-limiting
+        enabled: true
+        config:
+          second: 1000
+          minute: 10000
+          hour: 100000
+          policy: local
+          fault_tolerant: true
+
+      # Response Cache for internal calls (longer TTL)
+      - name: proxy-cache
+        enabled: true
+        config:
+          request_method:
+            - GET
+          response_code:
+            - 200
+          content_type:
+            - application/json
+          cache_ttl: 30  # 30 seconds for internal queries
+          strategy: memory
+
+  # Market Data Service - WebSocket Streaming
+  - name: market-data-websocket
+    url: http://market-data-service:8084/ws/market-data
+    protocol: http
+    connect_timeout: 60000
+    write_timeout: 300000  # 5 minutes for long-lived connections
+    read_timeout: 300000
+    retries: 0  # No retries for WebSocket
+
+    routes:
+      - name: market-data-websocket-route
+        paths:
+          - /ws/market-data
+        methods:
+          - GET
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+
+    plugins:
+      # JWT Authentication for WebSocket
+      - name: jwt
+        enabled: true
+        config:
+          uri_param_names:
+            - jwt
+            - token
+          cookie_names: []
+          claims_to_verify:
+            - exp
+          key_claim_name: iss
+
+      # Connection Limiting for WebSocket
+      - name: rate-limiting
+        enabled: true
+        config:
+          second: 10
+          minute: 100
+          hour: 1000
+          policy: local
+          fault_tolerant: true
+
+  # Market Data Service - Health Check
+  - name: market-data-service-health
+    url: http://market-data-service:8084/api/v2/health
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 5000
+    read_timeout: 5000
+    retries: 1
+
+    routes:
+      - name: market-data-health-route
+        paths:
+          - /api/v2/health/market-data
+        methods:
+          - GET
+        strip_path: true
+        preserve_host: false
+
+    plugins:
+      # No authentication for health checks
+      - name: request-termination
+        enabled: false
+
+# Consumer for internal services
+consumers:
+  - username: portfolio-service
+    custom_id: portfolio-service-001
+    keyauth_credentials:
+      - key: portfolio_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - portfolio
+
+  - username: trading-service
+    custom_id: trading-service-001
+    keyauth_credentials:
+      - key: trading_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - trading
+
+  - username: payment-service
+    custom_id: payment-service-001
+    keyauth_credentials:
+      - key: payment_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - payment
+
+  - username: subscription-service
+    custom_id: subscription-service-001
+    keyauth_credentials:
+      - key: subscription_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - subscription
+
+  - username: agent-orchestration-service
+    custom_id: agent-orchestration-service-001
+    keyauth_credentials:
+      - key: agent_orchestration_service_api_key_${ENVIRONMENT}
+    tags:
+      - internal-service
+      - orchestration
+
+# Global Plugins
+plugins:
+  # Correlation ID injection
+  - name: correlation-id
+    enabled: true
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+  # Request Size Limiting (larger for market data bulk operations)
+  - name: request-size-limiting
+    enabled: true
+    config:
+      allowed_payload_size: 20
+      size_unit: megabytes
+      require_content_length: false
+
+  # IP Restriction (configure per environment)
+  - name: ip-restriction
+    enabled: false
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+      deny: []
+      status: 403
+      message: "Access denied"
+
+  # Bot Detection
+  - name: bot-detection
+    enabled: true
+    config:
+      allow:
+        - GoogleBot
+        - BingBot
+      deny:
+        - BadBot
+        - Scrapy
+
+# Upstreams configuration for load balancing
+upstreams:
+  - name: market-data-service-upstream
+    algorithm: consistent-hashing
+    hash_on: consumer
+    hash_fallback: ip
+    hash_on_cookie_path: /
+    slots: 10000
+    healthchecks:
+      active:
+        type: http
+        http_path: /api/v2/health
+        timeout: 5
+        concurrency: 10
+        healthy:
+          interval: 10
+          http_statuses:
+            - 200
+            - 201
+          successes: 2
+        unhealthy:
+          interval: 5
+          http_statuses:
+            - 429
+            - 500
+            - 503
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 5
+      passive:
+        type: http
+        healthy:
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+            - 205
+            - 206
+            - 207
+            - 208
+            - 226
+            - 300
+            - 301
+            - 302
+            - 303
+            - 304
+            - 305
+            - 306
+            - 307
+            - 308
+          successes: 5
+        unhealthy:
+          http_statuses:
+            - 429
+            - 500
+            - 503
+          tcp_failures: 2
+          timeouts: 7
+          http_failures: 5
+    targets:
+      - target: market-data-service:8084
+        weight: 100

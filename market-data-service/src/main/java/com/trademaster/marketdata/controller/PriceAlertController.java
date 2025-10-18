@@ -2,20 +2,27 @@ package com.trademaster.marketdata.controller;
 
 import com.trademaster.marketdata.dto.PriceAlertRequest;
 import com.trademaster.marketdata.dto.PriceAlertResponse;
+import com.trademaster.marketdata.security.SecurityContext;
+import com.trademaster.marketdata.security.SecurityFacade;
 import com.trademaster.marketdata.service.PriceAlertService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Price Alert REST API Controller
@@ -32,14 +39,51 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 @Tag(name = "Price Alerts", description = "Advanced price alert management API")
 public class PriceAlertController {
-    
+
     private final PriceAlertService priceAlertService;
+    private final SecurityFacade securityFacade;
+
+    /**
+     * Functional helper for secure access with zero-trust validation
+     *
+     * Wraps service operations with SecurityFacade to enforce:
+     * - Authentication validation
+     * - Authorization checks
+     * - Risk assessment (IP blocking, rate limiting)
+     * - Audit logging
+     *
+     * @param userDetails Spring Security authenticated user
+     * @param request HTTP request for IP address extraction
+     * @param operation Business logic operation to execute
+     * @param successHandler Handler for successful security validation (business logic may still fail)
+     * @return ResponseEntity with operation result or security error
+     */
+    private ResponseEntity<PriceAlertResponse> withSecureAccess(
+            UserDetails userDetails,
+            HttpServletRequest request,
+            Supplier<PriceAlertResponse> operation,
+            Function<PriceAlertResponse, ResponseEntity<PriceAlertResponse>> successHandler) {
+
+        SecurityContext context = SecurityContext.fromUserDetails(
+            userDetails, request.getRemoteAddr());
+
+        return securityFacade.secureAccess(context, operation)
+            .fold(
+                successHandler,  // Security passed, let business logic handle success/failure
+                error -> {
+                    log.warn("Security violation: {} for user: {} from IP: {}",
+                        error.getMessage(), userDetails.getUsername(), request.getRemoteAddr());
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(PriceAlertResponse.error(error.getMessage()));
+                }
+            );
+    }
     
     /**
      * Create a new price alert
      */
     @PostMapping
-    @Operation(summary = "Create price alert", 
+    @Operation(summary = "Create price alert",
                description = "Create a new price alert with comprehensive configuration")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "201", description = "Alert created successfully"),
@@ -50,38 +94,41 @@ public class PriceAlertController {
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<PriceAlertResponse> createAlert(
             @RequestBody @Valid PriceAlertRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        log.info("Creating price alert for user: {} symbol: {} type: {}", 
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        log.info("Creating price alert for user: {} symbol: {} type: {}",
             userDetails.getUsername(), request.symbol(), request.alertType());
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        if (response.success()) {
-            return ResponseEntity.status(201).body(response);
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> priceAlertService.createAlert(request, userDetails.getUsername()),
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
+        );
     }
     
     /**
      * Get user's alerts with filtering and analytics
      */
     @PostMapping("/search")
-    @Operation(summary = "Search price alerts", 
+    @Operation(summary = "Search price alerts",
                description = "Get price alerts with comprehensive filtering and analytics")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<PriceAlertResponse> searchAlerts(
             @RequestBody @Valid PriceAlertRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        log.debug("Alert search request by user: {} with filters: {}", 
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        log.debug("Alert search request by user: {} with filters: {}",
             userDetails.getUsername(), request.hasFilters());
-        
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        return ResponseEntity.ok(response);
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> priceAlertService.getAlerts(request, userDetails.getUsername()),
+            ResponseEntity::ok
+        );
     }
-    
+
     /**
      * Get all active alerts
      */
@@ -89,16 +136,20 @@ public class PriceAlertController {
     @Operation(summary = "Get active alerts", description = "Retrieve all active price alerts")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<PriceAlertResponse> getActiveAlerts(
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.debug("Active alerts request by user: {}", userDetails.getUsername());
-        
-        var request = PriceAlertRequest.activeAlertsQuery();
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        
-        return ResponseEntity.ok(response);
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.activeAlertsQuery();
+                return priceAlertService.getAlerts(request, userDetails.getUsername());
+            },
+            ResponseEntity::ok
+        );
     }
-    
+
     /**
      * Get recently triggered alerts
      */
@@ -106,16 +157,20 @@ public class PriceAlertController {
     @Operation(summary = "Get triggered alerts", description = "Retrieve recently triggered alerts")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<PriceAlertResponse> getTriggeredAlerts(
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.debug("Triggered alerts request by user: {}", userDetails.getUsername());
-        
-        var request = PriceAlertRequest.recentTriggeredQuery();
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        
-        return ResponseEntity.ok(response);
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.recentTriggeredQuery();
+                return priceAlertService.getAlerts(request, userDetails.getUsername());
+            },
+            ResponseEntity::ok
+        );
     }
-    
+
     /**
      * Get high priority alerts
      */
@@ -123,16 +178,20 @@ public class PriceAlertController {
     @Operation(summary = "Get high priority alerts", description = "Retrieve high priority alerts")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<PriceAlertResponse> getHighPriorityAlerts(
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.debug("High priority alerts request by user: {}", userDetails.getUsername());
-        
-        var request = PriceAlertRequest.highPriorityQuery();
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        
-        return ResponseEntity.ok(response);
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.highPriorityQuery();
+                return priceAlertService.getAlerts(request, userDetails.getUsername());
+            },
+            ResponseEntity::ok
+        );
     }
-    
+
     /**
      * Get alerts for a specific symbol
      */
@@ -142,14 +201,18 @@ public class PriceAlertController {
     public ResponseEntity<PriceAlertResponse> getSymbolAlerts(
             @Parameter(description = "Trading symbol", example = "AAPL")
             @PathVariable String symbol,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.debug("Symbol alerts request for {} by user: {}", symbol, userDetails.getUsername());
-        
-        var request = PriceAlertRequest.symbolAlertsQuery(symbol);
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        
-        return ResponseEntity.ok(response);
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.symbolAlertsQuery(symbol);
+                return priceAlertService.getAlerts(request, userDetails.getUsername());
+            },
+            ResponseEntity::ok
+        );
     }
     
     /**
@@ -161,33 +224,40 @@ public class PriceAlertController {
     public ResponseEntity<PriceAlertResponse> getAlert(
             @Parameter(description = "Alert ID")
             @PathVariable Long alertId,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.debug("Alert details request for ID: {} by user: {}", alertId, userDetails.getUsername());
-        
-        // Create a simple request to get single alert with full details
-        var request = PriceAlertRequest.builder()
-            .includePerformanceMetrics(true)
-            .includeMarketContext(true)
-            .includeTriggerHistory(true)
-            .build();
-        
-        var response = priceAlertService.getAlerts(request, userDetails.getUsername());
-        
-        // Filter for specific alert ID in the response
-        if (response.success() && response.alerts() != null) {
-            var alert = response.alerts().stream()
-                .filter(a -> a.id().equals(alertId))
-                .findFirst();
-            
-            if (alert.isPresent()) {
-                return ResponseEntity.ok(PriceAlertResponse.success(alert.get()));
-            }
-        }
-        
-        return ResponseEntity.notFound().build();
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.builder()
+                    .includePerformanceMetrics(true)
+                    .includeMarketContext(true)
+                    .includeTriggerHistory(true)
+                    .build();
+
+                var response = priceAlertService.getAlerts(request, userDetails.getUsername());
+
+                // Filter for specific alert ID in the response
+                if (response.success() && response.alerts() != null) {
+                    var alert = response.alerts().stream()
+                        .filter(a -> a.id().equals(alertId))
+                        .findFirst();
+
+                    if (alert.isPresent()) {
+                        return PriceAlertResponse.success(alert.get());
+                    }
+                }
+
+                return PriceAlertResponse.error("Alert not found");
+            },
+            response -> response.success()
+                ? ResponseEntity.ok(response)
+                : ResponseEntity.notFound().build()
+        );
     }
-    
+
     /**
      * Update an existing alert
      */
@@ -203,21 +273,25 @@ public class PriceAlertController {
             @Parameter(description = "Alert ID")
             @PathVariable Long alertId,
             @RequestBody @Valid PriceAlertRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.info("Updating alert ID: {} for user: {}", alertId, userDetails.getUsername());
-        
-        var response = priceAlertService.updateAlert(alertId, request, userDetails.getUsername());
-        
-        if (response.success()) {
-            return ResponseEntity.ok(response);
-        } else if (response.message().contains("not found")) {
-            return ResponseEntity.notFound().build();
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> priceAlertService.updateAlert(alertId, request, userDetails.getUsername()),
+            response -> {
+                if (response.success()) {
+                    return ResponseEntity.ok(response);
+                } else if (response.message().contains("not found")) {
+                    return ResponseEntity.notFound().build();
+                } else {
+                    return ResponseEntity.badRequest().body(response);
+                }
+            }
+        );
     }
-    
+
     /**
      * Delete an alert
      */
@@ -232,25 +306,29 @@ public class PriceAlertController {
     public ResponseEntity<PriceAlertResponse> deleteAlert(
             @Parameter(description = "Alert ID")
             @PathVariable Long alertId,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
         log.info("Deleting alert ID: {} for user: {}", alertId, userDetails.getUsername());
-        
-        var response = priceAlertService.deleteAlert(alertId, userDetails.getUsername());
-        
-        if (response.success()) {
-            return ResponseEntity.ok(response);
-        } else if (response.message().contains("not found")) {
-            return ResponseEntity.notFound().build();
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> priceAlertService.deleteAlert(alertId, userDetails.getUsername()),
+            response -> {
+                if (response.success()) {
+                    return ResponseEntity.ok(response);
+                } else if (response.message().contains("not found")) {
+                    return ResponseEntity.notFound().build();
+                } else {
+                    return ResponseEntity.badRequest().body(response);
+                }
+            }
+        );
     }
     
     /**
      * Create preset alerts for common scenarios
      */
-    
+
     @PostMapping("/preset/price-target")
     @Operation(summary = "Create price target alert", description = "Create a simple price target alert")
     @PreAuthorize("hasRole('USER')")
@@ -259,22 +337,25 @@ public class PriceAlertController {
             @RequestParam String exchange,
             @RequestParam String targetPrice,
             @RequestParam(defaultValue = "NORMAL") String priority,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        var request = PriceAlertRequest.priceTarget(
-            symbol, 
-            exchange, 
-            new java.math.BigDecimal(targetPrice),
-            com.trademaster.marketdata.entity.PriceAlert.Priority.valueOf(priority.toUpperCase())
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.priceTarget(
+                    symbol,
+                    exchange,
+                    new java.math.BigDecimal(targetPrice),
+                    com.trademaster.marketdata.entity.PriceAlert.Priority.valueOf(priority.toUpperCase())
+                );
+                return priceAlertService.createAlert(request, userDetails.getUsername());
+            },
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
         );
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        return response.success() ? 
-            ResponseEntity.status(201).body(response) : 
-            ResponseEntity.badRequest().body(response);
     }
-    
+
     @PostMapping("/preset/stop-loss")
     @Operation(summary = "Create stop loss alert", description = "Create a stop loss alert")
     @PreAuthorize("hasRole('USER')")
@@ -283,22 +364,25 @@ public class PriceAlertController {
             @RequestParam String exchange,
             @RequestParam String stopPrice,
             @RequestParam(defaultValue = "HIGH") String priority,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        var request = PriceAlertRequest.stopLoss(
-            symbol, 
-            exchange, 
-            new java.math.BigDecimal(stopPrice),
-            com.trademaster.marketdata.entity.PriceAlert.Priority.valueOf(priority.toUpperCase())
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.stopLoss(
+                    symbol,
+                    exchange,
+                    new java.math.BigDecimal(stopPrice),
+                    com.trademaster.marketdata.entity.PriceAlert.Priority.valueOf(priority.toUpperCase())
+                );
+                return priceAlertService.createAlert(request, userDetails.getUsername());
+            },
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
         );
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        return response.success() ? 
-            ResponseEntity.status(201).body(response) : 
-            ResponseEntity.badRequest().body(response);
     }
-    
+
     @PostMapping("/preset/percentage")
     @Operation(summary = "Create percentage alert", description = "Create a percentage change alert")
     @PreAuthorize("hasRole('USER')")
@@ -308,23 +392,26 @@ public class PriceAlertController {
             @RequestParam String baselinePrice,
             @RequestParam String percentage,
             @RequestParam(defaultValue = "true") boolean isUpward,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        var request = PriceAlertRequest.percentageAlert(
-            symbol, 
-            exchange,
-            new java.math.BigDecimal(baselinePrice),
-            new java.math.BigDecimal(percentage),
-            isUpward
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.percentageAlert(
+                    symbol,
+                    exchange,
+                    new java.math.BigDecimal(baselinePrice),
+                    new java.math.BigDecimal(percentage),
+                    isUpward
+                );
+                return priceAlertService.createAlert(request, userDetails.getUsername());
+            },
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
         );
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        return response.success() ? 
-            ResponseEntity.status(201).body(response) : 
-            ResponseEntity.badRequest().body(response);
     }
-    
+
     @PostMapping("/preset/volume")
     @Operation(summary = "Create volume alert", description = "Create a volume spike alert")
     @PreAuthorize("hasRole('USER')")
@@ -332,21 +419,24 @@ public class PriceAlertController {
             @RequestParam String symbol,
             @RequestParam String exchange,
             @RequestParam String volumeThreshold,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        var request = PriceAlertRequest.volumeSpike(
-            symbol, 
-            exchange,
-            new java.math.BigDecimal(volumeThreshold)
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.volumeSpike(
+                    symbol,
+                    exchange,
+                    new java.math.BigDecimal(volumeThreshold)
+                );
+                return priceAlertService.createAlert(request, userDetails.getUsername());
+            },
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
         );
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        return response.success() ? 
-            ResponseEntity.status(201).body(response) : 
-            ResponseEntity.badRequest().body(response);
     }
-    
+
     @PostMapping("/preset/rsi")
     @Operation(summary = "Create RSI alert", description = "Create an RSI threshold alert")
     @PreAuthorize("hasRole('USER')")
@@ -355,19 +445,22 @@ public class PriceAlertController {
             @RequestParam String exchange,
             @RequestParam String rsiThreshold,
             @RequestParam(defaultValue = "true") boolean isOverbought,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        var request = PriceAlertRequest.rsiAlert(
-            symbol, 
-            exchange,
-            new java.math.BigDecimal(rsiThreshold),
-            isOverbought
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest) {
+
+        return withSecureAccess(userDetails, httpRequest,
+            () -> {
+                var request = PriceAlertRequest.rsiAlert(
+                    symbol,
+                    exchange,
+                    new java.math.BigDecimal(rsiThreshold),
+                    isOverbought
+                );
+                return priceAlertService.createAlert(request, userDetails.getUsername());
+            },
+            response -> response.success()
+                ? ResponseEntity.status(201).body(response)
+                : ResponseEntity.badRequest().body(response)
         );
-        
-        var response = priceAlertService.createAlert(request, userDetails.getUsername());
-        
-        return response.success() ? 
-            ResponseEntity.status(201).body(response) : 
-            ResponseEntity.badRequest().body(response);
     }
 }

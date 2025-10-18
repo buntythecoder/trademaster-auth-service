@@ -1,5 +1,7 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
@@ -45,7 +47,7 @@ public final class IO<T> {
     
     // Safe execution with Result
     public Result<T, String> runSafely() {
-        return Result.safely(computation);
+        return Result.safely(() -> computation.get(), Exception::getMessage);
     }
     
     // Monadic operations

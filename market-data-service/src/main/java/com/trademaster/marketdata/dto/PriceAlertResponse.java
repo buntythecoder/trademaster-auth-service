@@ -205,14 +205,14 @@ public record PriceAlertResponse(
                     .marketVolume(alert.getMarketVolume())
                     .lastPriceUpdate(alert.getLastPriceUpdate());
                 
-                // Parse market indicators JSON (simplified)
-                if (alert.getMarketIndicators() != null) {
-                    try {
-                        // In a real implementation, use Jackson to parse JSON
-                        builder.marketIndicators(Map.of("raw", alert.getMarketIndicators()));
-                    } catch (Exception e) {
-                        builder.marketIndicators(Map.of());
-                    }
+                // Parse market indicators JSON
+                if (alert.getMarketIndicators() != null && !alert.getMarketIndicators().isBlank()) {
+                    builder.marketIndicators(
+                        parseJsonToMap(alert.getMarketIndicators())
+                            .orElse(Map.of("parsing_error", "Failed to parse market indicators JSON"))
+                    );
+                } else {
+                    builder.marketIndicators(Map.of());
                 }
             }
             
@@ -222,18 +222,39 @@ public record PriceAlertResponse(
                     .triggeredVolume(alert.getTriggeredVolume())
                     .triggerReason(alert.getTriggerReason());
                 
-                // Parse trigger context JSON (simplified)
-                if (alert.getTriggerContext() != null) {
-                    try {
-                        // In a real implementation, use Jackson to parse JSON
-                        builder.triggerContext(Map.of("raw", alert.getTriggerContext()));
-                    } catch (Exception e) {
-                        builder.triggerContext(Map.of());
-                    }
+                // Parse trigger context JSON
+                if (alert.getTriggerContext() != null && !alert.getTriggerContext().isBlank()) {
+                    builder.triggerContext(
+                        parseJsonToMap(alert.getTriggerContext())
+                            .orElse(Map.of("parsing_error", "Failed to parse trigger context JSON"))
+                    );
+                } else {
+                    builder.triggerContext(Map.of());
                 }
             }
             
             return builder.build();
+        }
+
+        /**
+         * Parse JSON string to Map using functional error handling
+         * Following Rule #11 (Functional Error Handling) - returns Optional instead of throwing
+         */
+        private static java.util.Optional<Map<String, Object>> parseJsonToMap(String jsonString) {
+            return java.util.Optional.ofNullable(jsonString)
+                .filter(json -> !json.isBlank())
+                .flatMap(json -> {
+                    try {
+                        com.fasterxml.jackson.databind.ObjectMapper mapper =
+                            new com.fasterxml.jackson.databind.ObjectMapper();
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> result = mapper.readValue(json, Map.class);
+                        return java.util.Optional.of(result);
+                    } catch (Exception e) {
+                        // Functional error handling - return empty Optional instead of throwing
+                        return java.util.Optional.empty();
+                    }
+                });
         }
     }
     

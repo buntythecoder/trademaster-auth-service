@@ -1,6 +1,10 @@
 package com.trademaster.marketdata.agentos;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trademaster.marketdata.dto.SubscriptionRequest;
+import com.trademaster.marketdata.dto.SubscriptionResponse;
+import com.trademaster.marketdata.dto.PriceAlertRequest;
+import com.trademaster.marketdata.dto.PriceAlertResponse;
 import com.trademaster.marketdata.service.MarketDataService;
 import com.trademaster.marketdata.service.TechnicalAnalysisService;
 import com.trademaster.marketdata.service.MarketScannerService;
@@ -69,12 +73,9 @@ class MarketDataMCPControllerTest {
     @WithMockUser(roles = "AGENT")
     void shouldSubscribeToUpdates() throws Exception {
         // Given
-        var subscriptionResult = Map.of(
-            "subscriptionId", "sub-12345",
-            "status", "ACTIVE"
-        );
-        when(marketDataService.subscribeToRealTimeUpdates(anyList(), any(Integer.class), any()))
-            .thenReturn(subscriptionResult);
+        var subscriptionResponse = SubscriptionResponse.success("sub-12345", List.of("AAPL", "GOOGL"), 1000);
+        when(marketDataService.subscribeToRealTimeUpdates(any(SubscriptionRequest.class)))
+            .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(subscriptionResponse));
 
         // When & Then
         mockMvc.perform(post("/mcp/market-data/subscribeToUpdates")
@@ -136,8 +137,13 @@ class MarketDataMCPControllerTest {
             "targetPrice", 150.0,
             "condition", "above"
         );
-        when(marketDataService.createPriceAlert(any()))
-            .thenReturn(Map.of("alertId", "alert-12345", "status", "ACTIVE"));
+        var priceAlertResponse = PriceAlertResponse.builder()
+            .success(true)
+            .message("Alert created successfully")
+            .timestamp(java.time.Instant.now())
+            .build();
+        when(marketDataService.createPriceAlert(any(PriceAlertRequest.class)))
+            .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(priceAlertResponse));
 
         // When & Then
         mockMvc.perform(post("/mcp/market-data/managePriceAlerts")

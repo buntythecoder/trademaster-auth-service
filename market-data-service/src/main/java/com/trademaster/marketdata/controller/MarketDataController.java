@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.controller;
 
+import com.trademaster.marketdata.controller.MarketDataConstants.*;
 import com.trademaster.marketdata.dto.MarketDataResponse;
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.service.MarketDataCacheService;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -46,7 +48,8 @@ import java.util.concurrent.CompletableFuture;
 @Tag(name = "Market Data", description = "Real-time and historical market data API")
 public class MarketDataController {
 
-    private final MarketDataService marketDataService;
+    private final MarketDataRequestHandler requestHandler;
+    private final MarketDataResponseMapper responseMapper;
     private final MarketDataCacheService cacheService;
     private final SubscriptionTierValidator tierValidator;
 
@@ -65,66 +68,17 @@ public class MarketDataController {
     public ResponseEntity<MarketDataResponse> getCurrentPrice(
             @Parameter(description = "Trading symbol", example = "RELIANCE")
             @PathVariable @NotBlank String symbol,
-            
+
             @Parameter(description = "Exchange", example = "NSE")
             @RequestParam(defaultValue = "NSE") String exchange,
-            
+
             @AuthenticationPrincipal UserDetails userDetails) {
-        
+
         log.debug("Price request for {}:{} by user {}", symbol, exchange, userDetails.getUsername());
-        
-        return tierValidator.validateAndExecute(userDetails, SubscriptionTierValidator.DataAccess.CURRENT_PRICE, () -> {
-            
-            // Try cache first for sub-5ms response
-            var cachedPrice = cacheService.getCurrentPrice(symbol, exchange);
-            if (cachedPrice.isPresent()) {
-                var price = cachedPrice.get();
-                
-                // Apply delay for free tier users
-                if (tierValidator.isFreeTier(userDetails) && isRealtimeData(price.marketTime())) {
-                    return ResponseEntity.status(403)
-                        .body(MarketDataResponse.error("Real-time data requires premium subscription"));
-                }
-                
-                return ResponseEntity.ok(MarketDataResponse.success(
-                    Map.of(
-                        "symbol", price.symbol(),
-                        "exchange", price.exchange(),
-                        "price", price.price(),
-                        "volume", price.volume(),
-                        "change", price.change(),
-                        "changePercent", price.changePercent(),
-                        "timestamp", price.marketTime(),
-                        "source", "cache"
-                    )
-                ));
-            }
-            
-            // Fallback to database/service
-            return marketDataService.getCurrentPrice(symbol, exchange)
-                .thenApply(dataPoint -> {
-                    if (dataPoint.isPresent()) {
-                        var point = dataPoint.get();
-                        
-                        // Cache the result
-                        cacheService.cacheCurrentPrice(point);
-                        
-                        return ResponseEntity.ok(MarketDataResponse.success(
-                            Map.of(
-                                "symbol", point.symbol(),
-                                "exchange", point.exchange(),
-                                "price", point.price(),
-                                "volume", point.volume(),
-                                "timestamp", point.timestamp(),
-                                "source", "live"
-                            )
-                        ));
-                    } else {
-                        return ResponseEntity.notFound().<MarketDataResponse>build();
-                    }
-                })
-                .join();
-        });
+
+        return tierValidator.validateAndExecute(userDetails,
+            SubscriptionTierValidator.DataAccess.CURRENT_PRICE,
+            () -> requestHandler.handlePriceRequest(symbol, exchange, userDetails));
     }
 
     /**
@@ -137,65 +91,24 @@ public class MarketDataController {
     public CompletableFuture<ResponseEntity<MarketDataResponse>> getHistoricalData(
             @Parameter(description = "Trading symbol")
             @PathVariable @NotBlank String symbol,
-            
+
             @RequestParam(defaultValue = "NSE") String exchange,
-            
+
             @Parameter(description = "Start date")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
-            
+
             @Parameter(description = "End date")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            
-            @Parameter(description = "Data interval", example = "1m")
-            @RequestParam(defaultValue = "1m") 
-            @Pattern(regexp = "^(1m|5m|15m|1h|1d)$") String interval,
-            
-            @AuthenticationPrincipal UserDetails userDetails) {
-        
-        return tierValidator.validateAndExecuteAsync(userDetails, SubscriptionTierValidator.DataAccess.HISTORICAL_DATA, () -> {
-            
-            // Validate date range based on subscription tier
-            if (!tierValidator.isHistoricalRangeAllowed(userDetails, from, to)) {
-                return CompletableFuture.completedFuture(
-                    ResponseEntity.status(403).body(
-                        MarketDataResponse.error("Date range exceeds subscription tier limit")
-                    )
-                );
-            }
-            
-            // Try cache first
-            var cachedData = cacheService.getOHLCData(symbol, exchange, interval);
-            return cachedData.map(cachedOHLCS -> CompletableFuture.completedFuture(
-                    ResponseEntity.ok(MarketDataResponse.success(
-                            Map.of(
-                                    "symbol", symbol,
-                                    "exchange", exchange,
-                                    "interval", interval,
-                                    "data", cachedOHLCS,
-                                    "source", "cache"
-                            )
-                    ))
-            )).orElseGet(() -> marketDataService.getHistoricalData(symbol, exchange, from, to, interval)
-                    .thenApply(data -> {
-                        // Cache the result
-                        cacheService.cacheOHLCData(symbol, exchange, interval, data);
 
-                        return ResponseEntity.ok(MarketDataResponse.success(
-                                Map.of(
-                                        "symbol", symbol,
-                                        "exchange", exchange,
-                                        "interval", interval,
-                                        "from", from,
-                                        "to", to,
-                                        "data", data,
-                                        "count", data.size(),
-                                        "source", "database"
-                                )
-                        ));
-                    }));
-            
-            // Fetch from database
-        });
+            @Parameter(description = "Data interval", example = "1m")
+            @RequestParam(defaultValue = "1m")
+            @Pattern(regexp = "^(1m|5m|15m|1h|1d)$") String interval,
+
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        return tierValidator.validateAndExecuteAsync(userDetails,
+            SubscriptionTierValidator.DataAccess.HISTORICAL_DATA,
+            () -> requestHandler.handleHistoricalDataRequest(symbol, exchange, from, to, interval, userDetails));
     }
 
     /**
@@ -207,34 +120,17 @@ public class MarketDataController {
     public CompletableFuture<ResponseEntity<MarketDataResponse>> getMarketOverview(
             @Parameter(description = "Comma-separated symbols")
             @RequestParam String symbols,
-            
+
             @RequestParam(defaultValue = "NSE") String exchange,
-            
+
             @AuthenticationPrincipal UserDetails userDetails) {
-        
-        return tierValidator.validateAndExecuteAsync(userDetails, SubscriptionTierValidator.DataAccess.BULK_DATA, () -> {
-            
-            List<String> symbolList = List.of(symbols.split(","));
-            
-            // Validate symbol count based on subscription tier
-            if (!tierValidator.isBulkRequestAllowed(userDetails, symbolList.size())) {
-                return CompletableFuture.completedFuture(
-                    ResponseEntity.status(403).body(
-                        MarketDataResponse.error("Symbol count exceeds subscription tier limit")
-                    )
-                );
-            }
-            
-            return marketDataService.getBulkPriceData(symbolList, exchange)
-                .thenApply(priceData -> ResponseEntity.ok(MarketDataResponse.success(
-                    Map.of(
-                        "exchange", exchange,
-                        "symbols", symbolList,
-                        "prices", priceData,
-                        "timestamp", Instant.now()
-                    )
-                )));
-        });
+
+        return tierValidator.validateAndExecuteAsync(userDetails,
+            SubscriptionTierValidator.DataAccess.BULK_DATA,
+            () -> {
+                List<String> symbolList = List.of(symbols.split(","));
+                return requestHandler.handleBulkPriceRequest(symbolList, exchange, userDetails);
+            });
     }
 
     /**
@@ -247,31 +143,10 @@ public class MarketDataController {
             @PathVariable @NotBlank String symbol,
             @RequestParam(defaultValue = "NSE") String exchange,
             @AuthenticationPrincipal UserDetails userDetails) {
-        
-        return tierValidator.validateAndExecute(userDetails, SubscriptionTierValidator.DataAccess.ORDER_BOOK, () -> {
-            
-            var cachedOrderBook = cacheService.getOrderBook(symbol, exchange);
-            if (cachedOrderBook.isPresent()) {
-                var orderBook = cachedOrderBook.get();
-                
-                return ResponseEntity.ok(MarketDataResponse.success(
-                    Map.of(
-                        "symbol", orderBook.symbol(),
-                        "exchange", orderBook.exchange(),
-                        "bid", orderBook.bid(),
-                        "ask", orderBook.ask(),
-                        "bidSize", orderBook.bidSize(),
-                        "askSize", orderBook.askSize(),
-                        "spread", orderBook.spread(),
-                        "spreadPercent", orderBook.spreadPercent(),
-                        "timestamp", orderBook.marketTime(),
-                        "source", "cache"
-                    )
-                ));
-            }
-            
-            return ResponseEntity.notFound().build();
-        });
+
+        return tierValidator.validateAndExecute(userDetails,
+            SubscriptionTierValidator.DataAccess.ORDER_BOOK,
+            () -> requestHandler.handleOrderBookRequest(symbol, exchange));
     }
 
     /**
@@ -283,16 +158,10 @@ public class MarketDataController {
     public CompletableFuture<ResponseEntity<MarketDataResponse>> getActiveSymbols(
             @RequestParam(defaultValue = "NSE") String exchange,
             @AuthenticationPrincipal UserDetails userDetails) {
-        
-        return tierValidator.validateAndExecuteAsync(userDetails, SubscriptionTierValidator.DataAccess.SYMBOL_LIST, () -> marketDataService.getActiveSymbols(exchange, 60) // Last 60 minutes
-            .thenApply(symbols -> ResponseEntity.ok(MarketDataResponse.success(
-                Map.of(
-                    "exchange", exchange,
-                    "symbols", symbols,
-                    "count", symbols.size(),
-                    "timestamp", Instant.now()
-                )
-            ))));
+
+        return tierValidator.validateAndExecuteAsync(userDetails,
+            SubscriptionTierValidator.DataAccess.SYMBOL_LIST,
+            () -> requestHandler.handleActiveSymbolsRequest(exchange, TimeWindows.ACTIVE_SYMBOLS_WINDOW_MINUTES));
     }
 
     /**
@@ -304,24 +173,10 @@ public class MarketDataController {
     public ResponseEntity<MarketDataResponse> getMarketStats(
             @RequestParam(defaultValue = "NSE") String exchange,
             @AuthenticationPrincipal UserDetails userDetails) {
-        
-        return tierValidator.validateAndExecute(userDetails, SubscriptionTierValidator.DataAccess.MARKET_STATS, () -> {
-            
-            var cacheMetrics = cacheService.getMetrics();
-            
-            return ResponseEntity.ok(MarketDataResponse.success(
-                Map.of(
-                    "exchange", exchange,
-                    "cache", Map.of(
-                        "hitRate", cacheMetrics.hitRate(),
-                        "avgResponseTime", cacheMetrics.avgResponseTimeMs(),
-                        "totalRequests", cacheMetrics.cacheHits() + cacheMetrics.cacheMisses(),
-                        "performanceTarget", cacheMetrics.isPerformanceTarget()
-                    ),
-                    "timestamp", Instant.now()
-                )
-            ));
-        });
+
+        return tierValidator.validateAndExecute(userDetails,
+            SubscriptionTierValidator.DataAccess.MARKET_STATS,
+            () -> responseMapper.buildMarketStatsResponse(exchange, cacheService.getMetrics()));
     }
 
     /**
@@ -330,23 +185,6 @@ public class MarketDataController {
     @GetMapping("/health")
     @Operation(summary = "Health check", description = "Check market data service health")
     public ResponseEntity<MarketDataResponse> healthCheck() {
-        var cacheMetrics = cacheService.getMetrics();
-        
-        boolean healthy = cacheMetrics.isPerformanceTarget() && 
-                         cacheMetrics.avgResponseTimeMs() < 10.0;
-        
-        return ResponseEntity.ok(MarketDataResponse.success(
-            Map.of(
-                "status", healthy ? "healthy" : "degraded",
-                "avgResponseTime", cacheMetrics.avgResponseTimeMs(),
-                "cacheHitRate", cacheMetrics.hitRate(),
-                "timestamp", Instant.now()
-            )
-        ));
-    }
-
-    // Helper methods
-    private boolean isRealtimeData(Instant marketTime) {
-        return marketTime.isAfter(Instant.now().minus(15, ChronoUnit.MINUTES));
+        return responseMapper.buildHealthCheckResponse(cacheService.getMetrics());
     }
 }

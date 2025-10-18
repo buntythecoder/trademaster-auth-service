@@ -1,0 +1,178 @@
+# Test Configuration for Market Data Service
+# Using TestContainers for PostgreSQL, Redis, and Kafka (Task #12)
+
+spring:
+  # Virtual Threads Configuration (Java 24 MANDATORY)
+  threads:
+    virtual:
+      enabled: true
+
+  # Application Configuration
+  application:
+    name: market-data-service-test
+
+  # Database Configuration - H2 In-Memory for fast unit tests
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10000
+
+  # JPA/Hibernate Configuration for H2
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop  # Create schema at start, drop at end for tests
+    properties:
+      hibernate:
+        format_sql: false
+        show_sql: false
+    open-in-view: false
+    show-sql: false
+
+  # Flyway Configuration - COMPLETELY DISABLED for tests
+  flyway:
+    enabled: false
+
+  # Auto-configuration exclusions for tests
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+  # Redis Configuration - TestContainers
+  data:
+    redis:
+      host: localhost
+      port: 6379  # TestContainers will override
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+          max-wait: 2000ms
+
+  # Kafka Configuration - TestContainers
+  kafka:
+    bootstrap-servers: localhost:9092  # TestContainers will override
+    consumer:
+      group-id: market-data-test-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.trademaster.*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+
+  # Cache Configuration
+  cache:
+    type: simple  # Use simple in-memory cache for tests
+    cache-names:
+      - marketData
+      - ohlcData
+      - orderBook
+
+  # Security Configuration
+  security:
+    user:
+      name: test-user
+      password: test-password
+      roles: USER,ADMIN
+
+# Service Discovery - Disabled for tests
+  cloud:
+    consul:
+      enabled: false
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+
+# Server Configuration
+server:
+  port: 0  # Random port for tests to avoid conflicts
+
+# Logging Configuration
+logging:
+  level:
+    root: WARN
+    com.trademaster: DEBUG
+    org.springframework: WARN
+    org.hibernate: WARN
+    org.testcontainers: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Management/Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: false  # Disable for tests
+
+# Market Data Service Configuration
+market-data:
+  providers:
+    alpha-vantage:
+      api-key: test-api-key
+      base-url: http://localhost:8080/mock
+      rate-limit: 100
+      timeout: 5000
+  cache:
+    ttl:
+      price: 60  # 1 minute
+      ohlc: 300  # 5 minutes
+      orderbook: 30  # 30 seconds
+  circuit-breaker:
+    failure-rate-threshold: 50
+    slow-call-rate-threshold: 50
+    slow-call-duration-threshold: 5000
+    minimum-number-of-calls: 5
+    sliding-window-size: 10
+    wait-duration-in-open-state: 10000
+    permitted-calls-in-half-open-state: 3
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 5s
+    instances:
+      marketDataProvider:
+        baseConfig: default
+      databaseOperations:
+        baseConfig: default
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 5s
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException

@@ -2,6 +2,7 @@ package com.trademaster.marketdata.provider.impl;
 
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.provider.ExchangeDataProvider;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,25 +21,26 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * BSE Real Data Provider Implementation
- * 
+ * BSE Real Data Provider Implementation with Circuit Breaker Protection
+ *
  * Uses Java 24 Virtual Threads with OkHttp for optimal performance.
- * 
+ * Implements Resilience4j circuit breaker pattern for fault tolerance (Rule #25)
+ *
  * IMPORTANT: This requires:
  * 1. BSE data vendor agreement with authorized data providers
  * 2. Professional data subscription (₹2-10L+ annually)
  * 3. Compliance with BSE data policies
  * 4. Real-time data distribution license
- * 
+ *
  * Popular BSE Data Vendors:
  * - Reuters/Refinitiv
  * - Bloomberg Terminal
  * - TickerPlant
  * - TrueData
  * - Odin Diet
- * 
+ *
  * @author TradeMaster Development Team
- * @version 2.0.0 (Java 24 + Virtual Threads)
+ * @version 2.0.0 (Java 24 + Virtual Threads + Circuit Breaker)
  */
 @Slf4j
 @Component
@@ -48,6 +50,7 @@ public class BSEDataProvider implements ExchangeDataProvider {
 
     private final OkHttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final CircuitBreakerService circuitBreakerService;
     
     // BSE API Configuration (example endpoints)
     private static final String BSE_BASE_URL = "https://api.bseindia.com/";
@@ -60,50 +63,63 @@ public class BSEDataProvider implements ExchangeDataProvider {
 
     @Override
     public CompletableFuture<MarketDataPoint> getCurrentPrice(String symbol) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // BSE requires script code instead of symbol
-                String scriptCode = getScriptCodeForSymbol(symbol);
-                if (scriptCode == null) {
-                    log.warn("No script code found for BSE symbol: {}", symbol);
+        // Wrap BSE API call with circuit breaker protection
+        return circuitBreakerService.executeBSECallWithFallback(
+            () -> {
+                try {
+                    return fetchBSEQuote(symbol);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to fetch BSE quote for " + symbol, e);
+                }
+            },
+            () -> null  // Fallback returns null if circuit is open
+        ).exceptionally(ex -> {
+            log.error("Failed to fetch BSE data for symbol {}: {}", symbol, ex.getMessage());
+            return null;
+        });
+    }
+
+    /**
+     * Internal method to fetch quote from BSE API
+     * Follows Rule #11 (Functional Error Handling) - throws exceptions instead of catching
+     */
+    private MarketDataPoint fetchBSEQuote(String symbol) throws Exception {
+        // BSE requires script code instead of symbol
+        String scriptCode = getScriptCodeForSymbol(symbol);
+        if (scriptCode == null) {
+            log.warn("No script code found for BSE symbol: {}", symbol);
+            return null;
+        }
+
+        // Build BSE API URL with parameters
+        String startDate = LocalDateTime.now().minusDays(1).format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String endDate = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String url = String.format("%s%s?scripcode=%s&flag=st&Start=%s&end=%s",
+            BSE_BASE_URL, EQUITY_QUOTE_ENDPOINT, scriptCode, startDate, endDate);
+
+        Request request = new Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
+            .get()
+            .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (response.isSuccessful() && response.body() != null) {
+                String responseBody = response.body().string();
+                BSEQuoteResponse bseResponse = objectMapper.readValue(responseBody, BSEQuoteResponse.class);
+
+                if (bseResponse != null && bseResponse.Data() != null && !bseResponse.Data().isEmpty()) {
+                    return convertToMarketDataPoint(bseResponse.Data().getFirst(), symbol);
+                } else {
+                    log.warn("No data received from BSE for symbol: {}", symbol);
                     return null;
                 }
-
-                // Build BSE API URL with parameters
-                String startDate = LocalDateTime.now().minusDays(1).format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-                String endDate = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-                String url = String.format("%s%s?scripcode=%s&flag=st&Start=%s&end=%s", 
-                    BSE_BASE_URL, EQUITY_QUOTE_ENDPOINT, scriptCode, startDate, endDate);
-
-                Request request = new Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/json")
-                    .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
-                    .get()
-                    .build();
-
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String responseBody = response.body().string();
-                        BSEQuoteResponse bseResponse = objectMapper.readValue(responseBody, BSEQuoteResponse.class);
-                        
-                        if (bseResponse != null && bseResponse.Data() != null && !bseResponse.Data().isEmpty()) {
-                            return convertToMarketDataPoint(bseResponse.Data().getFirst(), symbol);
-                        } else {
-                            log.warn("No data received from BSE for symbol: {}", symbol);
-                            return null;
-                        }
-                    } else {
-                        log.warn("BSE API returned error: {} for symbol: {}", response.code(), symbol);
-                        return null;
-                    }
-                }
-
-            } catch (Exception e) {
-                log.error("Failed to fetch BSE data for symbol {}: {}", symbol, e.getMessage());
-                return null;
+            } else {
+                log.warn("BSE API returned error: {} for symbol: {}", response.code(), symbol);
+                throw new RuntimeException("BSE API error: " + response.code());
             }
-        });
+        }
     }
 
     @Override
@@ -122,20 +138,36 @@ public class BSEDataProvider implements ExchangeDataProvider {
 
     @Override
     public boolean isMarketOpen() {
-        try {
-            // BSE market timing: 9:15 AM to 3:30 PM IST on weekdays
-            LocalDateTime now = LocalDateTime.now();
-            int hour = now.getHour();
-            int minute = now.getMinute();
-            
-            // Simple time-based check (in production, would call BSE API)
-            return (hour > 9 || (hour == 9 && minute >= 15)) && 
-                   (hour < 15 || (hour == 15 && minute <= 30));
-
-        } catch (Exception e) {
-            log.error("Failed to check BSE market status: {}", e.getMessage());
+        // BSE market timing: 9:15 AM to 3:30 PM IST on weekdays
+        // Circuit breaker wrapping for future API integration
+        return circuitBreakerService.executeBSECallWithFallback(
+            () -> {
+                try {
+                    return checkBSEMarketStatus();
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to check BSE market status", e);
+                }
+            },
+            () -> false  // Fallback assumes market is closed if circuit is open
+        ).exceptionally(ex -> {
+            log.error("Failed to check BSE market status: {}", ex.getMessage());
             return false;
-        }
+        }).join();  // Block for this synchronous method
+    }
+
+    /**
+     * Internal method to check BSE market status
+     * Currently uses time-based logic; future enhancement would call BSE API
+     * Follows Rule #11 (Functional Error Handling)
+     */
+    private boolean checkBSEMarketStatus() throws Exception {
+        LocalDateTime now = LocalDateTime.now();
+        int hour = now.getHour();
+        int minute = now.getMinute();
+
+        // Simple time-based check (in production, would call BSE API)
+        return (hour > 9 || (hour == 9 && minute >= 15)) &&
+               (hour < 15 || (hour == 15 && minute <= 30));
     }
 
     /**

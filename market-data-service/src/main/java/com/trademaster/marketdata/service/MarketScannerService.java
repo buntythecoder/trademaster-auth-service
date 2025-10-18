@@ -3,6 +3,7 @@ package com.trademaster.marketdata.service;
 import com.trademaster.marketdata.dto.MarketScannerRequest;
 import com.trademaster.marketdata.dto.MarketScannerResult;
 import com.trademaster.marketdata.entity.MarketDataPoint;
+import com.trademaster.marketdata.functional.Try;
 import com.trademaster.marketdata.repository.MarketDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,26 +19,42 @@ import java.util.function.Predicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import com.trademaster.marketdata.pattern.Result;
 import com.trademaster.marketdata.pattern.Either;
 import com.trademaster.marketdata.pattern.StreamUtils;
 import com.trademaster.marketdata.pattern.IO;
 
 /**
  * Market Scanner Service
- * 
+ *
  * Provides advanced market scanning capabilities with technical analysis,
  * pattern recognition, and comprehensive filtering. Uses virtual threads
  * for high-performance parallel processing.
- * 
+ *
+ * MANDATORY RULES COMPLIANCE:
+ * - RULE #3: No if-else, no try-catch in business logic - functional programming only
+ * - RULE #5: Cognitive complexity ≤7 per method, max 15 lines per method
+ * - RULE #9: Immutable data structures (Result types, Optional, Collections)
+ * - RULE #17: All magic numbers externalized to named constants
+ *
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MarketScannerService {
-    
+
+    // Data quality calculation constants (RULE #17)
+    private static final double QUALITY_BASE_SCORE = 1.0;
+    private static final double QUALITY_PENALTY = -0.3;
+    private static final double QUALITY_PENALTY_ADJUSTMENT = 0.67;
+    private static final double QUALITY_MIN_SCORE = 0.0;
+    private static final int QUALITY_PERCENTAGE_MULTIPLIER = 100;
+
+    // Pagination constants (RULE #17)
+    private static final int PAGE_INDEX_OFFSET = 1;
+    private static final int MIN_PAGE_NUMBER = 1;
+
     private final MarketDataRepository marketDataRepository;
     private final MarketDataService marketDataService;
     private final TechnicalAnalysisService technicalAnalysisService;
@@ -102,183 +119,183 @@ public class MarketScannerService {
     
     /**
      * Execute market scan with comprehensive filtering
+     *
+     * Refactored to use Try monad for functional error handling (MANDATORY RULE #11).
      */
     public CompletableFuture<MarketScannerResult> scan(MarketScannerRequest request) {
         return CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             String scanId = generateScanId();
-            
-            log.info("Starting market scan {} with {} active filters", 
+
+            log.info("Starting market scan {} with {} active filters",
                 scanId, request.getActiveFilterCount());
-            
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                // Get active symbols for scanning
-                var symbolsTask = scope.fork(() -> getActiveSymbols(request.exchanges()));
-                
-                // Wait for symbols
-                scope.join();
-                scope.throwIfFailed();
-                
-                List<String> symbols = symbolsTask.get();
-                log.debug("Found {} active symbols to scan", symbols.size());
-                
-                // Parallel processing of symbols using virtual threads
-                List<MarketScannerResult.ScanResultItem> results = processSymbolsInParallel(symbols, request);
-                
-                // Filter and sort results
-                results = applyFinalFilters(results, request);
-                results = sortResults(results, request);
-                
-                // Apply pagination
-                var paginatedResults = applyPagination(results, request);
-                
-                long executionTime = System.currentTimeMillis() - startTime;
-                
-                var statistics = buildStatistics(symbols, results, request, executionTime);
-                var pagination = buildPaginationInfo(results, request);
-                
-                log.info("Market scan {} completed: {} symbols processed, {} matched in {}ms", 
-                    scanId, symbols.size(), results.size(), executionTime);
-                
-                return MarketScannerResult.builder()
-                    .scanId(scanId)
-                    .scanTime(Instant.now())
-                    .originalRequest(request)
-                    .results(paginatedResults)
-                    .statistics(statistics)
-                    .pagination(pagination)
-                    .build();
-                    
-            } catch (Exception e) {
+
+            return Try.of(() -> {
+                try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+
+                    // Get active symbols for scanning
+                    var symbolsTask = scope.fork(() -> getActiveSymbols(request.exchanges()));
+
+                    // Wait for symbols
+                    scope.join();
+                    scope.throwIfFailed();
+
+                    List<String> symbols = symbolsTask.get();
+                    log.debug("Found {} active symbols to scan", symbols.size());
+
+                    // Parallel processing of symbols using virtual threads
+                    List<MarketScannerResult.ScanResultItem> results = processSymbolsInParallel(symbols, request);
+
+                    // Filter and sort results
+                    results = applyFinalFilters(results, request);
+                    results = sortResults(results, request);
+
+                    // Apply pagination
+                    var paginatedResults = applyPagination(results, request);
+
+                    long executionTime = System.currentTimeMillis() - startTime;
+
+                    var statistics = buildStatistics(symbols, results, request, executionTime);
+                    var pagination = buildPaginationInfo(results, request);
+
+                    log.info("Market scan {} completed: {} symbols processed, {} matched in {}ms",
+                        scanId, symbols.size(), results.size(), executionTime);
+
+                    return MarketScannerResult.builder()
+                        .scanId(scanId)
+                        .scanTime(Instant.now())
+                        .originalRequest(request)
+                        .results(paginatedResults)
+                        .statistics(statistics)
+                        .pagination(pagination)
+                        .build();
+                }
+            })
+            .map(result -> {
+                log.debug("Market scan {} prepared successfully", scanId);
+                return result;
+            })
+            .recover(e -> {
                 log.error("Market scan {} failed: {}", scanId, e.getMessage(), e);
                 throw new RuntimeException("Market scan failed", e);
-            }
+            })
+            .get();
         });
     }
     
     /**
      * Process symbols in parallel using virtual threads
+     *
+     * Refactored to use Try monad for functional error handling (MANDATORY RULE #11).
      */
     private List<MarketScannerResult.ScanResultItem> processSymbolsInParallel(
             List<String> symbols, MarketScannerRequest request) {
-        
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-            
-            // Create parallel tasks for symbol processing
-            List<StructuredTaskScope.Subtask<Optional<MarketScannerResult.ScanResultItem>>> tasks = 
-                symbols.stream()
-                    .map(symbol -> scope.fork(() -> processSymbol(symbol, request)))
-                    .toList();
-            
-            // Wait for all tasks
-            scope.join();
-            scope.throwIfFailed();
-            
-            // Collect successful results
-            return tasks.stream()
-                .map(task -> {
-                    try {
-                        return task.get();
-                    } catch (Exception e) {
-                        log.warn("Failed to process symbol: {}", e.getMessage());
-                        return Optional.<MarketScannerResult.ScanResultItem>empty();
-                    }
-                })
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toList());
-                
-        } catch (Exception e) {
+
+        return Try.of(() -> {
+            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+
+                // Create parallel tasks for symbol processing
+                List<StructuredTaskScope.Subtask<Optional<MarketScannerResult.ScanResultItem>>> tasks =
+                    symbols.stream()
+                        .map(symbol -> scope.fork(() -> processSymbol(symbol, request)))
+                        .toList();
+
+                // Wait for all tasks
+                scope.join();
+                scope.throwIfFailed();
+
+                // Collect successful results with Try monad for task result extraction
+                return tasks.stream()
+                    .map(task -> Try.of(task::get)
+                        .recover(e -> {
+                            log.warn("Failed to process symbol: {}", e.getMessage());
+                            return Optional.<MarketScannerResult.ScanResultItem>empty();
+                        })
+                        .get())
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .collect(Collectors.toList());
+            }
+        })
+        .recover(e -> {
             log.error("Parallel symbol processing failed: {}", e.getMessage(), e);
             throw new RuntimeException("Symbol processing failed", e);
-        }
+        })
+        .get();
     }
     
     /**
-     * Process individual symbol
+     * Process individual symbol - Functional approach with Optional chains (RULE #3)
+     *
+     * Refactored to eliminate all if-statements using functional pipeline.
      */
     private Optional<MarketScannerResult.ScanResultItem> processSymbol(
             String symbol, MarketScannerRequest request) {
-        
-        try {
-            // Get current market data
-            var currentDataOpt = marketDataService.getCurrentPrice(symbol, 
-                request.exchanges().iterator().next()).join();
-            
-            if (currentDataOpt.isEmpty()) {
-                return Optional.empty();
-            }
-            
-            MarketDataPoint currentData = currentDataOpt.get();
-            
-            // Apply basic filters first (performance optimization)
-            if (!passesBasicFilters(currentData, request)) {
-                return Optional.empty();
-            }
-            
-            // Get historical data for analysis
-            var historicalData = getHistoricalDataForAnalysis(symbol, currentData.exchange());
-            
-            // Calculate technical indicators
-            var technicalIndicators = calculateTechnicalIndicators(historicalData);
-            
-            // Apply technical filters
-            if (!passesTechnicalFilters(technicalIndicators, request)) {
-                return Optional.empty();
-            }
-            
-            // Calculate performance metrics
-            var performanceMetrics = calculatePerformanceMetrics(historicalData);
-            
-            // Apply performance filters
-            if (!passesPerformanceFilters(performanceMetrics, request)) {
-                return Optional.empty();
-            }
-            
-            // Get fundamental data
-            var fundamentalData = getFundamentalData(symbol);
-            
-            // Apply fundamental filters
-            if (!passesFundamentalFilters(fundamentalData, request)) {
-                return Optional.empty();
-            }
-            
-            // Pattern recognition
-            var patterns = detectPatterns(historicalData);
-            var candlestickPatterns = detectCandlestickPatterns(historicalData);
-            
-            // Apply pattern filters
-            if (!passesPatternFilters(patterns, candlestickPatterns, request)) {
-                return Optional.empty();
-            }
-            
-            // Support/Resistance analysis
-            var supportLevels = findSupportLevels(historicalData);
-            var resistanceLevels = findResistanceLevels(historicalData);
-            
-            // Breakout analysis
-            var breakoutAnalysis = analyzeBreakouts(currentData, historicalData, 
-                supportLevels, resistanceLevels);
-            
-            // Apply breakout filters
-            if (!passesBreakoutFilters(breakoutAnalysis, request)) {
-                return Optional.empty();
-            }
-            
-            // Calculate scan score
-            var scanScore = calculateScanScore(currentData, technicalIndicators, 
-                performanceMetrics, breakoutAnalysis);
-            
-            // Build result item
-            return Optional.of(buildResultItem(currentData, technicalIndicators, 
-                performanceMetrics, fundamentalData, patterns, candlestickPatterns,
-                supportLevels, resistanceLevels, breakoutAnalysis, scanScore));
-                
-        } catch (Exception e) {
+
+        return Try.of(() ->
+            marketDataService.getCurrentPrice(symbol, request.exchanges().iterator().next())
+                .join()
+                .filter(currentData -> passesBasicFilters(currentData, request))
+                .flatMap(currentData -> processWithHistoricalData(symbol, currentData, request))
+        )
+        .recover(e -> {
             log.debug("Failed to process symbol {}: {}", symbol, e.getMessage());
             return Optional.empty();
-        }
+        })
+        .get();
+    }
+
+    private Optional<MarketScannerResult.ScanResultItem> processWithHistoricalData(
+            String symbol, MarketDataPoint currentData, MarketScannerRequest request) {
+
+        var historicalData = getHistoricalDataForAnalysis(symbol, currentData.exchange());
+        var technicalIndicators = calculateTechnicalIndicators(historicalData);
+
+        return Optional.of(technicalIndicators)
+            .filter(indicators -> passesTechnicalFilters(indicators, request))
+            .map(indicators -> calculatePerformanceMetrics(historicalData))
+            .filter(performance -> passesPerformanceFilters(performance, request))
+            .map(performance -> getFundamentalData(symbol))
+            .filter(fundamentals -> passesFundamentalFilters(fundamentals, request))
+            .flatMap(fundamentals -> processWithPatterns(currentData, historicalData,
+                technicalIndicators, getFundamentalData(symbol), request));
+    }
+
+    private Optional<MarketScannerResult.ScanResultItem> processWithPatterns(
+            MarketDataPoint currentData, List<MarketDataPoint> historicalData,
+            Map<String, BigDecimal> technicalIndicators, Map<String, BigDecimal> fundamentals,
+            MarketScannerRequest request) {
+
+        var patterns = detectPatterns(historicalData);
+        var candlestickPatterns = detectCandlestickPatterns(historicalData);
+
+        return Optional.of(patterns)
+            .filter(p -> passesPatternFilters(p, candlestickPatterns, request))
+            .flatMap(p -> processWithBreakoutAnalysis(currentData, historicalData,
+                technicalIndicators, calculatePerformanceMetrics(historicalData),
+                fundamentals, patterns, candlestickPatterns, request));
+    }
+
+    private Optional<MarketScannerResult.ScanResultItem> processWithBreakoutAnalysis(
+            MarketDataPoint currentData, List<MarketDataPoint> historicalData,
+            Map<String, BigDecimal> technicalIndicators, Map<String, BigDecimal> performanceMetrics,
+            Map<String, BigDecimal> fundamentals, List<String> patterns,
+            List<String> candlestickPatterns, MarketScannerRequest request) {
+
+        var supportLevels = findSupportLevels(historicalData);
+        var resistanceLevels = findResistanceLevels(historicalData);
+        var breakoutAnalysis = analyzeBreakouts(currentData, historicalData,
+            supportLevels, resistanceLevels);
+
+        return Optional.of(breakoutAnalysis)
+            .filter(analysis -> passesBreakoutFilters(analysis, request))
+            .map(analysis -> {
+                var scanScore = calculateScanScore(currentData, technicalIndicators,
+                    performanceMetrics, analysis);
+                return buildResultItem(currentData, technicalIndicators, performanceMetrics,
+                    fundamentals, patterns, candlestickPatterns, supportLevels,
+                    resistanceLevels, analysis, scanScore);
+            });
     }
     
     /**
@@ -425,7 +442,7 @@ public class MarketScannerService {
             .resistanceLevels(resistance)
             .breakoutAnalysis(breakout)
             .scanScore(scanScore)
-            .dataQuality((int)(current.qualityScore() * 100))
+            .dataQuality((int)(current.qualityScore() * QUALITY_PERCENTAGE_MULTIPLIER))
             .lastUpdated(current.timestamp())
             .build();
     }
@@ -442,9 +459,9 @@ public class MarketScannerService {
     
     private List<MarketScannerResult.ScanResultItem> sortResults(
             List<MarketScannerResult.ScanResultItem> results, MarketScannerRequest request) {
-        
-        Comparator<MarketScannerResult.ScanResultItem> comparator = switch (request.sortBy()) {
-            case "volume" -> Comparator.comparing(item -> item.currentVolume(), 
+
+        Comparator<MarketScannerResult.ScanResultItem> baseComparator = switch (request.sortBy()) {
+            case "volume" -> Comparator.comparing(item -> item.currentVolume(),
                 Comparator.nullsLast(Comparator.naturalOrder()));
             case "price" -> Comparator.comparing(item -> item.currentPrice(),
                 Comparator.nullsLast(Comparator.naturalOrder()));
@@ -454,22 +471,22 @@ public class MarketScannerService {
                 Comparator.nullsLast(Comparator.naturalOrder()));
             default -> Comparator.comparing(MarketScannerResult.ScanResultItem::symbol);
         };
-        
-        if (request.sortDirection() == MarketScannerRequest.SortDirection.DESC) {
-            comparator = comparator.reversed();
-        }
-        
+
+        Comparator<MarketScannerResult.ScanResultItem> finalComparator =
+            request.sortDirection() == MarketScannerRequest.SortDirection.DESC ?
+                baseComparator.reversed() : baseComparator;
+
         return results.stream()
-            .sorted(comparator)
+            .sorted(finalComparator)
             .toList();
     }
     
     private List<MarketScannerResult.ScanResultItem> applyPagination(
             List<MarketScannerResult.ScanResultItem> results, MarketScannerRequest request) {
-        
-        int start = (request.pageNumber() - 1) * request.pageSize();
+
+        int start = (request.pageNumber() - PAGE_INDEX_OFFSET) * request.pageSize();
         int end = Math.min(start + request.pageSize(), results.size());
-        
+
         return start >= results.size() ? List.of() : results.subList(start, end);
     }
     
@@ -494,17 +511,17 @@ public class MarketScannerService {
     
     private MarketScannerResult.PaginationInfo buildPaginationInfo(
             List<MarketScannerResult.ScanResultItem> allResults, MarketScannerRequest request) {
-        
+
         int totalPages = (int) Math.ceil((double) allResults.size() / request.pageSize());
         int currentPage = request.pageNumber();
-        
+
         return MarketScannerResult.PaginationInfo.builder()
             .currentPage(currentPage)
             .pageSize(request.pageSize())
             .totalPages(totalPages)
             .totalResults((long) allResults.size())
             .hasNext(currentPage < totalPages)
-            .hasPrevious(currentPage > 1)
+            .hasPrevious(currentPage > MIN_PAGE_NUMBER)
             .build();
     }
     
@@ -588,26 +605,26 @@ public class MarketScannerService {
     }
     
     private double calculateDataQuality(MarketDataPoint data) {
-        // Functional quality score calculation
-        double baseScore = 1.0;
-        
-        Function<Predicate<MarketDataPoint>, Double> penalize = condition -> 
-            condition.test(data) ? 0.0 : -0.3;
-        
-        double priceScore = penalize.apply(point -> 
+        // Functional quality score calculation (RULE #17)
+        double baseScore = QUALITY_BASE_SCORE;
+
+        Function<Predicate<MarketDataPoint>, Double> penalize = condition ->
+            condition.test(data) ? QUALITY_MIN_SCORE : QUALITY_PENALTY;
+
+        double priceScore = penalize.apply(point ->
             Optional.ofNullable(point.price())
                 .map(price -> price.compareTo(BigDecimal.ZERO) > 0)
                 .orElse(false));
-        
-        double volumeScore = penalize.apply(point -> 
+
+        double volumeScore = penalize.apply(point ->
             Optional.ofNullable(point.volume())
                 .map(volume -> volume > 0)
-                .orElse(false)) * 0.67; // Adjust penalty
-        
-        double timestampScore = penalize.apply(point -> 
-            Optional.ofNullable(point.timestamp()).isPresent()) * 0.67; // Adjust penalty
-        
-        return Math.max(0.0, baseScore + priceScore + volumeScore + timestampScore);
+                .orElse(false)) * QUALITY_PENALTY_ADJUSTMENT;
+
+        double timestampScore = penalize.apply(point ->
+            Optional.ofNullable(point.timestamp()).isPresent()) * QUALITY_PENALTY_ADJUSTMENT;
+
+        return Math.max(QUALITY_MIN_SCORE, baseScore + priceScore + volumeScore + timestampScore);
     }
     
     // Additional Functional Helper Methods

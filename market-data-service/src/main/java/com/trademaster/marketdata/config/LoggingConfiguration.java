@@ -1,6 +1,8 @@
 package com.trademaster.marketdata.config;
 
 import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.core.status.Status;
+import ch.qos.logback.core.status.StatusUtil;
 import ch.qos.logback.core.util.StatusPrinter;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,9 @@ public class LoggingConfiguration {
         
         // Print logback configuration status for debugging
         log.info("Configuring structured logging for Market Data Service");
-        StatusPrinter.printInCaseOfErrorsOrWarnings(context);
+        StatusUtil statusUtil = new StatusUtil(context);
+        if (statusUtil.getHighestLevel(0) > Status.INFO) {
+            StatusPrinter.print(context);
+        }
     }
 }

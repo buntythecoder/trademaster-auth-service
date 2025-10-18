@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.websocket;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trademaster.marketdata.dto.MarketDataMessage;
 import com.trademaster.marketdata.dto.SubscriptionRequest;
@@ -87,9 +88,10 @@ public class MarketDataWebSocketHandler implements WebSocketHandler {
         try {
             String payload = textMessage.getPayload();
             log.debug("Received message from session {}: {}", sessionId, payload);
-            
-            // Parse message
-            Map<String, Object> messageMap = objectMapper.readValue(payload, Map.class);
+
+            // Parse message with proper type safety (RULE #8: Zero warnings)
+            Map<String, Object> messageMap = objectMapper.readValue(payload,
+                new TypeReference<Map<String, Object>>() {});
             String messageType = (String) messageMap.get("type");
             
             switch (messageType) {
@@ -160,7 +162,7 @@ public class MarketDataWebSocketHandler implements WebSocketHandler {
             log.info("Processing subscription request from session {}: {}", sessionId, request);
             
             // Validate subscription request
-            if (request.getSymbols() == null || request.getSymbols().isEmpty()) {
+            if (request.symbols() == null || request.symbols().isEmpty()) {
                 sendErrorResponse(session, "Symbols are required for subscription");
                 return;
             }
@@ -174,14 +176,14 @@ public class MarketDataWebSocketHandler implements WebSocketHandler {
                     .status("success")
                     .timestamp(System.currentTimeMillis())
                     .data(Map.of(
-                        "symbols", request.getSymbols(),
-                        "dataTypes", request.getDataTypes(),
+                        "symbols", request.symbols(),
+                        "dataTypes", request.dataTypes(),
                         "subscriptionId", subscriptionService.getSubscriptionId(sessionId)
                     ))
                     .build();
-                
+
                 sendMessage(session, response);
-                log.info("Subscription successful for session {}: {}", sessionId, request.getSymbols());
+                log.info("Subscription successful for session {}: {}", sessionId, request.symbols());
             } else {
                 sendErrorResponse(session, "Failed to create subscription");
             }

@@ -1,0 +1,140 @@
+# Integration Test Configuration with TestContainers
+# Use this profile for integration tests that require real infrastructure
+
+spring:
+  # Virtual Threads Configuration (Java 24 MANDATORY)
+  threads:
+    virtual:
+      enabled: true
+
+  # Application Configuration
+  application:
+    name: market-data-service-integration-test
+
+  # Database Configuration - TestContainers PostgreSQL
+  # TestContainers @ServiceConnection will auto-configure these
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  # JPA/Hibernate Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: false
+        show_sql: false
+    open-in-view: false
+
+  # Flyway - Disabled for integration tests (use JPA ddl-auto)
+  flyway:
+    enabled: false
+
+  # Redis Configuration - TestContainers will auto-configure
+  data:
+    redis:
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+
+  # Kafka Configuration - TestContainers will auto-configure
+  kafka:
+    consumer:
+      group-id: market-data-integration-test-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    producer:
+      acks: all
+      retries: 3
+
+  # Cache Configuration
+  cache:
+    type: redis
+    cache-names:
+      - marketData
+      - ohlcData
+      - orderBook
+
+  # Security Configuration
+  security:
+    user:
+      name: integration-test-user
+      password: integration-test-password
+      roles: USER,ADMIN
+
+  # Service Discovery - Disabled
+  cloud:
+    consul:
+      enabled: false
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+
+# Server Configuration
+server:
+  port: 0  # Random port
+
+# Logging Configuration
+logging:
+  level:
+    root: WARN
+    com.trademaster: DEBUG
+    org.springframework: WARN
+    org.testcontainers: INFO
+    org.hibernate: WARN
+
+# Management/Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+
+# Market Data Service Configuration
+market-data:
+  providers:
+    alpha-vantage:
+      api-key: integration-test-api-key
+      base-url: http://localhost:8080/mock
+      rate-limit: 100
+      timeout: 5000
+  cache:
+    ttl:
+      price: 60
+      ohlc: 300
+      orderbook: 30
+  circuit-breaker:
+    failure-rate-threshold: 50
+    slow-call-rate-threshold: 50
+    slow-call-duration-threshold: 5000
+    minimum-number-of-calls: 5
+    sliding-window-size: 10
+    wait-duration-in-open-state: 10000
+    permitted-calls-in-half-open-state: 3
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 5s

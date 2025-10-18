@@ -1,5 +1,7 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
+
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.Collector;
@@ -117,14 +119,14 @@ public final class StreamUtils {
     
     // Functional error handling
     public static <T, R> List<Result<R, String>> mapSafely(Stream<T> stream, Function<T, R> mapper) {
-        return stream.map(item -> Result.safely(() -> mapper.apply(item)))
+        return stream.map(item -> Result.safely(() -> mapper.apply(item), Exception::getMessage))
                     .collect(Collectors.toList());
     }
-    
+
     public static <T, R> List<R> mapSafelyAndExtract(Stream<T> stream, Function<T, R> mapper) {
-        return stream.map(item -> Result.safely(() -> mapper.apply(item)))
+        return stream.map(item -> Result.safely(() -> mapper.apply(item), Exception::getMessage))
                     .filter(Result::isSuccess)
-                    .map(result -> result.fold(error -> null, success -> success))
+                    .map(result -> result.fold(success -> success, error -> null))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
     }

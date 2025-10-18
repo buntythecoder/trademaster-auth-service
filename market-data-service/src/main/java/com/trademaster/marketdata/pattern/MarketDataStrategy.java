@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.dto.MarketDataRequest;
 import com.trademaster.marketdata.dto.MarketDataResponse;

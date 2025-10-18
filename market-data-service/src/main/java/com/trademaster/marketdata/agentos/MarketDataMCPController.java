@@ -2,6 +2,10 @@ package com.trademaster.marketdata.agentos;
 
 import com.trademaster.marketdata.dto.MarketDataRequest;
 import com.trademaster.marketdata.dto.MarketDataResponse;
+import com.trademaster.marketdata.dto.SubscriptionRequest;
+import com.trademaster.marketdata.dto.SubscriptionResponse;
+import com.trademaster.marketdata.dto.PriceAlertRequest;
+import com.trademaster.marketdata.dto.PriceAlertResponse;
 import com.trademaster.marketdata.service.MarketDataService;
 import com.trademaster.marketdata.service.TechnicalAnalysisService;
 import com.trademaster.marketdata.service.MarketScannerService;
@@ -11,8 +15,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -93,35 +99,33 @@ public class MarketDataMCPController {
             @MCPParam("symbols") @RequestParam List<String> symbols,
             @MCPParam("updateFrequency") @RequestParam(defaultValue = "1000") int updateFrequencyMs,
             @RequestBody(required = false) Map<String, Object> callbackConfig) {
-        
+
         try {
             log.info("MCP subscribeToUpdates request for symbols: {}", symbols);
-            
-            // Handle subscription via market data service
-            var subscriptionResult = marketDataService.subscribeToRealTimeUpdates(
-                symbols, updateFrequencyMs, callbackConfig);
-            
-            if (subscriptionResult instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> resultMap = (Map<String, Object>) subscriptionResult;
-                return ResponseEntity.ok(Map.of(
-                    "status", "SUBSCRIBED",
-                    "symbols", symbols,
-                    "subscriptionId", resultMap.get("subscriptionId"),
-                    "updateFrequency", updateFrequencyMs
-                ));
-            } else {
-                return ResponseEntity.ok(Map.of(
-                    "status", "SUBSCRIBED",
-                    "symbols", symbols,
-                    "subscriptionId", "sub_" + System.currentTimeMillis(),
-                    "updateFrequency", updateFrequencyMs
-                ));
-            }
-            
+
+            // Rule #9: Build immutable SubscriptionRequest using builder pattern
+            var subscriptionRequest = SubscriptionRequest.builder()
+                .symbols(symbols)
+                .updateFrequency(updateFrequencyMs)
+                .build();
+
+            // Rule #25: Service call with circuit breaker protection
+            // Rule #11: Functional error handling with CompletableFuture
+            SubscriptionResponse response = marketDataService
+                .subscribeToRealTimeUpdates(subscriptionRequest)
+                .join();
+
+            return ResponseEntity.ok(Map.of(
+                "status", response.status().name(),
+                "symbols", response.symbols(),
+                "subscriptionId", response.subscriptionId(),
+                "updateFrequency", response.updateFrequencyMs(),
+                "message", response.message()
+            ));
+
         } catch (Exception e) {
             log.error("MCP subscribeToUpdates failed", e);
-            
+
             return ResponseEntity.internalServerError().body(Map.of(
                 "status", "ERROR",
                 "errorMessage", e.getMessage()
@@ -205,43 +209,97 @@ public class MarketDataMCPController {
     public ResponseEntity<Map<String, Object>> managePriceAlerts(
             @MCPParam("action") @RequestParam String action,
             @RequestBody Map<String, Object> alertConfig) {
-        
+
         try {
             log.info("MCP managePriceAlerts action: {} with config: {}", action, alertConfig);
-            
-            Object result;
-            switch (action.toUpperCase()) {
-                case "CREATE":
-                    result = marketDataService.createPriceAlert(alertConfig);
-                    break;
-                case "UPDATE":
-                    result = marketDataService.updatePriceAlert(alertConfig);
-                    break;
-                case "DELETE":
-                    result = marketDataService.deletePriceAlert(alertConfig);
-                    break;
-                case "LIST":
-                    result = marketDataService.listPriceAlerts(alertConfig);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Invalid action: " + action);
-            }
-            
+
+            // Rule #9: Convert Map to immutable PriceAlertRequest
+            var alertRequest = convertToPriceAlertRequest(alertConfig);
+
+            // Rule #11: Functional error handling with CompletableFuture
+            // Rule #14: Pattern matching for action routing
+            PriceAlertResponse alertResponse = switch (action.toUpperCase()) {
+                case "CREATE" -> marketDataService.createPriceAlert(alertRequest).join();
+                case "UPDATE" -> marketDataService.updatePriceAlert(alertRequest).join();
+                case "DELETE" -> marketDataService.deletePriceAlert(alertRequest).join();
+                case "LIST" -> marketDataService.listPriceAlerts(alertRequest).join();
+                default -> throw new IllegalArgumentException("Invalid action: " + action);
+            };
+
             return ResponseEntity.ok(Map.of(
                 "status", "SUCCESS",
                 "action", action,
-                "result", result,
+                "result", alertResponse,
                 "timestamp", System.currentTimeMillis()
             ));
-            
+
         } catch (Exception e) {
             log.error("MCP managePriceAlerts failed", e);
-            
+
             return ResponseEntity.internalServerError().body(Map.of(
                 "status", "ERROR",
                 "errorMessage", e.getMessage()
             ));
         }
+    }
+
+    /**
+     * Helper method to convert Map<String, Object> to PriceAlertRequest
+     * Rule #2 (SRP): Single responsibility for DTO conversion
+     * Rule #11: Functional approach with Optional and pattern matching
+     */
+    private PriceAlertRequest convertToPriceAlertRequest(Map<String, Object> config) {
+        var builder = PriceAlertRequest.builder();
+
+        // Extract values from Map with type safety
+        if (config.containsKey("name")) builder.name((String) config.get("name"));
+        if (config.containsKey("description")) builder.description((String) config.get("description"));
+        if (config.containsKey("symbol")) builder.symbol((String) config.get("symbol"));
+        if (config.containsKey("exchange")) builder.exchange((String) config.get("exchange"));
+
+        // Handle enum values safely
+        if (config.containsKey("alertType")) {
+            builder.alertType(com.trademaster.marketdata.entity.PriceAlert.AlertType.valueOf(
+                config.get("alertType").toString().toUpperCase()));
+        }
+        if (config.containsKey("triggerCondition")) {
+            builder.triggerCondition(com.trademaster.marketdata.entity.PriceAlert.TriggerCondition.valueOf(
+                config.get("triggerCondition").toString().toUpperCase()));
+        }
+        if (config.containsKey("priority")) {
+            builder.priority(com.trademaster.marketdata.entity.PriceAlert.Priority.valueOf(
+                config.get("priority").toString().toUpperCase()));
+        }
+        if (config.containsKey("notificationMethod")) {
+            builder.notificationMethod(com.trademaster.marketdata.entity.PriceAlert.NotificationMethod.valueOf(
+                config.get("notificationMethod").toString().toUpperCase()));
+        }
+
+        // Handle BigDecimal values
+        if (config.containsKey("targetPrice")) {
+            builder.targetPrice(new BigDecimal(config.get("targetPrice").toString()));
+        }
+        if (config.containsKey("stopPrice")) {
+            builder.stopPrice(new BigDecimal(config.get("stopPrice").toString()));
+        }
+
+        // Handle filter sets for LIST queries
+        if (config.containsKey("symbols")) {
+            @SuppressWarnings("unchecked")
+            Set<String> symbols = Set.copyOf((List<String>) config.get("symbols"));
+            builder.symbols(symbols);
+        }
+        if (config.containsKey("exchanges")) {
+            @SuppressWarnings("unchecked")
+            Set<String> exchanges = Set.copyOf((List<String>) config.get("exchanges"));
+            builder.exchanges(exchanges);
+        }
+
+        // Boolean flags for queries
+        if (config.containsKey("activeOnly")) builder.activeOnly((Boolean) config.get("activeOnly"));
+        if (config.containsKey("triggeredOnly")) builder.triggeredOnly((Boolean) config.get("triggeredOnly"));
+
+        return builder.build();
     }
     
     /**

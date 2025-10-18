@@ -2,7 +2,9 @@ package com.trademaster.marketdata.provider.impl;
 
 import com.trademaster.marketdata.dto.MarketDataMessage;
 import com.trademaster.marketdata.dto.ProviderMetrics;
+import com.trademaster.marketdata.functional.Try;
 import com.trademaster.marketdata.provider.MarketDataProvider;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpStatus;
@@ -26,22 +28,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
- * Alpha Vantage Market Data Provider Implementation
- * 
+ * Alpha Vantage Market Data Provider Implementation with Circuit Breaker Protection
+ *
  * Non-reactive implementation following SOLID principles:
  * - Single Responsibility: Handles only Alpha Vantage API integration
  * - Open/Closed: Extensible through configuration, closed for modification
  * - Liskov Substitution: Fully substitutable MarketDataProvider implementation
  * - Interface Segregation: Implements only required MarketDataProvider methods
  * - Dependency Inversion: Depends on RestTemplate abstraction, not concrete HTTP client
- * 
+ *
  * Design Patterns Applied:
  * - Template Method: Base provider behavior with specific implementations
  * - Strategy Pattern: Configurable request/response handling
  * - Observer Pattern: Callback-based subscription mechanism
- * 
+ * - Circuit Breaker: Resilience4j for fault tolerance (Rule #25)
+ *
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 1.0.0 (Circuit Breaker Enhanced)
  */
 @Slf4j
 @Component
@@ -51,27 +54,35 @@ public class AlphaVantageProvider implements MarketDataProvider {
     private static final String PROVIDER_NAME = "Alpha Vantage";
     private static final String VERSION = "1.0.0";
     private static final String BASE_URL = "https://www.alphavantage.co/query";
-    
+
     private final RestTemplate restTemplate;
+    private final CircuitBreakerService circuitBreakerService;
     private final ScheduledExecutorService scheduler;
     private final Map<String, Consumer<MarketDataMessage>> subscriptions;
-    
+
     // Metrics tracking (Observer Pattern)
     private final AtomicLong requestCount;
     private final AtomicLong successCount;
     private final AtomicLong failureCount;
-    
+
     private ProviderConfig config;
     private boolean connected;
     private LocalDateTime lastRequestTime;
     private double lastLatencyMs;
 
-    // Dependency Injection following DIP
-    public AlphaVantageProvider(RestTemplateBuilder restTemplateBuilder) {
+    // Dependency Injection following DIP + Circuit Breaker
+    public AlphaVantageProvider(RestTemplateBuilder restTemplateBuilder,
+                                CircuitBreakerService circuitBreakerService) {
+        // Modern Spring Boot 3.5+ timeout configuration (non-deprecated)
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+            new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(30));
+        factory.setReadTimeout(Duration.ofSeconds(60));
+
         this.restTemplate = restTemplateBuilder
-            .setConnectTimeout(Duration.ofSeconds(30))
-            .setReadTimeout(Duration.ofSeconds(60))
+            .requestFactory(() -> factory)
             .build();
+        this.circuitBreakerService = circuitBreakerService;
         this.scheduler = Executors.newScheduledThreadPool(2);
         this.subscriptions = new ConcurrentHashMap<>();
         this.requestCount = new AtomicLong(0);
@@ -124,26 +135,30 @@ public class AlphaVantageProvider implements MarketDataProvider {
     }
 
     // Connection management (Template Method Pattern)
+    // Rule #11: Functional error handling with Try monad
+    // Rule #3: Pattern matching instead of if-else
     @Override
     public CompletableFuture<Boolean> connect() {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!validateConfiguration()) {
-                log.error("Invalid configuration for Alpha Vantage provider");
-                return false;
-            }
-            
-            try {
-                // Test connection with a simple API call
-                testConnection();
-                this.connected = true;
-                log.info("Successfully connected to Alpha Vantage API");
-                return true;
-            } catch (Exception e) {
-                log.error("Failed to connect to Alpha Vantage API: {}", e.getMessage());
-                this.connected = false;
-                return false;
-            }
-        });
+        return CompletableFuture.supplyAsync(() ->
+            Optional.of(validateConfiguration())
+                .filter(Boolean::booleanValue)
+                .map(valid -> Try.of(() -> {
+                    testConnection();
+                    this.connected = true;
+                    log.info("Successfully connected to Alpha Vantage API");
+                    return true;
+                })
+                .recover(e -> {
+                    log.error("Failed to connect to Alpha Vantage API: {}", e.getMessage());
+                    this.connected = false;
+                    return false;
+                })
+                .getOrElse(false))
+                .orElseGet(() -> {
+                    log.error("Invalid configuration for Alpha Vantage provider");
+                    return false;
+                })
+        );
     }
 
     @Override
@@ -198,68 +213,90 @@ public class AlphaVantageProvider implements MarketDataProvider {
     }
 
     // Data retrieval methods (Strategy Pattern for different data types)
+    // Rule #11: Functional error handling with Try monad
+    // Rule #3: Pattern matching instead of if-else
+    // Rule #25: Circuit breaker on all external API calls
     @Override
     @Async
     public CompletableFuture<List<MarketDataMessage>> getHistoricalData(
             String symbol, String exchange, LocalDateTime from, LocalDateTime to) {
-        
-        return CompletableFuture.supplyAsync(() -> {
-            if (!isConnected()) {
-                throw new IllegalStateException("Provider not connected");
-            }
 
-            long startTime = System.currentTimeMillis();
-            requestCount.incrementAndGet();
-            lastRequestTime = LocalDateTime.now();
+        return CompletableFuture.supplyAsync(() ->
+            Optional.of(isConnected())
+                .filter(Boolean::booleanValue)
+                .map(connected -> {
+                    long startTime = System.currentTimeMillis();
+                    requestCount.incrementAndGet();
+                    lastRequestTime = LocalDateTime.now();
 
-            try {
-                String url = buildHistoricalDataUrl(symbol);
-                ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-                
-                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                    List<MarketDataMessage> result = parseHistoricalDataResponse(response.getBody(), symbol, exchange);
-                    recordSuccessfulRequest(startTime);
-                    return result;
-                } else {
-                    throw new RuntimeException("Invalid response from Alpha Vantage API");
-                }
-            } catch (Exception e) {
-                recordFailedRequest();
-                log.error("Failed to get historical data for {}: {}", symbol, e.getMessage());
-                throw new RuntimeException("Failed to retrieve historical data", e);
-            }
-        });
+                    return Try.of(() -> {
+                        String url = buildHistoricalDataUrl(symbol);
+
+                        // Wrap with circuit breaker for resilience
+                        ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+                            () -> restTemplate.getForEntity(url, Map.class)
+                        ).join();
+
+                        return Optional.ofNullable(response)
+                            .filter(r -> r.getStatusCode() == HttpStatus.OK && r.getBody() != null)
+                            .map(r -> {
+                                List<MarketDataMessage> result = parseHistoricalDataResponse(r.getBody(), symbol, exchange);
+                                recordSuccessfulRequest(startTime);
+                                return result;
+                            })
+                            .orElseThrow(() -> new RuntimeException("Invalid response from Alpha Vantage API"));
+                    })
+                    .recover(e -> {
+                        recordFailedRequest();
+                        log.error("Failed to get historical data for {}: {}", symbol, e.getMessage());
+                        throw new RuntimeException("Failed to retrieve historical data", e);
+                    })
+                    .get();
+                })
+                .orElseThrow(() -> new IllegalStateException("Provider not connected"))
+        );
     }
 
+    // Rule #11: Functional error handling with Try monad
+    // Rule #3: Pattern matching instead of if-else
+    // Rule #25: Circuit breaker on all external API calls
     @Override
     @Async
     public CompletableFuture<MarketDataMessage> getCurrentPrice(String symbol, String exchange) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!isConnected()) {
-                throw new IllegalStateException("Provider not connected");
-            }
+        return CompletableFuture.supplyAsync(() ->
+            Optional.of(isConnected())
+                .filter(Boolean::booleanValue)
+                .map(connected -> {
+                    long startTime = System.currentTimeMillis();
+                    requestCount.incrementAndGet();
+                    lastRequestTime = LocalDateTime.now();
 
-            long startTime = System.currentTimeMillis();
-            requestCount.incrementAndGet();
-            lastRequestTime = LocalDateTime.now();
+                    return Try.of(() -> {
+                        String url = buildCurrentPriceUrl(symbol);
 
-            try {
-                String url = buildCurrentPriceUrl(symbol);
-                ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-                
-                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                    MarketDataMessage result = parseCurrentPriceResponse(response.getBody(), symbol, exchange);
-                    recordSuccessfulRequest(startTime);
-                    return result;
-                } else {
-                    throw new RuntimeException("Invalid response from Alpha Vantage API");
-                }
-            } catch (Exception e) {
-                recordFailedRequest();
-                log.error("Failed to get current price for {}: {}", symbol, e.getMessage());
-                throw new RuntimeException("Failed to retrieve current price", e);
-            }
-        });
+                        // Wrap with circuit breaker for resilience
+                        ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+                            () -> restTemplate.getForEntity(url, Map.class)
+                        ).join();
+
+                        return Optional.ofNullable(response)
+                            .filter(r -> r.getStatusCode() == HttpStatus.OK && r.getBody() != null)
+                            .map(r -> {
+                                MarketDataMessage result = parseCurrentPriceResponse(r.getBody(), symbol, exchange);
+                                recordSuccessfulRequest(startTime);
+                                return result;
+                            })
+                            .orElseThrow(() -> new RuntimeException("Invalid response from Alpha Vantage API"));
+                    })
+                    .recover(e -> {
+                        recordFailedRequest();
+                        log.error("Failed to get current price for {}: {}", symbol, e.getMessage());
+                        throw new RuntimeException("Failed to retrieve current price", e);
+                    })
+                    .get();
+                })
+                .orElseThrow(() -> new IllegalStateException("Provider not connected"))
+        );
     }
 
     @Override
@@ -344,21 +381,26 @@ public class AlphaVantageProvider implements MarketDataProvider {
     }
 
     // Private helper methods (Template Method Pattern)
+    // Rule #25: Circuit breaker on all external API calls
     private void testConnection() {
-        String testUrl = UriComponentsBuilder.fromHttpUrl(BASE_URL)
+        String testUrl = UriComponentsBuilder.fromUriString(BASE_URL)
             .queryParam("function", "GLOBAL_QUOTE")
             .queryParam("symbol", "IBM")
             .queryParam("apikey", config.getApiKey())
             .toUriString();
-        
-        ResponseEntity<Map> response = restTemplate.getForEntity(testUrl, Map.class);
+
+        // Wrap with circuit breaker for resilience
+        ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+            () -> restTemplate.getForEntity(testUrl, Map.class)
+        ).join(); // Block for connection test
+
         if (response.getStatusCode() != HttpStatus.OK) {
             throw new RuntimeException("Connection test failed");
         }
     }
 
     private String buildHistoricalDataUrl(String symbol) {
-        return UriComponentsBuilder.fromHttpUrl(BASE_URL)
+        return UriComponentsBuilder.fromUriString(BASE_URL)
             .queryParam("function", "TIME_SERIES_DAILY")
             .queryParam("symbol", symbol)
             .queryParam("apikey", config.getApiKey())
@@ -367,7 +409,7 @@ public class AlphaVantageProvider implements MarketDataProvider {
     }
 
     private String buildCurrentPriceUrl(String symbol) {
-        return UriComponentsBuilder.fromHttpUrl(BASE_URL)
+        return UriComponentsBuilder.fromUriString(BASE_URL)
             .queryParam("function", "GLOBAL_QUOTE")
             .queryParam("symbol", symbol)
             .queryParam("apikey", config.getApiKey())
@@ -388,63 +430,69 @@ public class AlphaVantageProvider implements MarketDataProvider {
     }
 
     // Response parsing methods (Strategy Pattern)
+    // Rule #11: Functional error handling with Try monad
+    // Rule #13: Stream API instead of loops
+    // Rule #3: Pattern matching instead of if-else
     private List<MarketDataMessage> parseHistoricalDataResponse(Map<String, Object> response, String symbol, String exchange) {
-        List<MarketDataMessage> messages = new ArrayList<>();
-        
-        try {
+        return Try.of(() -> {
             @SuppressWarnings("unchecked")
-            Map<String, Map<String, String>> timeSeries = 
+            Map<String, Map<String, String>> timeSeries =
                 (Map<String, Map<String, String>>) response.get("Time Series (Daily)");
-            
-            if (timeSeries != null) {
-                for (Map.Entry<String, Map<String, String>> entry : timeSeries.entrySet()) {
-                    String date = entry.getKey();
-                    Map<String, String> data = entry.getValue();
-                    
-                    MarketDataMessage message = MarketDataMessage.builder()
+
+            return Optional.ofNullable(timeSeries)
+                .map(series -> series.entrySet().stream()
+                    .map(entry -> Try.of(() -> MarketDataMessage.builder()
                         .symbol(symbol)
                         .exchange(exchange)
-                        .timestamp(LocalDateTime.parse(date + "T16:00:00"))
-                        .price(new BigDecimal(data.get("4. close")))
-                        .open(new BigDecimal(data.get("1. open")))
-                        .high(new BigDecimal(data.get("2. high")))
-                        .low(new BigDecimal(data.get("3. low")))
-                        .volume(Long.parseLong(data.get("5. volume")))
+                        .timestamp(LocalDateTime.parse(entry.getKey() + "T16:00:00"))
+                        .price(new BigDecimal(entry.getValue().get("4. close")))
+                        .open(new BigDecimal(entry.getValue().get("1. open")))
+                        .high(new BigDecimal(entry.getValue().get("2. high")))
+                        .low(new BigDecimal(entry.getValue().get("3. low")))
+                        .volume(Long.parseLong(entry.getValue().get("5. volume")))
                         .type(MarketDataMessage.MarketDataType.OHLC)
-                        .build();
-                    
-                    messages.add(message);
-                }
-            }
-        } catch (Exception e) {
+                        .build())
+                    .recover(e -> {
+                        log.warn("Failed to parse entry for {}: {}", entry.getKey(), e.getMessage());
+                        return null;
+                    })
+                    .toOptional()
+                    .orElse(null))
+                    .filter(Objects::nonNull)
+                    .toList())
+                .orElse(List.of());
+        })
+        .recover(e -> {
             log.error("Error parsing historical data response: {}", e.getMessage());
             throw new RuntimeException("Failed to parse historical data", e);
-        }
-        
-        return messages;
+        })
+        .get();
     }
 
+    // Rule #11: Functional error handling with Try monad
+    // Rule #3: Pattern matching instead of if-else
     private MarketDataMessage parseCurrentPriceResponse(Map<String, Object> response, String symbol, String exchange) {
-        try {
+        return Try.of(() -> {
             @SuppressWarnings("unchecked")
             Map<String, String> quote = (Map<String, String>) response.get("Global Quote");
-            
-            if (quote != null) {
-                return MarketDataMessage.builder()
+
+            return Optional.ofNullable(quote)
+                .map(q -> MarketDataMessage.builder()
                     .symbol(symbol)
                     .exchange(exchange)
                     .timestamp(LocalDateTime.now())
-                    .price(new BigDecimal(quote.get("05. price")))
-                    .change(new BigDecimal(quote.get("09. change")))
-                    .changePercent(new BigDecimal(quote.get("10. change percent").replace("%", "")))
-                    .volume(Long.parseLong(quote.get("06. volume")))
+                    .price(new BigDecimal(q.get("05. price")))
+                    .change(new BigDecimal(q.get("09. change")))
+                    .changePercent(new BigDecimal(q.get("10. change percent").replace("%", "")))
+                    .volume(Long.parseLong(q.get("06. volume")))
                     .type(MarketDataMessage.MarketDataType.TICK)
-                    .build();
-            }
-        } catch (Exception e) {
+                    .build())
+                .orElseThrow(() -> new RuntimeException("Unable to parse price data from Alpha Vantage response"));
+        })
+        .recover(e -> {
             log.error("Error parsing current price response: {}", e.getMessage());
-        }
-        
-        throw new RuntimeException("Unable to parse price data from Alpha Vantage response");
+            throw new RuntimeException("Unable to parse price data from Alpha Vantage response", e);
+        })
+        .get();
     }
 }

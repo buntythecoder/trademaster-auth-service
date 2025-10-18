@@ -1,5 +1,7 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -116,9 +118,9 @@ public interface ValidationChain<T> {
                 for (ValidationChain<T> validator : validators) {
                     Result<T, String> result = validator.validate(currentValue);
                     if (result.isFailure()) {
-                        errors.add(result.fold(error -> error, success -> "Unknown error"));
+                        errors.add(result.fold(success -> "Unknown error", error -> error));
                     } else {
-                        currentValue = result.orElse(currentValue);
+                        currentValue = result.getOrElse(currentValue);
                     }
                 }
                 

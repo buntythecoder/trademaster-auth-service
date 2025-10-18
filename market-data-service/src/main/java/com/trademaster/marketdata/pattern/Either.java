@@ -1,5 +1,6 @@
 package com.trademaster.marketdata.pattern;
 
+import com.trademaster.common.functional.Result;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;

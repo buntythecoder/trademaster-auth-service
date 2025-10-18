@@ -1,0 +1,191 @@
+# Kong API Gateway Configuration for Market Data Service
+# Service-to-Service Communication Setup
+#
+# Features:
+# - API key authentication for internal endpoints
+# - Circuit breaker integration
+# - Health check configuration
+# - Rate limiting and security policies
+#
+# Apply with: curl -X POST http://kong-admin:8001/config -F config=@service-client-config.yml
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: market-data-service
+    url: http://market-data-service:8080
+    retries: 3
+    connect_timeout: 5000
+    write_timeout: 60000
+    read_timeout: 60000
+
+    routes:
+      # Public API Routes (JWT Authentication)
+      - name: market-data-public
+        paths:
+          - /api/v1/market-data
+        methods:
+          - GET
+          - POST
+        strip_path: false
+        preserve_host: false
+
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+              key_claim_name: iss
+              secret_is_base64: false
+
+          - name: rate-limiting
+            config:
+              minute: 100
+              hour: 1000
+              policy: local
+
+          - name: cors
+            config:
+              origins:
+                - "*"
+              methods:
+                - GET
+                - POST
+                - PUT
+                - DELETE
+                - OPTIONS
+              headers:
+                - Accept
+                - Accept-Version
+                - Content-Length
+                - Content-Type
+                - Date
+                - X-Auth-Token
+                - Authorization
+              exposed_headers:
+                - X-Auth-Token
+              credentials: true
+              max_age: 3600
+
+      # Internal API Routes (API Key Authentication)
+      - name: market-data-internal
+        paths:
+          - /api/internal/market-data
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        strip_path: false
+        preserve_host: false
+
+        plugins:
+          - name: key-auth
+            config:
+              key_names:
+                - X-Service-API-Key
+              key_in_body: false
+              key_in_query: false
+              hide_credentials: true
+
+          - name: rate-limiting
+            config:
+              minute: 1000
+              hour: 10000
+              policy: local
+
+          - name: request-transformer
+            config:
+              add:
+                headers:
+                  - X-Kong-Authenticated:true
+
+          - name: response-transformer
+            config:
+              add:
+                headers:
+                  - X-Service:market-data-service
+
+      # Health Check Routes (No Authentication)
+      - name: market-data-health
+        paths:
+          - /api/v2/health
+        methods:
+          - GET
+        strip_path: false
+        preserve_host: false
+
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 100
+              policy: local
+
+# API Key Consumers for Service-to-Service Communication
+consumers:
+  - username: portfolio-service
+    custom_id: portfolio-service-001
+    keyauth_credentials:
+      - key: PORTFOLIO_SERVICE_API_KEY_REPLACE_IN_PRODUCTION
+
+  - username: trading-service
+    custom_id: trading-service-001
+    keyauth_credentials:
+      - key: TRADING_SERVICE_API_KEY_REPLACE_IN_PRODUCTION
+
+  - username: risk-service
+    custom_id: risk-service-001
+    keyauth_credentials:
+      - key: RISK_SERVICE_API_KEY_REPLACE_IN_PRODUCTION
+
+# Global Plugins
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+  - name: request-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid
+      echo_downstream: true
+
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+
+# Upstream Configuration
+upstreams:
+  - name: market-data-upstream
+    algorithm: round-robin
+    hash_on: none
+    hash_fallback: none
+    healthchecks:
+      active:
+        type: http
+        http_path: /api/v2/health
+        https_verify_certificate: false
+        healthy:
+          interval: 10
+          successes: 2
+        unhealthy:
+          interval: 5
+          tcp_failures: 2
+          http_failures: 3
+      passive:
+        type: http
+        healthy:
+          successes: 3
+        unhealthy:
+          tcp_failures: 2
+          http_failures: 3
+
+    targets:
+      - target: market-data-service:8080
+        weight: 100

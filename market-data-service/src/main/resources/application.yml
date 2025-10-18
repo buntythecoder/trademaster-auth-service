@@ -15,10 +15,15 @@ server:
 
 spring:
   application:
-    name: trademaster-market-data-service
-  
+    name: market-data-service
+
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:development}
+
+  # Virtual Threads Configuration (MANDATORY per Rule #1)
+  threads:
+    virtual:
+      enabled: true
   
   # Database Configuration
   datasource:
@@ -48,10 +53,6 @@ spring:
           batch_size: 50
           order_inserts: true
           order_updates: true
-        cache:
-          use_second_level_cache: true
-          region:
-            factory_class: org.hibernate.cache.ehcache.EhCacheRegionFactory
   
   # Redis Configuration
   data:
@@ -122,18 +123,21 @@ spring:
       cache-null-values: false
       key-prefix: "market-data:"
   
-  # Actuator Configuration
+  # Actuator Configuration with Consul
   management:
     endpoints:
       web:
         exposure:
-          include: health,info,metrics,prometheus,kafka,agentos
+          include: health,info,metrics,prometheus,kafka,agentos,consul
         base-path: /actuator
     endpoint:
       health:
         show-details: when-authorized
         probes:
           enabled: true
+    health:
+      consul:
+        enabled: true
     metrics:
       export:
         prometheus:
@@ -191,13 +195,29 @@ app:
       max-latency: 100
       parallel-threads: 8
       enable-compression: true
-      
-    # Circuit Breaker Configuration
-    circuit-breaker:
-      failure-threshold: 5
-      recovery-timeout: 30000
-      timeout: 10000
-      
+
+# TradeMaster Circuit Breaker Configuration (MANDATORY per Rule #25)
+trademaster:
+  circuit-breaker:
+    enabled: true
+    failure-rate-threshold: 50
+    slow-call-rate-threshold: 50
+    slow-call-duration-ms: 2000
+    wait-duration-in-open-state-ms: 60000
+    sliding-window-size: 100
+    minimum-number-of-calls: 10
+    permitted-number-of-calls-in-half-open-state: 5
+
+  # Market Data Provider Configuration
+  providers:
+    alphavantage:
+      api-key: ${ALPHAVANTAGE_API_KEY:demo}
+      api-secret: ${ALPHAVANTAGE_API_SECRET:}
+      base-url: https://www.alphavantage.co/query
+      timeout-ms: 30000
+      retry-attempts: 3
+      enabled: true
+
 # InfluxDB Configuration
 influxdb:
   url: ${INFLUXDB_URL:http://localhost:8086}

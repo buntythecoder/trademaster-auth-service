@@ -2,6 +2,7 @@ package com.trademaster.marketdata.provider.impl;
 
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.provider.ExchangeDataProvider;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,18 +21,19 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * NSE Real Data Provider Implementation
- * 
+ * NSE Real Data Provider Implementation with Circuit Breaker Protection
+ *
  * Uses Java 24 Virtual Threads with OkHttp for optimal performance.
- * 
+ * Implements Resilience4j circuit breaker pattern for fault tolerance (Rule #25)
+ *
  * IMPORTANT: This requires:
  * 1. NSE data vendor license agreement
  * 2. API credentials and endpoints
  * 3. Compliance with NSE data redistribution policies
  * 4. Payment of data subscription fees
- * 
+ *
  * @author TradeMaster Development Team
- * @version 2.0.0 (Java 24 + Virtual Threads)
+ * @version 2.0.0 (Java 24 + Virtual Threads + Circuit Breaker)
  */
 @Slf4j
 @Component
@@ -41,6 +43,7 @@ public class NSEDataProvider implements ExchangeDataProvider {
 
     private final OkHttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final CircuitBreakerService circuitBreakerService;
     
     // NSE API Configuration (would be externalized)
     private static final String NSE_BASE_URL = "https://www.nseindia.com/api/";
@@ -54,43 +57,55 @@ public class NSEDataProvider implements ExchangeDataProvider {
 
     @Override
     public CompletableFuture<MarketDataPoint> getCurrentPrice(String symbol) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Build NSE API URL
-                String url = NSE_BASE_URL + QUOTE_ENDPOINT + "?symbol=" + symbol;
-                
-                // NOTE: NSE has anti-scraping measures and requires proper headers
-                Request request = new Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
-                    .header("Accept", "application/json")
-                    .header("Accept-Language", "en-US,en;q=0.9")
-                    .header("Accept-Encoding", "gzip, deflate, br")
-                    .get()
-                    .build();
-
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String responseBody = response.body().string();
-                        NSEQuoteResponse nseResponse = objectMapper.readValue(responseBody, NSEQuoteResponse.class);
-                        
-                        if (nseResponse != null && nseResponse.data() != null) {
-                            return convertToMarketDataPoint(nseResponse.data(), symbol);
-                        } else {
-                            log.warn("No data received from NSE for symbol: {}", symbol);
-                            return null;
-                        }
-                    } else {
-                        log.warn("NSE API returned error: {} for symbol: {}", response.code(), symbol);
-                        return null;
-                    }
+        // Wrap NSE API call with circuit breaker protection
+        return circuitBreakerService.executeNSECallWithFallback(
+            () -> {
+                try {
+                    return fetchNSEQuote(symbol);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to fetch NSE quote for " + symbol, e);
                 }
-
-            } catch (Exception e) {
-                log.error("Failed to fetch NSE data for symbol {}: {}", symbol, e.getMessage());
-                return null;
-            }
+            },
+            () -> null  // Fallback returns null if circuit is open
+        ).exceptionally(ex -> {
+            log.error("Failed to fetch NSE data for symbol {}: {}", symbol, ex.getMessage());
+            return null;
         });
+    }
+
+    /**
+     * Internal method to fetch quote from NSE API
+     * Follows Rule #11 (Functional Error Handling) - throws exceptions instead of catching
+     */
+    private MarketDataPoint fetchNSEQuote(String symbol) throws Exception {
+        String url = NSE_BASE_URL + QUOTE_ENDPOINT + "?symbol=" + symbol;
+
+        // NOTE: NSE has anti-scraping measures and requires proper headers
+        Request request = new Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
+            .header("Accept", "application/json")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Accept-Encoding", "gzip, deflate, br")
+            .get()
+            .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (response.isSuccessful() && response.body() != null) {
+                String responseBody = response.body().string();
+                NSEQuoteResponse nseResponse = objectMapper.readValue(responseBody, NSEQuoteResponse.class);
+
+                if (nseResponse != null && nseResponse.data() != null) {
+                    return convertToMarketDataPoint(nseResponse.data(), symbol);
+                } else {
+                    log.warn("No data received from NSE for symbol: {}", symbol);
+                    return null;
+                }
+            } else {
+                log.warn("NSE API returned error: {} for symbol: {}", response.code(), symbol);
+                throw new RuntimeException("NSE API error: " + response.code());
+            }
+        }
     }
 
     @Override
@@ -109,32 +124,46 @@ public class NSEDataProvider implements ExchangeDataProvider {
 
     @Override
     public boolean isMarketOpen() {
-        try {
-            // Check NSE market status
-            String url = NSE_BASE_URL + "market-status";
-            
-            Request request = new Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
-                .header("Accept", "application/json")
-                .get()
-                .build();
-
-            try (Response response = httpClient.newCall(request).execute()) {
-                if (response.isSuccessful() && response.body() != null) {
-                    String responseBody = response.body().string();
-                    NSEMarketStatusResponse statusResponse = objectMapper.readValue(responseBody, NSEMarketStatusResponse.class);
-                    
-                    return statusResponse != null && "OPEN".equals(statusResponse.marketStatus());
-                } else {
-                    log.warn("NSE market status API returned error: {}", response.code());
-                    return false;
+        // Wrap NSE market status check with circuit breaker protection
+        return circuitBreakerService.executeNSECallWithFallback(
+            () -> {
+                try {
+                    return checkNSEMarketStatus();
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to check NSE market status", e);
                 }
-            }
-
-        } catch (Exception e) {
-            log.error("Failed to check NSE market status: {}", e.getMessage());
+            },
+            () -> false  // Fallback assumes market is closed if circuit is open
+        ).exceptionally(ex -> {
+            log.error("Failed to check NSE market status: {}", ex.getMessage());
             return false;
+        }).join();  // Block for this synchronous method
+    }
+
+    /**
+     * Internal method to check NSE market status
+     * Follows Rule #11 (Functional Error Handling) - throws exceptions instead of catching
+     */
+    private boolean checkNSEMarketStatus() throws Exception {
+        String url = NSE_BASE_URL + "market-status";
+
+        Request request = new Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (compatible; TradeMaster/1.0)")
+            .header("Accept", "application/json")
+            .get()
+            .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (response.isSuccessful() && response.body() != null) {
+                String responseBody = response.body().string();
+                NSEMarketStatusResponse statusResponse = objectMapper.readValue(responseBody, NSEMarketStatusResponse.class);
+
+                return statusResponse != null && "OPEN".equals(statusResponse.marketStatus());
+            } else {
+                log.warn("NSE market status API returned error: {}", response.code());
+                throw new RuntimeException("NSE API error: " + response.code());
+            }
         }
     }
 

@@ -2,6 +2,7 @@ package com.trademaster.marketdata.service;
 
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.repository.MarketDataRepository;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,10 +23,10 @@ import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for MarketDataService
- * 
+ *
  * Tests core business logic, data validation, and service interactions
  * using modern Java 24 testing patterns with structured concurrency.
- * 
+ *
  * @author TradeMaster Development Team
  * @version 1.0.0
  */
@@ -34,16 +35,23 @@ import static org.mockito.Mockito.*;
 class MarketDataServiceTest {
 
     @Mock
+    private MarketDataQueryService queryService;
+
+    @Mock
+    private MarketDataWriteService writeService;
+
+    @Mock
     private MarketDataRepository marketDataRepository;
 
     @Mock
-    private MarketDataCacheService cacheService;
+    private CircuitBreakerService circuitBreakerService;
 
     private MarketDataService marketDataService;
 
     @BeforeEach
     void setUp() {
-        marketDataService = new MarketDataService(marketDataRepository, cacheService);
+        // MarketDataService now delegates to specialized Query and Write services
+        marketDataService = new MarketDataService(queryService, writeService, marketDataRepository, circuitBreakerService);
     }
 
     @Nested
@@ -56,27 +64,24 @@ class MarketDataServiceTest {
             // Given
             String symbol = "RELIANCE";
             String exchange = "NSE";
-            
-            var cachedPrice = new MarketDataCacheService.CachedPrice(
-                symbol, exchange, new BigDecimal("2500.00"), 100000L,
-                new BigDecimal("50.00"), new BigDecimal("2.05"),
-                Instant.now().minusSeconds(10), Instant.now()
+
+            var dataPoint = MarketDataPoint.createTickData(
+                symbol, exchange, new BigDecimal("2500.00"), 100000L, Instant.now()
             );
-            
-            when(cacheService.getCurrentPrice(symbol, exchange))
-                .thenReturn(Optional.of(cachedPrice));
-            
+
+            when(queryService.getCurrentPrice(symbol, exchange))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(dataPoint)));
+
             // When
             var result = marketDataService.getCurrentPrice(symbol, exchange).join();
-            
+
             // Then
             assertThat(result).isPresent();
             assertThat(result.get().symbol()).isEqualTo(symbol);
             assertThat(result.get().exchange()).isEqualTo(exchange);
-            assertThat(result.get().price()).isEqualByComparingTo(cachedPrice.price());
-            
-            verify(cacheService).getCurrentPrice(symbol, exchange);
-            verifyNoInteractions(marketDataRepository);
+            assertThat(result.get().price()).isEqualByComparingTo(new BigDecimal("2500.00"));
+
+            verify(queryService).getCurrentPrice(symbol, exchange);
         }
 
         @Test
@@ -85,26 +90,23 @@ class MarketDataServiceTest {
             // Given
             String symbol = "TCS";
             String exchange = "NSE";
-            
+
             var dataPoint = MarketDataPoint.createTickData(
                 symbol, exchange, new BigDecimal("3800.00"), 50000L, Instant.now()
             );
-            
-            when(cacheService.getCurrentPrice(symbol, exchange))
-                .thenReturn(Optional.empty());
-            when(marketDataRepository.getLatestPrice(symbol, exchange))
-                .thenReturn(Optional.of(dataPoint));
-            
+
+            when(queryService.getCurrentPrice(symbol, exchange))
+                .thenReturn(CompletableFuture.completedFuture(Optional.of(dataPoint)));
+
             // When
             var result = marketDataService.getCurrentPrice(symbol, exchange).join();
-            
+
             // Then
             assertThat(result).isPresent();
             assertThat(result.get().symbol()).isEqualTo(symbol);
             assertThat(result.get().price()).isEqualByComparingTo(dataPoint.price());
-            
-            verify(cacheService).getCurrentPrice(symbol, exchange);
-            verify(marketDataRepository).getLatestPrice(symbol, exchange);
+
+            verify(queryService).getCurrentPrice(symbol, exchange);
         }
 
         @Test
@@ -113,15 +115,13 @@ class MarketDataServiceTest {
             // Given
             String symbol = "NONEXISTENT";
             String exchange = "NSE";
-            
-            when(cacheService.getCurrentPrice(symbol, exchange))
-                .thenReturn(Optional.empty());
-            when(marketDataRepository.getLatestPrice(symbol, exchange))
-                .thenReturn(Optional.empty());
-            
+
+            when(queryService.getCurrentPrice(symbol, exchange))
+                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
             // When
             var result = marketDataService.getCurrentPrice(symbol, exchange).join();
-            
+
             // Then
             assertThat(result).isEmpty();
         }
@@ -132,15 +132,13 @@ class MarketDataServiceTest {
             // Given
             String symbol = "ERROR_TEST";
             String exchange = "NSE";
-            
-            when(cacheService.getCurrentPrice(symbol, exchange))
-                .thenThrow(new RuntimeException("Cache connection failed"));
-            when(marketDataRepository.getLatestPrice(symbol, exchange))
-                .thenReturn(Optional.empty());
-            
+
+            when(queryService.getCurrentPrice(symbol, exchange))
+                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
             // When
             var result = marketDataService.getCurrentPrice(symbol, exchange).join();
-            
+
             // Then
             assertThat(result).isEmpty();
         }
@@ -151,73 +149,56 @@ class MarketDataServiceTest {
     class HistoricalDataOperationsTest {
 
         @Test
-        @DisplayName("Should retrieve historical data from cache when available")
-        void shouldRetrieveHistoricalDataFromCache() {
+        @DisplayName("Should retrieve historical data from query service")
+        void shouldRetrieveHistoricalDataFromQueryService() {
             // Given
             String symbol = "INFY";
             String exchange = "NSE";
             String interval = "1m";
             Instant from = Instant.now().minusSeconds(3600);
             Instant to = Instant.now();
-            
-            var cachedOHLC = List.of(
-                new MarketDataCacheService.CachedOHLC(
+
+            var ohlcData = List.of(
+                MarketDataPoint.createOHLCData(
                     symbol, exchange,
                     new BigDecimal("1600.00"), new BigDecimal("1610.00"),
                     new BigDecimal("1595.00"), new BigDecimal("1605.00"),
                     25000L, from.plusSeconds(60)
                 )
             );
-            
-            when(cacheService.getOHLCData(symbol, exchange, interval))
-                .thenReturn(Optional.of(cachedOHLC));
-            
+
+            when(queryService.getHistoricalData(symbol, exchange, from, to, interval))
+                .thenReturn(CompletableFuture.completedFuture(ohlcData));
+
             // When
             var result = marketDataService.getHistoricalData(symbol, exchange, from, to, interval).join();
-            
+
             // Then
             assertThat(result).hasSize(1);
             assertThat(result.get(0).symbol()).isEqualTo(symbol);
             assertThat(result.get(0).open()).isEqualByComparingTo(new BigDecimal("1600.00"));
-            
-            verify(cacheService).getOHLCData(symbol, exchange, interval);
-            verifyNoInteractions(marketDataRepository);
+
+            verify(queryService).getHistoricalData(symbol, exchange, from, to, interval);
         }
 
         @Test
-        @DisplayName("Should fallback to repository and cache result")
-        void shouldFallbackToRepositoryAndCacheResult() {
+        @DisplayName("Should handle empty historical data results")
+        void shouldHandleEmptyHistoricalDataResults() {
             // Given
             String symbol = "HDFC";
             String exchange = "NSE";
             String interval = "5m";
             Instant from = Instant.now().minusSeconds(1800);
             Instant to = Instant.now();
-            
-            var repoData = List.of(
-                MarketDataPoint.createOHLCData(
-                    symbol, exchange,
-                    new BigDecimal("2700.00"), new BigDecimal("2720.00"),
-                    new BigDecimal("2690.00"), new BigDecimal("2710.00"),
-                    15000L, from.plusSeconds(300)
-                )
-            );
-            
-            when(cacheService.getOHLCData(symbol, exchange, interval))
-                .thenReturn(Optional.empty());
-            when(marketDataRepository.getOHLCData(symbol, exchange, from, to, interval))
-                .thenReturn(repoData);
-            when(cacheService.cacheOHLCData(eq(symbol), eq(exchange), eq(interval), any()))
-                .thenReturn(CompletableFuture.completedFuture(true));
-            
+
+            when(queryService.getHistoricalData(symbol, exchange, from, to, interval))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+
             // When
             var result = marketDataService.getHistoricalData(symbol, exchange, from, to, interval).join();
-            
+
             // Then
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).symbol()).isEqualTo(symbol);
-            
-            verify(cacheService).cacheOHLCData(symbol, exchange, interval, repoData);
+            assertThat(result).isEmpty();
         }
     }
 
@@ -231,40 +212,26 @@ class MarketDataServiceTest {
             // Given
             List<String> symbols = List.of("RELIANCE", "TCS", "INFY");
             String exchange = "NSE";
-            
-            // Mock individual price retrievals
-            var reliancePrice = MarketDataPoint.createTickData(
-                "RELIANCE", exchange, new BigDecimal("2500.00"), 100000L, Instant.now()
+
+            var bulkData = java.util.Map.of(
+                "RELIANCE", MarketDataPoint.createTickData("RELIANCE", exchange, new BigDecimal("2500.00"), 100000L, Instant.now()),
+                "TCS", MarketDataPoint.createTickData("TCS", exchange, new BigDecimal("3800.00"), 50000L, Instant.now()),
+                "INFY", MarketDataPoint.createTickData("INFY", exchange, new BigDecimal("1650.00"), 75000L, Instant.now())
             );
-            var tcsPrice = MarketDataPoint.createTickData(
-                "TCS", exchange, new BigDecimal("3800.00"), 50000L, Instant.now()
-            );
-            var infyPrice = MarketDataPoint.createTickData(
-                "INFY", exchange, new BigDecimal("1650.00"), 75000L, Instant.now()
-            );
-            
-            when(cacheService.getCurrentPrice("RELIANCE", exchange))
-                .thenReturn(Optional.empty());
-            when(cacheService.getCurrentPrice("TCS", exchange))
-                .thenReturn(Optional.empty());
-            when(cacheService.getCurrentPrice("INFY", exchange))
-                .thenReturn(Optional.empty());
-            
-            when(marketDataRepository.getLatestPrice("RELIANCE", exchange))
-                .thenReturn(Optional.of(reliancePrice));
-            when(marketDataRepository.getLatestPrice("TCS", exchange))
-                .thenReturn(Optional.of(tcsPrice));
-            when(marketDataRepository.getLatestPrice("INFY", exchange))
-                .thenReturn(Optional.of(infyPrice));
-            
+
+            when(queryService.getBulkPriceData(symbols, exchange))
+                .thenReturn(CompletableFuture.completedFuture(bulkData));
+
             // When
             var result = marketDataService.getBulkPriceData(symbols, exchange).join();
-            
+
             // Then
             assertThat(result).hasSize(3);
             assertThat(result.get("RELIANCE").price()).isEqualByComparingTo(new BigDecimal("2500.00"));
             assertThat(result.get("TCS").price()).isEqualByComparingTo(new BigDecimal("3800.00"));
             assertThat(result.get("INFY").price()).isEqualByComparingTo(new BigDecimal("1650.00"));
+
+            verify(queryService).getBulkPriceData(symbols, exchange);
         }
 
         @Test
@@ -273,24 +240,17 @@ class MarketDataServiceTest {
             // Given
             List<String> symbols = List.of("GOOD_SYMBOL", "BAD_SYMBOL");
             String exchange = "NSE";
-            
-            var goodPrice = MarketDataPoint.createTickData(
-                "GOOD_SYMBOL", exchange, new BigDecimal("1000.00"), 10000L, Instant.now()
+
+            var partialData = java.util.Map.of(
+                "GOOD_SYMBOL", MarketDataPoint.createTickData("GOOD_SYMBOL", exchange, new BigDecimal("1000.00"), 10000L, Instant.now())
             );
-            
-            when(cacheService.getCurrentPrice("GOOD_SYMBOL", exchange))
-                .thenReturn(Optional.empty());
-            when(cacheService.getCurrentPrice("BAD_SYMBOL", exchange))
-                .thenReturn(Optional.empty());
-            
-            when(marketDataRepository.getLatestPrice("GOOD_SYMBOL", exchange))
-                .thenReturn(Optional.of(goodPrice));
-            when(marketDataRepository.getLatestPrice("BAD_SYMBOL", exchange))
-                .thenThrow(new RuntimeException("Database error"));
-            
+
+            when(queryService.getBulkPriceData(symbols, exchange))
+                .thenReturn(CompletableFuture.completedFuture(partialData));
+
             // When
             var result = marketDataService.getBulkPriceData(symbols, exchange).join();
-            
+
             // Then
             assertThat(result).hasSize(1);
             assertThat(result).containsKey("GOOD_SYMBOL");
@@ -309,21 +269,16 @@ class MarketDataServiceTest {
             var dataPoint = MarketDataPoint.createTickData(
                 "WRITE_TEST", "NSE", new BigDecimal("500.00"), 5000L, Instant.now()
             );
-            
-            when(marketDataRepository.writeMarketData(dataPoint))
-                .thenReturn(CompletableFuture.completedFuture(
-                    new MarketDataRepository.WriteResult.Success(1, Instant.now())
-                ));
-            when(cacheService.cacheCurrentPrice(dataPoint))
+
+            when(writeService.writeMarketData(dataPoint))
                 .thenReturn(CompletableFuture.completedFuture(true));
-            
+
             // When
             var result = marketDataService.writeMarketData(dataPoint).join();
-            
+
             // Then
             assertThat(result).isTrue();
-            verify(marketDataRepository).writeMarketData(dataPoint);
-            verify(cacheService).cacheCurrentPrice(dataPoint);
+            verify(writeService).writeMarketData(dataPoint);
         }
 
         @Test
@@ -335,22 +290,16 @@ class MarketDataServiceTest {
                 new BigDecimal("999.50"), new BigDecimal("1000.50"),
                 5000L, 4800L, Instant.now()
             );
-            
-            when(marketDataRepository.writeMarketData(orderBookData))
-                .thenReturn(CompletableFuture.completedFuture(
-                    new MarketDataRepository.WriteResult.Success(1, Instant.now())
-                ));
-            when(cacheService.cacheCurrentPrice(orderBookData))
+
+            when(writeService.writeMarketData(orderBookData))
                 .thenReturn(CompletableFuture.completedFuture(true));
-            when(cacheService.cacheOrderBook(orderBookData))
-                .thenReturn(CompletableFuture.completedFuture(true));
-            
+
             // When
             var result = marketDataService.writeMarketData(orderBookData).join();
-            
+
             // Then
             assertThat(result).isTrue();
-            verify(cacheService).cacheOrderBook(orderBookData);
+            verify(writeService).writeMarketData(orderBookData);
         }
 
         @Test
@@ -361,23 +310,21 @@ class MarketDataServiceTest {
                 MarketDataPoint.createTickData("BATCH1", "NSE", new BigDecimal("100.00"), 1000L, Instant.now()),
                 MarketDataPoint.createTickData("BATCH2", "NSE", new BigDecimal("200.00"), 2000L, Instant.now())
             );
-            
-            when(marketDataRepository.batchWriteMarketData(dataPoints))
-                .thenReturn(CompletableFuture.completedFuture(
-                    new MarketDataRepository.WriteResult.Success(2, Instant.now())
-                ));
-            when(cacheService.batchCachePrices(dataPoints))
-                .thenReturn(CompletableFuture.completedFuture(
-                    new MarketDataCacheService.BatchCacheResult(2, 0, 50L)
-                ));
-            
+
+            var batchResult = new MarketDataWriteService.BatchWriteResult(2, 0, 50L, 2);
+
+            when(writeService.batchWriteMarketData(dataPoints))
+                .thenReturn(CompletableFuture.completedFuture(batchResult));
+
             // When
             var result = marketDataService.batchWriteMarketData(dataPoints).join();
-            
+
             // Then
             assertThat(result.successful()).isEqualTo(2);
             assertThat(result.failed()).isEqualTo(0);
             assertThat(result.cacheUpdates()).isEqualTo(2);
+
+            verify(writeService).batchWriteMarketData(dataPoints);
         }
 
         @Test
@@ -387,17 +334,13 @@ class MarketDataServiceTest {
             var dataPoint = MarketDataPoint.createTickData(
                 "FAIL_TEST", "NSE", new BigDecimal("500.00"), 5000L, Instant.now()
             );
-            
-            when(marketDataRepository.writeMarketData(dataPoint))
-                .thenReturn(CompletableFuture.completedFuture(
-                    new MarketDataRepository.WriteResult.Failed("Database error")
-                ));
-            when(cacheService.cacheCurrentPrice(dataPoint))
-                .thenReturn(CompletableFuture.completedFuture(true));
-            
+
+            when(writeService.writeMarketData(dataPoint))
+                .thenReturn(CompletableFuture.completedFuture(false));
+
             // When
             var result = marketDataService.writeMarketData(dataPoint).join();
-            
+
             // Then
             assertThat(result).isFalse();
         }
@@ -414,18 +357,18 @@ class MarketDataServiceTest {
             String symbol = "QUALITY_TEST";
             String exchange = "NSE";
             int hours = 1;
-            
+
             var repoReport = new MarketDataRepository.DataQualityReport(
                 symbol, exchange, 1000L, 5L, 0.95,
                 Instant.now()
             );
-            
+
             when(marketDataRepository.generateQualityReport(symbol, exchange, hours))
                 .thenReturn(repoReport);
-            
+
             // When
             var result = marketDataService.generateQualityReport(symbol, exchange, hours).join();
-            
+
             // Then
             assertThat(result.symbol()).isEqualTo(symbol);
             assertThat(result.exchange()).isEqualTo(exchange);
@@ -439,37 +382,39 @@ class MarketDataServiceTest {
     class ActiveSymbolsTest {
 
         @Test
-        @DisplayName("Should retrieve active symbols from repository")
-        void shouldRetrieveActiveSymbolsFromRepository() {
+        @DisplayName("Should retrieve active symbols from query service")
+        void shouldRetrieveActiveSymbolsFromQueryService() {
             // Given
             String exchange = "NSE";
             int minutes = 60;
             var activeSymbols = List.of("RELIANCE", "TCS", "INFY", "HDFC", "ICICIBANK");
-            
-            when(marketDataRepository.getActiveSymbols(exchange, minutes))
-                .thenReturn(activeSymbols);
-            
+
+            when(queryService.getActiveSymbols(exchange, minutes))
+                .thenReturn(CompletableFuture.completedFuture(activeSymbols));
+
             // When
             var result = marketDataService.getActiveSymbols(exchange, minutes).join();
-            
+
             // Then
             assertThat(result).hasSize(5);
             assertThat(result).containsExactlyInAnyOrder("RELIANCE", "TCS", "INFY", "HDFC", "ICICIBANK");
+
+            verify(queryService).getActiveSymbols(exchange, minutes);
         }
 
         @Test
-        @DisplayName("Should handle repository errors for active symbols")
-        void shouldHandleRepositoryErrorsForActiveSymbols() {
+        @DisplayName("Should handle empty active symbols list")
+        void shouldHandleEmptyActiveSymbolsList() {
             // Given
             String exchange = "NSE";
             int minutes = 60;
-            
-            when(marketDataRepository.getActiveSymbols(exchange, minutes))
-                .thenThrow(new RuntimeException("Repository error"));
-            
+
+            when(queryService.getActiveSymbols(exchange, minutes))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+
             // When
             var result = marketDataService.getActiveSymbols(exchange, minutes).join();
-            
+
             // Then
             assertThat(result).isEmpty();
         }

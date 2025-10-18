@@ -6,6 +6,7 @@ import com.trademaster.marketdata.dto.MarketDataRequest;
 import com.trademaster.marketdata.dto.ValidationResult;
 import com.trademaster.marketdata.provider.MarketDataProvider;
 import com.trademaster.marketdata.config.AlphaVantageProviderConfig;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -64,6 +65,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
     // Virtual Thread Executor for all async operations
     private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final RestTemplate restTemplate;
+    private final CircuitBreakerService circuitBreakerService;
     private final ScheduledExecutorService scheduler;
     
     // Lock-free state management with atomic references
@@ -137,14 +139,21 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
         }
     }
 
-    // Constructor with Dependency Injection
+    // Constructor with Dependency Injection (Rule #25: Circuit Breaker)
     @Autowired
-    public FunctionalAlphaVantageProvider(RestTemplateBuilder restTemplateBuilder, 
+    public FunctionalAlphaVantageProvider(RestTemplateBuilder restTemplateBuilder,
+                                          CircuitBreakerService circuitBreakerService,
                                           AlphaVantageProviderConfig providerConfig) {
+        // Modern Spring Boot 3.5+ timeout configuration (non-deprecated)
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+            new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofMillis(providerConfig.getTimeoutMs()));
+        factory.setReadTimeout(Duration.ofMillis(providerConfig.getTimeoutMs()));
+
         this.restTemplate = restTemplateBuilder
-            .setConnectTimeout(Duration.ofMillis(providerConfig.getTimeoutMs()))
-            .setReadTimeout(Duration.ofMillis(providerConfig.getTimeoutMs()))
+            .requestFactory(() -> factory)
             .build();
+        this.circuitBreakerService = circuitBreakerService;
         this.scheduler = Executors.newScheduledThreadPool(5);
         this.config.set(providerConfig);
         
@@ -244,7 +253,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
             .isEmpty();
     }
 
-    // Connection management
+    // Connection management (Rule #25: Circuit Breaker)
     @Override
     public CompletableFuture<Boolean> connect() {
         return CompletableFuture.supplyAsync(() -> {
@@ -253,10 +262,15 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
                 .map(validConfig -> {
                     try {
                         String testUrl = UrlBuildingStrategy.CONNECTION_TEST.buildUrl("IBM", validConfig.getApiKey());
-                        ResponseEntity<Map> response = restTemplate.getForEntity(testUrl, Map.class);
+
+                        // Wrap with circuit breaker for resilience
+                        ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+                            () -> restTemplate.getForEntity(testUrl, Map.class)
+                        ).join();
+
                         boolean success = response.getStatusCode() == HttpStatus.OK;
                         connected.set(success);
-                        
+
                         if (success) {
                             log.info("Successfully connected to Alpha Vantage API");
                         } else {
@@ -354,25 +368,29 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
         }, virtualExecutor);
     }
 
-    // Data retrieval methods
+    // Data retrieval methods (Rule #25: Circuit Breaker)
     @Override
     @Async
     public CompletableFuture<List<MarketDataMessage>> getHistoricalData(
             String symbol, String exchange, LocalDateTime from, LocalDateTime to) {
-        
+
         return CompletableFuture.supplyAsync(() -> {
             if (!connected.get()) {
                 throw new IllegalStateException("Provider not connected");
             }
-            
+
             long startTime = System.currentTimeMillis();
             requestCount.incrementAndGet();
             lastRequestTime.set(LocalDateTime.now());
-            
+
             try {
                 String url = UrlBuildingStrategy.HISTORICAL_DATA.buildUrl(symbol, config.get().getApiKey());
-                ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-                
+
+                // Wrap with circuit breaker for resilience
+                ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+                    () -> restTemplate.getForEntity(url, Map.class)
+                ).join();
+
                 return Optional.ofNullable(response.getBody())
                     .filter(body -> response.getStatusCode() == HttpStatus.OK)
                     .map(body -> parseHistoricalDataResponse(body, symbol, exchange))
@@ -381,7 +399,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
                         return data;
                     })
                     .orElseThrow(() -> new RuntimeException("Invalid response from Alpha Vantage API"));
-                    
+
             } catch (Exception e) {
                 recordFailedRequest();
                 log.error("Failed to get historical data for {}: {}", symbol, e.getMessage());
@@ -397,15 +415,19 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
             if (!connected.get()) {
                 throw new IllegalStateException("Provider not connected");
             }
-            
+
             long startTime = System.currentTimeMillis();
             requestCount.incrementAndGet();
             lastRequestTime.set(LocalDateTime.now());
-            
+
             try {
                 String url = UrlBuildingStrategy.CURRENT_PRICE.buildUrl(symbol, config.get().getApiKey());
-                ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-                
+
+                // Wrap with circuit breaker for resilience
+                ResponseEntity<Map> response = circuitBreakerService.executeAlphaVantageCall(
+                    () -> restTemplate.getForEntity(url, Map.class)
+                ).join();
+
                 return Optional.ofNullable(response.getBody())
                     .filter(body -> response.getStatusCode() == HttpStatus.OK)
                     .map(body -> parseCurrentPriceResponse(body, symbol, exchange))
@@ -414,7 +436,7 @@ public class FunctionalAlphaVantageProvider implements MarketDataProvider {
                         return data;
                     })
                     .orElseThrow(() -> new RuntimeException("Invalid response from Alpha Vantage API"));
-                    
+
             } catch (Exception e) {
                 recordFailedRequest();
                 log.error("Failed to get current price for {}: {}", symbol, e.getMessage());

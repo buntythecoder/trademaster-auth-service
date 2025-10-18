@@ -2,10 +2,7 @@ package com.trademaster.marketdata.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -13,169 +10,168 @@ import java.util.Map;
 
 /**
  * Market Data Message DTO
- * 
+ *
  * Represents real-time market data including:
  * - Tick data (price, volume)
  * - OHLC data (open, high, low, close)
  * - Order book updates
  * - Trade events
  * - Market status updates
- * 
+ *
+ * Converted to immutable record for MANDATORY RULE #9 compliance.
+ *
  * @author TradeMaster Development Team
  * @version 1.0.0
  */
-@Data
 @Builder
-@NoArgsConstructor
-@AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class MarketDataMessage {
-
+public record MarketDataMessage(
     /**
      * Market data type
      */
-    private MarketDataType type;
+    MarketDataType type,
 
     /**
      * Symbol/Instrument identifier
      */
-    private String symbol;
+    String symbol,
 
     /**
      * Exchange identifier
      */
-    private String exchange;
+    String exchange,
 
     /**
      * Current price
      */
-    private BigDecimal price;
+    BigDecimal price,
 
     /**
      * Volume
      */
-    private Long volume;
+    Long volume,
 
     /**
      * Bid price
      */
-    private BigDecimal bid;
+    BigDecimal bid,
 
     /**
      * Ask price
      */
-    private BigDecimal ask;
+    BigDecimal ask,
 
     /**
      * Bid size
      */
-    private Long bidSize;
+    Long bidSize,
 
     /**
      * Ask size
      */
-    private Long askSize;
+    Long askSize,
 
     /**
      * Open price
      */
-    private BigDecimal open;
+    BigDecimal open,
 
     /**
      * High price
      */
-    private BigDecimal high;
+    BigDecimal high,
 
     /**
      * Low price
      */
-    private BigDecimal low;
+    BigDecimal low,
 
     /**
      * Close price
      */
-    private BigDecimal close;
+    BigDecimal close,
 
     /**
      * Previous close price
      */
-    private BigDecimal previousClose;
+    BigDecimal previousClose,
 
     /**
      * Change amount
      */
-    private BigDecimal change;
+    BigDecimal change,
 
     /**
      * Change percentage
      */
-    private BigDecimal changePercent;
+    BigDecimal changePercent,
 
     /**
      * Total traded volume for the day
      */
-    private Long totalVolume;
+    Long totalVolume,
 
     /**
      * Total traded value for the day
      */
-    private BigDecimal totalValue;
+    BigDecimal totalValue,
 
     /**
      * Number of trades
      */
-    private Long tradeCount;
+    Long tradeCount,
 
     /**
      * Average trade price
      */
-    private BigDecimal averagePrice;
+    BigDecimal averagePrice,
 
     /**
      * 52-week high
      */
-    private BigDecimal yearHigh;
+    BigDecimal yearHigh,
 
     /**
      * 52-week low
      */
-    private BigDecimal yearLow;
+    BigDecimal yearLow,
 
     /**
      * Market capitalization
      */
-    private BigDecimal marketCap;
+    BigDecimal marketCap,
 
     /**
      * Price-to-earnings ratio
      */
-    private BigDecimal peRatio;
+    BigDecimal peRatio,
 
     /**
      * Timestamp of the data
      */
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
-    private LocalDateTime timestamp;
+    LocalDateTime timestamp,
 
     /**
      * Sequence number for ordering
      */
-    private Long sequenceNumber;
+    Long sequenceNumber,
 
     /**
      * Market status
      */
-    private MarketStatus marketStatus;
+    MarketStatus marketStatus,
 
     /**
      * Circuit breaker information
      */
-    private CircuitBreakerInfo circuitBreaker;
+    CircuitBreakerInfo circuitBreaker,
 
     /**
      * Additional metadata
      */
-    private Map<String, Object> metadata;
+    Map<String, Object> metadata
+) {
 
     /**
      * Market data type enumeration
@@ -207,21 +203,18 @@ public class MarketDataMessage {
     }
 
     /**
-     * Circuit breaker information
+     * Circuit breaker information nested record
      */
-    @Data
     @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class CircuitBreakerInfo {
-        private boolean active;
-        private String level; // L1, L2, L3
-        private BigDecimal triggerPrice;
-        private LocalDateTime triggerTime;
-        private LocalDateTime resumeTime;
-        private String reason;
-    }
+    public record CircuitBreakerInfo(
+        boolean active,
+        String level, // L1, L2, L3
+        BigDecimal triggerPrice,
+        LocalDateTime triggerTime,
+        LocalDateTime resumeTime,
+        String reason
+    ) {}
 
     /**
      * Create tick data message

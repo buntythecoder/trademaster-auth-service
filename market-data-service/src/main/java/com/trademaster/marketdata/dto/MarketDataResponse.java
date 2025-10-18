@@ -162,7 +162,7 @@ public record MarketDataResponse(
     }
     
     private static String generateRequestId() {
-        return "req_" + System.nanoTime() + "_" + Thread.currentThread().getId();
+        return "req_" + System.nanoTime() + "_" + Thread.currentThread().threadId();
     }
     
     /**

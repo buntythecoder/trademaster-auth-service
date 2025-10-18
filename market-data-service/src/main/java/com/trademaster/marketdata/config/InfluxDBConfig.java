@@ -95,7 +95,7 @@ public class InfluxDBConfig {
 
         // Verify connection
         try {
-            boolean isHealthy = influxDBClient.health().getStatus().getValue().equals("pass");
+            boolean isHealthy = influxDBClient.ping();
             if (isHealthy) {
                 log.info("InfluxDB connection established successfully");
                 

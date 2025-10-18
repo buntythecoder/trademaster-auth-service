@@ -39,7 +39,8 @@ dependencies {
     // TradeMaster Common Service Library (P0 - CRITICAL)
     // MANDATORY: Provides functional programming patterns (Result, Try, Validation, Railway)
     // Provides security filters, exception handling, health checks, OpenAPI base classes
-    implementation project(':trademaster-common-service-lib')
+    // Using Maven-style dependency for composite build
+    implementation 'com.trademaster:trademaster-common-service-lib:1.0.0'
 
     // Spring Boot Starters
     implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -162,8 +163,15 @@ dependencyManagement {
 }
 
 // MANDATORY: Java 24 Preview Features per TradeMaster Standards
+// MANDATORY RULE #8: Zero Warnings Policy - Enable all lint warnings
 tasks.named('compileJava') {
-    options.compilerArgs += ['--enable-preview']
+    options.compilerArgs += [
+        '--enable-preview',
+        '-Xlint:deprecation',
+        '-Xlint:unchecked',
+        '-Xlint:preview'
+    ]
+    options.warnings = true
 }
 
 tasks.named('compileTestJava') {

@@ -1,0 +1,111 @@
+# TradeMaster Market Data Service - Bootstrap Configuration
+# Loads Consul configuration before main application.yml
+# Compliant with Rule #16 (Dynamic Configuration)
+
+spring:
+  application:
+    name: market-data-service
+
+  cloud:
+    consul:
+      # Consul server connection
+      host: ${CONSUL_HOST:localhost}
+      port: ${CONSUL_PORT:8500}
+      scheme: ${CONSUL_SCHEME:http}
+
+      # Service Discovery Configuration
+      discovery:
+        enabled: ${CONSUL_DISCOVERY_ENABLED:true}
+        register: ${CONSUL_REGISTER:true}
+        deregister: ${CONSUL_DEREGISTER:true}
+        prefer-ip-address: ${CONSUL_PREFER_IP:true}
+        instance-id: ${spring.application.name}:${spring.cloud.client.hostname}:${server.port:8080}
+        service-name: ${spring.application.name}
+        hostname: ${CONSUL_HOSTNAME:localhost}
+        port: ${server.port:8080}
+
+        # Health Check Configuration
+        health-check-interval: ${CONSUL_HEALTH_CHECK_INTERVAL:10s}
+        health-check-timeout: ${CONSUL_HEALTH_CHECK_TIMEOUT:5s}
+        health-check-critical-timeout: ${CONSUL_HEALTH_CHECK_CRITICAL_TIMEOUT:30s}
+        health-check-path: /actuator/health
+        health-check-tls-skip-verify: ${CONSUL_HEALTH_CHECK_TLS_SKIP:false}
+
+        # Instance Metadata
+        tags:
+          - market-data
+          - java-24
+          - virtual-threads
+          - circuit-breaker-enabled
+          - version-${project.version:1.0.0}
+          - environment-${ENVIRONMENT:dev}
+
+        metadata:
+          version: ${project.version:1.0.0}
+          environment: ${ENVIRONMENT:dev}
+          team: trading-platform
+          virtual-threads-enabled: "true"
+          circuit-breakers: "resilience4j"
+
+        # Lifecycle Configuration
+        lifecycle:
+          enabled: ${CONSUL_LIFECYCLE_ENABLED:true}
+
+        # Catalog Services Watch
+        catalog-services-watch-enabled: ${CONSUL_CATALOG_WATCH:true}
+        catalog-services-watch-delay: ${CONSUL_CATALOG_WATCH_DELAY:1000}
+
+      # Centralized Configuration Management
+      config:
+        enabled: ${CONSUL_CONFIG_ENABLED:true}
+        prefix: ${CONSUL_CONFIG_PREFIX:config}
+        default-context: ${CONSUL_CONFIG_DEFAULT_CONTEXT:application}
+        profile-separator: ${CONSUL_CONFIG_PROFILE_SEPARATOR:,}
+        format: ${CONSUL_CONFIG_FORMAT:YAML}
+        data-key: ${CONSUL_CONFIG_DATA_KEY:data}
+        watch:
+          enabled: ${CONSUL_CONFIG_WATCH_ENABLED:true}
+          delay: ${CONSUL_CONFIG_WATCH_DELAY:1000}
+          wait-time: ${CONSUL_CONFIG_WATCH_WAIT_TIME:55}
+
+        # Configuration fail-fast for production
+        fail-fast: ${CONSUL_CONFIG_FAIL_FAST:false}
+
+      # Retry Configuration (following Rule #25 resilience patterns)
+      retry:
+        enabled: ${CONSUL_RETRY_ENABLED:true}
+        initial-interval: ${CONSUL_RETRY_INITIAL_INTERVAL:1000}
+        multiplier: ${CONSUL_RETRY_MULTIPLIER:1.1}
+        max-interval: ${CONSUL_RETRY_MAX_INTERVAL:2000}
+        max-attempts: ${CONSUL_RETRY_MAX_ATTEMPTS:6}
+
+# Server Configuration (required for proper service registration)
+server:
+  port: ${SERVER_PORT:8080}
+
+# Management Endpoints for Consul Health Checks
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,consul
+      base-path: /actuator
+
+  endpoint:
+    health:
+      enabled: true
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+  health:
+    consul:
+      enabled: true
+    defaults:
+      enabled: true
+
+# Logging for Consul Integration
+logging:
+  level:
+    org.springframework.cloud.consul: ${CONSUL_LOG_LEVEL:INFO}
+    com.ecwid.consul: ${CONSUL_CLIENT_LOG_LEVEL:WARN}

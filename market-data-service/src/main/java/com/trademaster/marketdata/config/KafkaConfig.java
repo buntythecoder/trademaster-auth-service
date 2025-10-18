@@ -215,7 +215,7 @@ public class KafkaConfig {
         props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
         
         // Cache and Buffer Configuration
-        props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, 10 * 1024 * 1024); // 10MB
+        props.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 10 * 1024 * 1024); // 10MB
         props.put(StreamsConfig.RECEIVE_BUFFER_CONFIG, 64 * 1024); // 64KB
         props.put(StreamsConfig.SEND_BUFFER_CONFIG, 128 * 1024); // 128KB
         

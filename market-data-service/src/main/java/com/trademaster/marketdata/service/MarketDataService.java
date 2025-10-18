@@ -1,7 +1,15 @@
 package com.trademaster.marketdata.service;
 
+import com.trademaster.marketdata.dto.HistoricalDataRequest;
+import com.trademaster.marketdata.dto.HistoricalDataResponse;
+import com.trademaster.marketdata.dto.PriceAlertRequest;
+import com.trademaster.marketdata.dto.PriceAlertResponse;
+import com.trademaster.marketdata.dto.RealTimeDataResponse;
+import com.trademaster.marketdata.dto.SubscriptionRequest;
+import com.trademaster.marketdata.dto.SubscriptionResponse;
 import com.trademaster.marketdata.entity.MarketDataPoint;
 import com.trademaster.marketdata.repository.MarketDataRepository;
+import com.trademaster.marketdata.resilience.CircuitBreakerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,327 +19,110 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.StructuredTaskScope;
-import java.util.stream.Collectors;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
- * Core Market Data Service
- * 
+ * Market Data Service Facade
+ *
+ * Refactored to follow RULE #2 (Single Responsibility Principle).
+ * Delegates to specialized services for query, write, and quality operations.
+ *
  * Features:
- * - Centralized market data operations
- * - Integration with cache and database layers
- * - Virtual thread optimization for concurrent operations
- * - Data quality monitoring and validation
- * 
+ * - Facade pattern for market data operations
+ * - Delegation to specialized services (QueryService, WriteService)
+ * - AgentOS compatibility methods
+ * - Circuit breaker protection via delegated services (Rule #25)
+ *
  * @author TradeMaster Development Team
- * @version 1.0.0
+ * @version 2.0.0 (Refactored)
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MarketDataService {
 
+    // Specialized services (RULE #2: Delegation over implementation)
+    private final MarketDataQueryService queryService;
+    private final MarketDataWriteService writeService;
     private final MarketDataRepository marketDataRepository;
-    private final MarketDataCacheService cacheService;
+    private final CircuitBreakerService circuitBreakerService;
+
+    // RULE #12 COMPLIANT: Virtual thread executor for async operations
+    private final Executor virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+    // ========== Query Operations (Delegated to MarketDataQueryService) ==========
 
     /**
-     * Get current price for a symbol
+     * Get current price - delegates to QueryService (RULE #2: SRP)
      */
     public CompletableFuture<Optional<MarketDataPoint>> getCurrentPrice(String symbol, String exchange) {
-        return CompletableFuture.supplyAsync(() -> {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                // Try cache first
-                var cacheTask = scope.fork(() -> cacheService.getCurrentPrice(symbol, exchange));
-                
-                // Fallback to repository if cache miss
-                var repoTask = scope.fork(() -> marketDataRepository.getLatestPrice(symbol, exchange));
-                
-                scope.join();
-                scope.throwIfFailed();
-                
-                var cachedResult = cacheTask.get();
-                if (cachedResult.isPresent()) {
-                    // Convert cached data to MarketDataPoint
-                    var cached = cachedResult.get();
-                    var dataPoint = MarketDataPoint.builder()
-                        .symbol(cached.symbol())
-                        .exchange(cached.exchange())
-                        .price(cached.price())
-                        .volume(cached.volume())
-                        .change(cached.change())
-                        .changePercent(cached.changePercent())
-                        .timestamp(cached.marketTime())
-                        .build();
-                    
-                    return Optional.of(dataPoint);
-                }
-                
-                // Use repository result
-                return repoTask.get();
-                
-            } catch (Exception e) {
-                log.error("Failed to get current price for {}:{}: {}", symbol, exchange, e.getMessage());
-                return Optional.empty();
-            }
-        });
+        return queryService.getCurrentPrice(symbol, exchange);
     }
 
     /**
-     * Get historical OHLC data
+     * Get historical data - delegates to QueryService (RULE #2: SRP)
      */
-    public CompletableFuture<List<MarketDataPoint>> getHistoricalData(String symbol, String exchange, 
-            Instant from, Instant to, String interval) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Check cache first
-                var cachedData = cacheService.getOHLCData(symbol, exchange, interval);
-                if (cachedData.isPresent()) {
-                    log.debug("Retrieved OHLC data from cache for {}:{}", symbol, exchange);
-                    return convertCachedOHLCToDataPoints(cachedData.get());
-                }
-                
-                // Fetch from repository
-                var data = marketDataRepository.getOHLCData(symbol, exchange, from, to, interval);
-                
-                // Cache the result
-                if (!data.isEmpty()) {
-                    cacheService.cacheOHLCData(symbol, exchange, interval, data);
-                }
-                
-                log.debug("Retrieved {} OHLC records from repository for {}:{}", 
-                    data.size(), symbol, exchange);
-                
-                return data;
-                
-            } catch (Exception e) {
-                log.error("Failed to get historical data for {}:{}: {}", 
-                    symbol, exchange, e.getMessage());
-                return List.of();
-            }
-        });
+    public CompletableFuture<List<MarketDataPoint>> getHistoricalData(
+            String symbol, String exchange, Instant from, Instant to, String interval) {
+        return queryService.getHistoricalData(symbol, exchange, from, to, interval);
     }
 
     /**
-     * Get bulk price data for multiple symbols
+     * Get bulk price data - delegates to QueryService (RULE #2: SRP)
      */
     public CompletableFuture<Map<String, MarketDataPoint>> getBulkPriceData(List<String> symbols, String exchange) {
-        return CompletableFuture.supplyAsync(() -> {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                Map<String, MarketDataPoint> results = new java.util.concurrent.ConcurrentHashMap<>();
-                
-                // Process symbols in parallel using virtual threads with parallel stream
-                List<CompletableFuture<Void>> tasks = symbols.parallelStream()
-                    .collect(Collectors.toList()) // Parallel collection processing
-                    .stream()
-                    .map(symbol -> scope.fork(() -> {
-                        getCurrentPrice(symbol, exchange)
-                            .thenAccept(dataPoint -> {
-                                if (dataPoint.isPresent()) {
-                                    results.put(symbol, dataPoint.get());
-                                }
-                            })
-                            .join();
-                        return null;
-                    }))
-                    .map(supplier -> CompletableFuture.runAsync(() -> {
-                        try {
-                            supplier.get();
-                        } catch (Exception e) {
-                            log.warn("Failed to get price for symbol in bulk request: {}", e.getMessage());
-                        }
-                    }))
-                    .toList();
-                
-                // Wait for all tasks to complete
-                CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
-                
-                scope.join();
-                scope.throwIfFailed();
-                
-                log.info("Bulk price data retrieved for {}/{} symbols", results.size(), symbols.size());
-                return results;
-                
-            } catch (Exception e) {
-                log.error("Failed to get bulk price data: {}", e.getMessage());
-                return Map.of();
-            }
-        });
+        return queryService.getBulkPriceData(symbols, exchange);
     }
 
     /**
-     * Get active symbols for an exchange
+     * Get active symbols - delegates to QueryService (RULE #2: SRP)
      */
     public CompletableFuture<List<String>> getActiveSymbols(String exchange, int minutes) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                var symbols = marketDataRepository.getActiveSymbols(exchange, minutes);
-                log.debug("Found {} active symbols for exchange {}", symbols.size(), exchange);
-                return symbols;
-                
-            } catch (Exception e) {
-                log.error("Failed to get active symbols for {}: {}", exchange, e.getMessage());
-                return List.of();
-            }
-        });
+        return queryService.getActiveSymbols(exchange, minutes);
     }
 
+    // ========== Write Operations (Delegated to MarketDataWriteService) ==========
+
     /**
-     * Write market data point
+     * Write market data - delegates to WriteService (RULE #2: SRP)
      */
     public CompletableFuture<Boolean> writeMarketData(MarketDataPoint dataPoint) {
-        return CompletableFuture.supplyAsync(() -> {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                // Write to database
-                var dbWriteTask = scope.fork(() -> marketDataRepository.writeMarketData(dataPoint));
-                
-                // Update cache
-                var cacheTask = scope.fork(() -> {
-                    cacheService.cacheCurrentPrice(dataPoint);
-                    if (dataPoint.hasOrderBookData()) {
-                        cacheService.cacheOrderBook(dataPoint);
-                    }
-                    return true;
-                });
-                
-                scope.join();
-                scope.throwIfFailed();
-                
-                var dbResult = dbWriteTask.get().join();
-                var cacheResult = cacheTask.get();
-                
-                boolean success = dbResult.isSuccess() && cacheResult;
-                
-                if (success) {
-                    log.trace("Successfully wrote and cached market data for {}:{}", 
-                        dataPoint.symbol(), dataPoint.exchange());
-                }
-                
-                return success;
-                
-            } catch (Exception e) {
-                log.error("Failed to write market data for {}:{}: {}", 
-                    dataPoint.symbol(), dataPoint.exchange(), e.getMessage());
-                return false;
-            }
-        });
+        return writeService.writeMarketData(dataPoint);
     }
 
     /**
-     * Batch write market data points
+     * Batch write market data - delegates to WriteService (RULE #2: SRP)
      */
-    public CompletableFuture<BatchWriteResult> batchWriteMarketData(List<MarketDataPoint> dataPoints) {
-        return CompletableFuture.supplyAsync(() -> {
-            long startTime = System.currentTimeMillis();
-            
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                // Batch write to database
-                var dbWriteTask = scope.fork(() -> marketDataRepository.batchWriteMarketData(dataPoints));
-                
-                // Batch update cache
-                var cacheTask = scope.fork(() -> cacheService.batchCachePrices(dataPoints));
-                
-                scope.join();
-                scope.throwIfFailed();
-                
-                var dbResult = dbWriteTask.get().join();
-                var cacheResult = cacheTask.get().join();
-                
-                long duration = System.currentTimeMillis() - startTime;
-                
-                int totalSuccessful = dbResult.isSuccess() ? dataPoints.size() : 0;
-                
-                log.info("Batch write completed: {}/{} points in {}ms", 
-                    totalSuccessful, dataPoints.size(), duration);
-                
-                return new BatchWriteResult(
-                    totalSuccessful,
-                    dataPoints.size() - totalSuccessful,
-                    duration,
-                    cacheResult.successful()
-                );
-                
-            } catch (Exception e) {
-                log.error("Batch write failed: {}", e.getMessage());
-                return new BatchWriteResult(0, dataPoints.size(), 0, 0);
-            }
-        });
+    public CompletableFuture<MarketDataWriteService.BatchWriteResult> batchWriteMarketData(
+            List<MarketDataPoint> dataPoints) {
+        return writeService.batchWriteMarketData(dataPoints);
     }
 
+    // ========== Quality Operations ==========
+
     /**
-     * Generate data quality report
+     * Generate data quality report (RULE #5: Max 15 lines)
      */
     public CompletableFuture<DataQualityReport> generateQualityReport(String symbol, String exchange, int hours) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                var report = marketDataRepository.generateQualityReport(symbol, exchange, hours);
-                log.debug("Generated quality report for {}:{} - Score: {}", 
-                    symbol, exchange, report.qualityScore());
-                return convertToServiceQualityReport(report);
-                
-            } catch (Exception e) {
-                log.error("Failed to generate quality report for {}:{}: {}", 
-                    symbol, exchange, e.getMessage());
-                return new DataQualityReport(symbol, exchange, 0L, 0L, 0.0, 
-                    QualityLevel.LOW, Instant.now());
-            }
+        return circuitBreakerService.executeDatabaseOperationWithFallback(
+            () -> marketDataRepository.generateQualityReport(symbol, exchange, hours),
+            () -> new MarketDataRepository.DataQualityReport(symbol, exchange, 0L, 0L, 0.0, Instant.now())
+        ).thenApply(report -> {
+            QualityLevel level = switch (report.getQualityLevel()) {
+                case HIGH -> QualityLevel.HIGH;
+                case MEDIUM -> QualityLevel.MEDIUM;
+                case LOW -> QualityLevel.LOW;
+            };
+            return new DataQualityReport(report.symbol(), report.exchange(), report.totalRecords(),
+                report.dataGaps(), report.qualityScore(), level, report.generatedAt());
         });
-    }
-
-    // Helper methods
-    private List<MarketDataPoint> convertCachedOHLCToDataPoints(List<MarketDataCacheService.CachedOHLC> cachedData) {
-        return cachedData.stream()
-            .map(cached -> MarketDataPoint.builder()
-                .symbol(cached.symbol())
-                .exchange(cached.exchange())
-                .dataType("OHLC")
-                .open(cached.open())
-                .high(cached.high())
-                .low(cached.low())
-                .price(cached.close())
-                .volume(cached.volume())
-                .timestamp(cached.timestamp())
-                .build())
-            .toList();
-    }
-
-    private DataQualityReport convertToServiceQualityReport(MarketDataRepository.DataQualityReport repoReport) {
-        QualityLevel level = switch (repoReport.getQualityLevel()) {
-            case HIGH -> QualityLevel.HIGH;
-            case MEDIUM -> QualityLevel.MEDIUM;
-            case LOW -> QualityLevel.LOW;
-        };
-        
-        return new DataQualityReport(
-            repoReport.symbol(),
-            repoReport.exchange(),
-            repoReport.totalRecords(),
-            repoReport.dataGaps(),
-            repoReport.qualityScore(),
-            level,
-            repoReport.generatedAt()
-        );
     }
 
     // Data classes
-    public record BatchWriteResult(
-        int successful,
-        int failed,
-        long durationMs,
-        int cacheUpdates
-    ) {}
-
     public record DataQualityReport(
-        String symbol,
-        String exchange,
-        long totalRecords,
-        long dataGaps,
-        double qualityScore,
-        QualityLevel qualityLevel,
-        Instant generatedAt
+        String symbol, String exchange, long totalRecords, long dataGaps,
+        double qualityScore, QualityLevel qualityLevel, Instant generatedAt
     ) {}
 
     public enum QualityLevel {
@@ -340,102 +131,86 @@ public class MarketDataService {
         LOW("Poor data quality requiring attention");
 
         private final String description;
-
-        QualityLevel(String description) {
-            this.description = description;
-        }
-
-        public String getDescription() {
-            return description;
-        }
+        QualityLevel(String description) { this.description = description; }
+        public String getDescription() { return description; }
     }
     
-    // AgentOS Integration Methods
-    
+    // ========== AgentOS Integration Methods ==========
+
     /**
-     * Get real-time data for multiple symbols (AgentOS compatibility)
+     * Get real-time data - delegates to QueryService (RULE #2: SRP)
      */
-    public Object getRealTimeData(List<String> symbols) {
-        log.info("Getting real-time data for symbols: {}", symbols);
-        // Implementation would coordinate with existing getCurrentPrice method
-        return Map.of(
-            "symbols", symbols,
-            "timestamp", Instant.now(),
-            "status", "ACTIVE"
-        );
+    public CompletableFuture<RealTimeDataResponse> getRealTimeData(List<String> symbols) {
+        return queryService.getRealTimeData(symbols);
     }
-    
+
     /**
-     * Get historical data for symbols with timeframe (AgentOS compatibility)
+     * Get historical data by timeframe - delegates to QueryService (RULE #2: SRP)
      */
-    public Object getHistoricalData(List<String> symbols, String timeframe) {
-        log.info("Getting historical data for symbols: {} with timeframe: {}", symbols, timeframe);
-        // Implementation would coordinate with existing historical data methods
-        return Map.of(
-            "symbols", symbols,
-            "timeframe", timeframe,
-            "timestamp", Instant.now(),
-            "status", "SUCCESS"
-        );
+    public CompletableFuture<HistoricalDataResponse> getHistoricalData(List<String> symbols, String timeframe) {
+        return queryService.getHistoricalDataByTimeframe(symbols, timeframe);
     }
     
     /**
      * Subscribe to real-time updates (AgentOS compatibility)
+     * RULE #5: Max 15 lines with validation
      */
-    public Object subscribeToRealTimeUpdates(List<String> symbols, Integer updateFrequencyMs, Map<String, Object> callbackConfig) {
-        log.info("Subscribing to real-time updates for symbols: {} with frequency: {}ms", symbols, updateFrequencyMs);
-        return Map.of(
-            "subscriptionId", "sub_" + System.currentTimeMillis(),
-            "symbols", symbols,
-            "status", "ACTIVE",
-            "updateFrequency", updateFrequencyMs
-        );
+    public CompletableFuture<SubscriptionResponse> subscribeToRealTimeUpdates(SubscriptionRequest request) {
+        log.info("Subscribing to real-time updates for {} symbols", request.symbols().size());
+        return CompletableFuture.supplyAsync(() -> {
+            Optional.of(request)
+                .filter(r -> r.symbols() != null && !r.symbols().isEmpty() && r.symbols().size() <= 100)
+                .filter(r -> r.updateFrequency() == null || r.updateFrequency() >= 100)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid subscription request"));
+
+            String subscriptionId = "sub_" + System.currentTimeMillis() + "_" + System.nanoTime();
+            return SubscriptionResponse.success(subscriptionId, request.symbols(), request.updateFrequency());
+        }, virtualThreadExecutor)
+        .exceptionally(ex -> SubscriptionResponse.failed("sub_error_" + System.currentTimeMillis(), ex.getMessage()));
     }
     
     /**
-     * Create price alert (AgentOS compatibility)
+     * Create price alert (AgentOS - Rule #5: Max 15 lines)
      */
-    public Object createPriceAlert(Map<String, Object> alertConfig) {
-        log.info("Creating price alert with config: {}", alertConfig);
-        return Map.of(
-            "alertId", "alert_" + System.currentTimeMillis(),
-            "status", "ACTIVE",
-            "config", alertConfig
-        );
+    public CompletableFuture<PriceAlertResponse> createPriceAlert(PriceAlertRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            Optional.of(request).filter(PriceAlertRequest::isValid)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid price alert configuration"));
+            String alertId = "alert_" + System.currentTimeMillis();
+            return PriceAlertResponse.builder().success(true)
+                .message("Price alert created").timestamp(Instant.now())
+                .requestId("req_" + System.currentTimeMillis()).build();
+        }, virtualThreadExecutor);
     }
-    
+
     /**
-     * Update price alert (AgentOS compatibility)
+     * Update price alert (AgentOS - Rule #5: Max 15 lines)
      */
-    public Object updatePriceAlert(Map<String, Object> alertConfig) {
-        log.info("Updating price alert with config: {}", alertConfig);
-        return Map.of(
-            "alertId", alertConfig.get("alertId"),
-            "status", "UPDATED",
-            "config", alertConfig
-        );
+    public CompletableFuture<PriceAlertResponse> updatePriceAlert(PriceAlertRequest request) {
+        return CompletableFuture.supplyAsync(() -> PriceAlertResponse.builder()
+            .success(true).message("Price alert updated").timestamp(Instant.now())
+            .requestId("req_" + System.currentTimeMillis()).build(), virtualThreadExecutor);
     }
-    
+
     /**
-     * Delete price alert (AgentOS compatibility)
+     * Delete price alert (AgentOS - Rule #5: Max 15 lines)
      */
-    public Object deletePriceAlert(Map<String, Object> alertConfig) {
-        log.info("Deleting price alert with config: {}", alertConfig);
-        return Map.of(
-            "alertId", alertConfig.get("alertId"),
-            "status", "DELETED"
-        );
+    public CompletableFuture<PriceAlertResponse> deletePriceAlert(PriceAlertRequest request) {
+        return CompletableFuture.supplyAsync(() -> PriceAlertResponse.builder()
+            .success(true).message("Price alert deleted").timestamp(Instant.now())
+            .requestId("req_" + System.currentTimeMillis()).build(), virtualThreadExecutor);
     }
-    
+
     /**
-     * List price alerts (AgentOS compatibility)
+     * List price alerts (AgentOS - Rule #5: Max 15 lines)
      */
-    public Object listPriceAlerts(Map<String, Object> criteria) {
-        log.info("Listing price alerts with criteria: {}", criteria);
-        return Map.of(
-            "alerts", List.of(),
-            "count", 0,
-            "status", "SUCCESS"
-        );
+    public CompletableFuture<PriceAlertResponse> listPriceAlerts(PriceAlertRequest criteria) {
+        return CompletableFuture.supplyAsync(() -> PriceAlertResponse.builder()
+            .success(true).message("Price alerts retrieved").timestamp(Instant.now())
+            .requestId("req_" + System.currentTimeMillis()).alerts(List.of())
+            .pagination(PriceAlertResponse.PaginationInfo.builder()
+                .currentPage(criteria.page()).pageSize(criteria.size())
+                .totalPages(0).totalElements(0L).build())
+            .build(), virtualThreadExecutor);
     }
 }
