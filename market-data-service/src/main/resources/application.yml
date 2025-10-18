@@ -208,6 +208,12 @@ trademaster:
     minimum-number-of-calls: 10
     permitted-number-of-calls-in-half-open-state: 5
 
+  # Service-to-Service Authentication Configuration (Golden Spec Section 2.2)
+  security:
+    service:
+      enabled: ${SERVICE_AUTH_ENABLED:true}
+      api-key: ${SERVICE_API_KEY:dev-fallback-service-key-change-in-production}
+
   # Market Data Provider Configuration
   providers:
     alphavantage:
