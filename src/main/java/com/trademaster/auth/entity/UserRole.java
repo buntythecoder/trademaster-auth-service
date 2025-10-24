@@ -71,13 +71,14 @@ public class UserRole {
 
     // Business logic methods
     public boolean hasPermission(String domain, String action) {
-        if (permissions == null || permissions.isEmpty()) {
-            return false;
-        }
-
-        // Simple string-based permission check
-        String permissionKey = domain + ":" + action;
-        return permissions.contains(permissionKey) || permissions.contains(domain + ":*");
+        return Optional.ofNullable(permissions)
+            .filter(perms -> !perms.isEmpty())
+            .map(perms -> {
+                // Simple string-based permission check
+                String permissionKey = domain + ":" + action;
+                return perms.contains(permissionKey) || perms.contains(domain + ":*");
+            })
+            .orElse(false);
     }
 
     public void addPermission(String domain, String action) {
@@ -92,18 +93,24 @@ public class UserRole {
     }
 
     public void removePermission(String domain, String action) {
-        if (permissions == null || permissions.isEmpty()) {
-            return;
-        }
-
-        String permissionKey = domain + ":" + action;
-        permissions = permissions.replace(permissionKey, "").replace(";;", ";").trim();
-        if (permissions.startsWith(";")) {
-            permissions = permissions.substring(1);
-        }
-        if (permissions.endsWith(";")) {
-            permissions = permissions.substring(0, permissions.length() - 1);
-        }
+        permissions = Optional.ofNullable(permissions)
+            .filter(perms -> !perms.isEmpty())
+            .map(perms -> {
+                String permissionKey = domain + ":" + action;
+                String cleaned = perms.replace(permissionKey, "").replace(";;", ";").trim();
+                // Remove leading semicolon
+                cleaned = Optional.of(cleaned)
+                    .filter(s -> s.startsWith(";"))
+                    .map(s -> s.substring(1))
+                    .orElse(cleaned);
+                // Remove trailing semicolon
+                cleaned = Optional.of(cleaned)
+                    .filter(s -> s.endsWith(";"))
+                    .map(s -> s.substring(0, s.length() - 1))
+                    .orElse(cleaned);
+                return cleaned;
+            })
+            .orElse(permissions);
     }
 
     // Helper method for audit logging

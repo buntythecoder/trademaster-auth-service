@@ -10,6 +10,8 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Optional;
 
 @Entity
 @Table(name = "user_sessions")
@@ -102,25 +104,21 @@ public class UserSession {
 
     public void setAttribute(String key, Object value) {
         // Simple key-value storage in string format
-        if (this.attributes == null || this.attributes.isEmpty()) {
-            this.attributes = key + "=" + value.toString();
-        } else {
-            this.attributes = this.attributes + ";" + key + "=" + value.toString();
-        }
+        this.attributes = Optional.ofNullable(this.attributes)
+            .filter(attrs -> !attrs.isEmpty())
+            .map(attrs -> attrs + ";" + key + "=" + value.toString())
+            .orElse(key + "=" + value.toString());
     }
 
     public Object getAttribute(String key) {
-        if (this.attributes == null || this.attributes.isEmpty()) {
-            return null;
-        }
-        String[] pairs = this.attributes.split(";");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split("=", 2);
-            if (keyValue.length == 2 && keyValue[0].equals(key)) {
-                return keyValue[1];
-            }
-        }
-        return null;
+        return Optional.ofNullable(this.attributes)
+            .filter(attrs -> !attrs.isEmpty())
+            .flatMap(attrs -> Arrays.stream(attrs.split(";"))
+                .map(pair -> pair.split("=", 2))
+                .filter(keyValue -> keyValue.length == 2 && keyValue[0].equals(key))
+                .map(keyValue -> keyValue[1])
+                .findFirst())
+            .orElse(null);
     }
 
     public boolean hasAttribute(String key) {

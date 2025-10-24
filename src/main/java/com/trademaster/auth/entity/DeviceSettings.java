@@ -75,9 +75,12 @@ public class DeviceSettings {
     }
 
     public void unblockDevice(String deviceFingerprint) {
-        if (blockedDevices != null && blockedDevices.contains(deviceFingerprint)) {
-            blockedDevices = blockedDevices.replace(deviceFingerprint + ",", "").replace("," + deviceFingerprint, "").replace(deviceFingerprint, "");
-        }
+        blockedDevices = Optional.ofNullable(blockedDevices)
+            .filter(devices -> devices.contains(deviceFingerprint))
+            .map(devices -> devices.replace(deviceFingerprint + ",", "")
+                                   .replace("," + deviceFingerprint, "")
+                                   .replace(deviceFingerprint, ""))
+            .orElse(blockedDevices);
     }
 
     public LocalDateTime calculateTrustExpiry() {
@@ -85,10 +88,10 @@ public class DeviceSettings {
     }
 
     public int getBlockedDevicesCount() {
-        if (blockedDevices == null || blockedDevices.isEmpty()) {
-            return 0;
-        }
-        return blockedDevices.split(",").length;
+        return Optional.ofNullable(blockedDevices)
+            .filter(devices -> !devices.isEmpty())
+            .map(devices -> devices.split(",").length)
+            .orElse(0);
     }
 
     // Helper method for audit logging
