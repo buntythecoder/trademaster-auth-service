@@ -107,15 +107,17 @@ public sealed interface Result<T, E> permits Result.Success, Result.Failure {
 
     // Side effects
     default Result<T, E> onSuccess(Consumer<T> action) {
-        if (this instanceof Success<T, E> success) {
-            action.accept(success.value());
+        switch (this) {
+            case Success<T, E> success -> action.accept(success.value());
+            case Failure<T, E> failure -> {}
         }
         return this;
     }
 
     default Result<T, E> onFailure(Consumer<E> action) {
-        if (this instanceof Failure<T, E> failure) {
-            action.accept(failure.error());
+        switch (this) {
+            case Success<T, E> success -> {}
+            case Failure<T, E> failure -> action.accept(failure.error());
         }
         return this;
     }
