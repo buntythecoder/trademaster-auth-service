@@ -102,11 +102,13 @@ public class UserService implements UserDetailsService {
     public void updateLastActivity(Long userId, String ipAddress, String deviceFingerprint) {
         SafeOperations.safelyToResult(() -> {
             // Validate IP address format (basic validation)
-            String validatedIp = ipAddress;
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                log.warn("Invalid IP address provided: {}", ipAddress);
-                validatedIp = "127.0.0.1";
-            }
+            String validatedIp = Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElseGet(() -> {
+                    log.warn("Invalid IP address provided: {}", ipAddress);
+                    return "127.0.0.1";
+                });
 
             userRepository.updateLastLogin(userId, LocalDateTime.now(), validatedIp, deviceFingerprint, LocalDateTime.now());
             

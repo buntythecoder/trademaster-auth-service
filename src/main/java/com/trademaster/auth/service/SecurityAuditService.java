@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -361,11 +362,13 @@ public class SecurityAuditService {
     
     // Helper method to validate IP address string
     private String parseIpAddressString(String ipAddress) {
-        if (ipAddress == null || ipAddress.trim().isEmpty()) {
-            log.warn("Invalid IP address: {}", ipAddress);
-            return "127.0.0.1";
-        }
-        return ipAddress.trim();
+        return Optional.ofNullable(ipAddress)
+            .map(String::trim)
+            .filter(ip -> !ip.isEmpty())
+            .orElseGet(() -> {
+                log.warn("Invalid IP address: {}", ipAddress);
+                return "127.0.0.1";
+            });
     }
 
     private String performInternalGeoIpLookup(String ipAddress) {
@@ -412,13 +415,13 @@ public class SecurityAuditService {
     // Utility methods using functional approaches
 
     private String parseIpAddress(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return "127.0.0.1";
-            }
-            return ipAddress.trim();
-        })
-            .orElse(ipAddress != null ? ipAddress : "127.0.0.1");
+        return SafeOperations.safely(() ->
+            Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElse("127.0.0.1")
+        )
+            .orElse(Optional.ofNullable(ipAddress).orElse("127.0.0.1"));
     }
 
     private String parseGeoIpResponse(String jsonResponse) {
@@ -463,27 +466,16 @@ public class SecurityAuditService {
     }
 
     private boolean isValidPublicIp(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return false;
-            }
-            // Basic IP address pattern validation
-            String[] parts = ipAddress.trim().split("\\.");
-            if (parts.length != 4) {
-                return false;
-            }
-            for (String part : parts) {
-                try {
-                    int num = Integer.parseInt(part);
-                    if (num < 0 || num > 255) {
-                        return false;
-                    }
-                } catch (NumberFormatException e) {
-                    return false;
-                }
-            }
-            return true;
-        })
+        return Optional.ofNullable(ipAddress)
+            .map(String::trim)
+            .filter(ip -> !ip.isEmpty())
+            .map(ip -> ip.split("\\."))
+            .filter(parts -> parts.length == 4)
+            .map(parts -> Arrays.stream(parts)
+                .allMatch(part ->
+                    SafeOperations.safely(() -> Integer.parseInt(part))
+                        .map(num -> num >= 0 && num <= 255)
+                        .orElse(false)))
             .orElse(false);
     }
 

@@ -21,6 +21,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -100,10 +101,10 @@ public class MfaService {
     public MfaConfiguration setupTotpMfa(String userId, String sessionId) {
         Optional<MfaConfiguration> existing = mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), MfaConfiguration.MfaType.TOTP);
 
-        if (existing.isPresent()) {
+        existing.ifPresent(config -> {
             log.warn("TOTP MFA already configured for user: {}", userId);
             throw new IllegalStateException("TOTP MFA already configured for user");
-        }
+        });
 
         Result<MfaConfiguration, String> result = SafeOperations.safelyToResult(() -> createNewTotpConfiguration(userId, sessionId));
 
@@ -317,19 +318,20 @@ public class MfaService {
     private boolean verifyBackupCode(MfaConfiguration config, String code) {
         return Optional.ofNullable(config.getBackupCodes())
             .filter(codes -> !codes.isEmpty())
-            .map(codes -> {
+            .flatMap(codes -> {
                 String[] codesArray = codes.split(",");
-                for (String encryptedCode : codesArray) {
-                    if (encryptionService.decrypt(encryptedCode).getValue().orElse("").equals(code)) {
+                return Arrays.stream(codesArray)
+                    .filter(encryptedCode ->
+                        encryptionService.decrypt(encryptedCode).getValue().orElse("").equals(code))
+                    .findFirst()
+                    .map(matchedCode -> {
                         // Remove the used code
-                        String updatedCodes = codes.replace(encryptedCode + ",", "")
-                                                   .replace("," + encryptedCode, "")
-                                                   .replace(encryptedCode, "");
+                        String updatedCodes = codes.replace(matchedCode + ",", "")
+                                                   .replace("," + matchedCode, "")
+                                                   .replace(matchedCode, "");
                         config.setBackupCodes(updatedCodes);
                         return true;
-                    }
-                }
-                return false;
+                    });
             })
             .orElse(false);
     }

@@ -296,12 +296,12 @@ public class AuditService {
     }
     
     private String parseIpAddressSafely(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return "127.0.0.1";
-            }
-            return ipAddress.trim();
-        }).orElse("127.0.0.1");
+        return SafeOperations.safely(() ->
+            Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElse("127.0.0.1")
+        ).orElse("127.0.0.1");
     }
     
     private String generateBlockchainHashSafely(AuthAuditLog auditLog, String previousHash) throws Exception {
