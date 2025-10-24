@@ -126,10 +126,9 @@ public class UserDevice {
     }
 
     public long getDaysSinceLastSeen() {
-        if (lastSeen == null) {
-            return Long.MAX_VALUE;
-        }
-        return java.time.Duration.between(lastSeen, LocalDateTime.now()).toDays();
+        return Optional.ofNullable(lastSeen)
+            .map(seen -> java.time.Duration.between(seen, LocalDateTime.now()).toDays())
+            .orElse(Long.MAX_VALUE);
     }
 
     public String getLocationString() {

@@ -13,6 +13,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Authentication AgentOS Configuration
@@ -148,39 +151,51 @@ public class AuthAgentOSConfig implements ApplicationRunner {
      */
     @Scheduled(fixedRate = 30000, initialDelay = 30000)
     public void performPeriodicHealthCheck() {
-        
-        if (!agentRegistered) {
-            log.warn("Skipping health check - agent not registered with AgentOS");
-            return;
-        }
-        
-        try {
-            log.debug("Performing periodic health check for Authentication Agent...");
-            
-            // Perform agent health check
-            authenticationAgent.performHealthCheck();
-            
-            var healthScore = authenticationAgent.getHealthScore();
-            var timeSinceRegistration = Duration.between(registrationTime, LocalDateTime.now());
-            
-            // Log health status
-            if (healthScore >= 0.8) {
-                log.debug("Authentication Agent health check: HEALTHY (Score: {})", healthScore);
-            } else if (healthScore >= 0.5) {
-                log.warn("Authentication Agent health check: DEGRADED (Score: {})", healthScore);
-            } else {
-                log.error("Authentication Agent health check: UNHEALTHY (Score: {})", healthScore);
-            }
-            
-            // Log uptime information
-            log.debug("Authentication Agent uptime: {} minutes", timeSinceRegistration.toMinutes());
-            
-            lastHealthCheck = LocalDateTime.now();
-            
-        } catch (Exception e) {
-            log.error("Periodic health check failed for Authentication Agent", e);
-            // Continue operation despite health check failure
-        }
+        Optional.of(agentRegistered)
+            .filter(registered -> registered)
+            .ifPresentOrElse(
+                registered -> performHealthCheckInternal(),
+                () -> log.warn("Skipping health check - agent not registered with AgentOS")
+            );
+    }
+
+    private void performHealthCheckInternal() {
+        Optional.of(authenticationAgent)
+            .ifPresent(agent -> {
+                try {
+                    log.debug("Performing periodic health check for Authentication Agent...");
+                    agent.performHealthCheck();
+
+                    double healthScore = agent.getHealthScore();
+                    Duration timeSinceRegistration = Duration.between(registrationTime, LocalDateTime.now());
+
+                    // Log health status using functional threshold mapping
+                    getHealthStatus(healthScore).accept(healthScore);
+
+                    // Log uptime information
+                    log.debug("Authentication Agent uptime: {} minutes", timeSinceRegistration.toMinutes());
+                    lastHealthCheck = LocalDateTime.now();
+
+                } catch (Exception e) {
+                    log.error("Periodic health check failed for Authentication Agent", e);
+                    // Continue operation despite health check failure
+                }
+            });
+    }
+
+    private java.util.function.Consumer<Double> getHealthStatus(double healthScore) {
+        return java.util.stream.Stream.of(
+                Map.entry(0.8, (Consumer<Double>) score ->
+                    log.debug("Authentication Agent health check: HEALTHY (Score: {})", score)),
+                Map.entry(0.5, (Consumer<Double>) score ->
+                    log.warn("Authentication Agent health check: DEGRADED (Score: {})", score)),
+                Map.entry(0.0, (Consumer<Double>) score ->
+                    log.error("Authentication Agent health check: UNHEALTHY (Score: {})", score))
+            )
+            .filter(entry -> healthScore >= entry.getKey())
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(score -> log.error("Authentication Agent health check: UNHEALTHY (Score: {})", score));
     }
     
     /**
@@ -189,32 +204,31 @@ public class AuthAgentOSConfig implements ApplicationRunner {
      */
     @Scheduled(fixedRate = 120000, initialDelay = 60000)
     public void monitorCapabilityPerformance() {
-        
-        if (!agentRegistered) {
-            return;
-        }
-        
-        try {
-            log.debug("Monitoring Authentication Agent capability performance...");
-            
-            var performanceSummary = capabilityRegistry.getPerformanceSummary();
-            var overallHealth = capabilityRegistry.calculateOverallHealthScore();
-            
-            // Log performance metrics
-            performanceSummary.forEach((capability, metrics) -> {
-                log.debug("Capability [{}]: {}", capability, metrics);
+        Optional.of(agentRegistered)
+            .filter(registered -> registered)
+            .ifPresent(registered -> {
+                try {
+                    log.debug("Monitoring Authentication Agent capability performance...");
+
+                    var performanceSummary = capabilityRegistry.getPerformanceSummary();
+                    var overallHealth = capabilityRegistry.calculateOverallHealthScore();
+
+                    // Log performance metrics
+                    performanceSummary.forEach((capability, metrics) ->
+                        log.debug("Capability [{}]: {}", capability, metrics));
+
+                    log.debug("Overall capability health score: {}", overallHealth);
+
+                    // Alert on performance degradation
+                    Optional.of(overallHealth)
+                        .filter(health -> health < 0.7)
+                        .ifPresent(health ->
+                            log.warn("Authentication Agent capability performance degraded - Health Score: {}", health));
+
+                } catch (Exception e) {
+                    log.error("Capability performance monitoring failed", e);
+                }
             });
-            
-            log.debug("Overall capability health score: {}", overallHealth);
-            
-            // Alert on performance degradation
-            if (overallHealth < 0.7) {
-                log.warn("Authentication Agent capability performance degraded - Health Score: {}", overallHealth);
-            }
-            
-        } catch (Exception e) {
-            log.error("Capability performance monitoring failed", e);
-        }
     }
     
     /**
@@ -223,16 +237,18 @@ public class AuthAgentOSConfig implements ApplicationRunner {
     @EventListener
     public void handleContextClosed(ContextClosedEvent event) {
         log.info("Authentication Agent shutting down - deregistering from AgentOS...");
-        
+
         try {
-            if (agentRegistered) {
-                // Notify orchestrator of shutdown
-                authenticationAgent.onDeregistration();
-                
-                var uptime = Duration.between(registrationTime, LocalDateTime.now());
-                log.info("Authentication Agent deregistered successfully - Uptime: {} minutes", 
-                        uptime.toMinutes());
-            }
+            Optional.of(agentRegistered)
+                .filter(registered -> registered)
+                .ifPresent(registered -> {
+                    // Notify orchestrator of shutdown
+                    authenticationAgent.onDeregistration();
+
+                    Duration uptime = Duration.between(registrationTime, LocalDateTime.now());
+                    log.info("Authentication Agent deregistered successfully - Uptime: {} minutes",
+                            uptime.toMinutes());
+                });
             
         } catch (Exception e) {
             log.error("Error during Authentication Agent deregistration", e);

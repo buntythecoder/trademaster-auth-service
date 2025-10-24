@@ -91,18 +91,16 @@ public class UserRoleAssignment {
     }
 
     public void extend(int days) {
-        if (expiresAt != null) {
-            this.expiresAt = expiresAt.plusDays(days);
-        } else {
-            this.expiresAt = LocalDateTime.now().plusDays(days);
-        }
+        this.expiresAt = Optional.ofNullable(expiresAt)
+            .map(expiry -> expiry.plusDays(days))
+            .orElse(LocalDateTime.now().plusDays(days));
     }
 
     // Helper method for audit logging
     public String toAuditString() {
-        return String.format("UserRoleAssignment{id=%d, userId=%d, roleId=%d, roleName='%s', isActive=%s, expiresAt=%s}", 
-                           id, userId, roleId, 
-                           role != null ? role.getRoleName() : "unknown", 
+        return String.format("UserRoleAssignment{id=%d, userId=%d, roleId=%d, roleName='%s', isActive=%s, expiresAt=%s}",
+                           id, userId, roleId,
+                           Optional.ofNullable(role).map(UserRole::getRoleName).orElse("unknown"),
                            isActive, expiresAt);
     }
 }

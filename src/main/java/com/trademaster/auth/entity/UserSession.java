@@ -89,17 +89,15 @@ public class UserSession {
     }
 
     public long getMinutesUntilExpiry() {
-        if (expiresAt == null) {
-            return 0;
-        }
-        return java.time.Duration.between(LocalDateTime.now(), expiresAt).toMinutes();
+        return Optional.ofNullable(expiresAt)
+            .map(expiry -> java.time.Duration.between(LocalDateTime.now(), expiry).toMinutes())
+            .orElse(0L);
     }
 
     public long getMinutesSinceLastActivity() {
-        if (lastActivity == null) {
-            return Long.MAX_VALUE;
-        }
-        return java.time.Duration.between(lastActivity, LocalDateTime.now()).toMinutes();
+        return Optional.ofNullable(lastActivity)
+            .map(activity -> java.time.Duration.between(activity, LocalDateTime.now()).toMinutes())
+            .orElse(Long.MAX_VALUE);
     }
 
     public void setAttribute(String key, Object value) {

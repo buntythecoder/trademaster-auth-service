@@ -66,12 +66,12 @@ public class DeviceSettings {
     }
 
     public void blockDevice(String deviceFingerprint) {
-        if (blockedDevices == null) {
-            blockedDevices = "";
-        }
-        if (!blockedDevices.contains(deviceFingerprint)) {
-            blockedDevices = blockedDevices.isEmpty() ? deviceFingerprint : blockedDevices + "," + deviceFingerprint;
-        }
+        blockedDevices = Optional.ofNullable(blockedDevices)
+            .orElse("");
+        blockedDevices = Optional.of(blockedDevices)
+            .filter(devices -> !devices.contains(deviceFingerprint))
+            .map(devices -> devices.isEmpty() ? deviceFingerprint : devices + "," + deviceFingerprint)
+            .orElse(blockedDevices);
     }
 
     public void unblockDevice(String deviceFingerprint) {

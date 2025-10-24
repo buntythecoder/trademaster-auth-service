@@ -106,8 +106,7 @@ public class VerificationToken {
 
     @PrePersist
     protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
+        createdAt = Optional.ofNullable(createdAt)
+            .orElse(LocalDateTime.now());
     }
 }

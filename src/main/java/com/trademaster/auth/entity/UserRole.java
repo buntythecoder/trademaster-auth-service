@@ -81,14 +81,14 @@ public class UserRole {
     }
 
     public void addPermission(String domain, String action) {
-        if (permissions == null) {
-            permissions = "";
-        }
+        permissions = Optional.ofNullable(permissions)
+            .orElse("");
 
         String permissionKey = domain + ":" + action;
-        if (!permissions.contains(permissionKey)) {
-            permissions = permissions.isEmpty() ? permissionKey : permissions + ";" + permissionKey;
-        }
+        permissions = Optional.of(permissions)
+            .filter(perms -> !perms.contains(permissionKey))
+            .map(perms -> perms.isEmpty() ? permissionKey : perms + ";" + permissionKey)
+            .orElse(permissions);
     }
 
     public void removePermission(String domain, String action) {

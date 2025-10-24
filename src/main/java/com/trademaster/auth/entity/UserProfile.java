@@ -145,85 +145,85 @@ public class UserProfile {
 
     // Business logic methods
     public String getFullName() {
-        if (firstName == null && lastName == null) {
-            return null;
-        }
-        return String.join(" ", 
-            firstName != null ? firstName : "", 
-            lastName != null ? lastName : "").trim();
+        return Optional.ofNullable(firstName)
+            .or(() -> Optional.ofNullable(lastName))
+            .map(name -> String.join(" ",
+                Optional.ofNullable(firstName).orElse(""),
+                Optional.ofNullable(lastName).orElse("")).trim())
+            .orElse(null);
     }
 
     public boolean isKycComplete() {
-        return kycDocuments != null &&
-               kycDocuments.contains("identity_verified") &&
-               kycDocuments.contains("address_verified");
+        return Optional.ofNullable(kycDocuments)
+            .filter(docs -> docs.contains("identity_verified") && docs.contains("address_verified"))
+            .isPresent();
     }
 
     public boolean hasComplianceFlags() {
-        return complianceFlags != null && !complianceFlags.trim().isEmpty();
+        return Optional.ofNullable(complianceFlags)
+            .map(String::trim)
+            .filter(flags -> !flags.isEmpty())
+            .isPresent();
     }
 
     public void updateBehavioralSetting(String key, Object value) {
-        if (behavioralSettings == null) {
-            behavioralSettings = "";
-        }
+        behavioralSettings = Optional.ofNullable(behavioralSettings)
+            .orElse("");
         // Note: In production, implement JSON serialization for key-value updates
         behavioralSettings = behavioralSettings + ";" + key + "=" + value;
     }
 
     public void updatePreference(String key, Object value) {
-        if (preferences == null) {
-            preferences = "";
-        }
+        preferences = Optional.ofNullable(preferences)
+            .orElse("");
         // Note: In production, implement JSON serialization for key-value updates
         preferences = preferences + ";" + key + "=" + value;
     }
 
     public String getBehavioralSetting(String key) {
-        if (behavioralSettings == null || behavioralSettings.isEmpty()) {
-            return null;
-        }
-        // Note: In production, implement JSON deserialization
-        return behavioralSettings.contains(key) ? "true" : null;
+        return Optional.ofNullable(behavioralSettings)
+            .filter(settings -> !settings.isEmpty())
+            .filter(settings -> settings.contains(key))
+            .map(settings -> "true")
+            .orElse(null);
     }
 
     public String getPreference(String key) {
-        if (preferences == null || preferences.isEmpty() || key == null) {
-            return null;
-        }
-        String[] pairs = preferences.split(";");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split("=", 2);
-            if (keyValue.length == 2 && keyValue[0].trim().equals(key)) {
-                return keyValue[1].trim();
-            }
-        }
-        return null;
+        return Optional.ofNullable(key)
+            .flatMap(k -> Optional.ofNullable(preferences)
+                .filter(prefs -> !prefs.isEmpty())
+                .map(prefs -> java.util.Arrays.stream(prefs.split(";"))
+                    .map(pair -> pair.split("=", 2))
+                    .filter(keyValue -> keyValue.length == 2 && keyValue[0].trim().equals(k))
+                    .map(keyValue -> keyValue[1].trim())
+                    .findFirst()
+                    .orElse(null)))
+            .orElse(null);
     }
 
     // Risk scoring for behavioral AI
     public int calculateRiskScore() {
         int baseScore = 50; // Neutral starting point
-        
-        if (riskTolerance != null) {
-            switch (riskTolerance) {
-                case CONSERVATIVE -> baseScore -= 20;
-                case MODERATE -> baseScore += 0;
-                case AGGRESSIVE -> baseScore += 20;
-                case VERY_AGGRESSIVE -> baseScore += 30;
-            }
-        }
-        
-        if (tradingExperience != null) {
-            switch (tradingExperience) {
-                case BEGINNER -> baseScore -= 10;
-                case INTERMEDIATE -> baseScore += 0;
-                case ADVANCED -> baseScore += 10;
-                case PROFESSIONAL -> baseScore += 15;
-            }
-        }
-        
-        return Math.max(0, Math.min(100, baseScore));
+
+        int riskAdjustment = Optional.ofNullable(riskTolerance)
+            .map(tolerance -> switch (tolerance) {
+                case CONSERVATIVE -> -20;
+                case MODERATE -> 0;
+                case AGGRESSIVE -> 20;
+                case VERY_AGGRESSIVE -> 30;
+            })
+            .orElse(0);
+
+        int experienceAdjustment = Optional.ofNullable(tradingExperience)
+            .map(experience -> switch (experience) {
+                case BEGINNER -> -10;
+                case INTERMEDIATE -> 0;
+                case ADVANCED -> 10;
+                case PROFESSIONAL -> 15;
+            })
+            .orElse(0);
+
+        return Math.max(0, Math.min(100, baseScore + riskAdjustment + experienceAdjustment));
     }
 
     // Enums
