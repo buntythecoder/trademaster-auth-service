@@ -63,19 +63,13 @@ public class AuthenticationService {
     private final SecurityAuditService securityAuditService;
     private final com.trademaster.auth.repository.SecurityAuditLogRepository securityAuditLogRepository;
     private final CircuitBreakerService circuitBreakerService;
+    private final com.trademaster.auth.strategy.AuthenticationStrategyRegistry strategyRegistry;
 
     // Registration strategies - replaces if-else chains
     private final Map<String, Function<RegistrationContext, Result<User, String>>> registrationStrategies = Map.of(
         "STANDARD", this::processStandardRegistration,
         "PREMIUM", this::processPremiumRegistration,
         "ADMIN", this::processAdminRegistration
-    );
-
-    // Authentication strategies - replaces conditional logic
-    private final Map<String, Function<AuthenticationContext, CompletableFuture<Result<AuthenticationResponse, String>>>> authStrategies = Map.of(
-        "PASSWORD", this::authenticateWithPassword,
-        "MFA", this::authenticateWithMfa,
-        "SOCIAL", this::authenticateWithSocial
     );
 
     /**
@@ -90,19 +84,33 @@ public class AuthenticationService {
     }
 
     /**
-     * Functional user authentication using strategy pattern
+     * Functional user authentication using Strategy Registry Pattern
+     *
+     * Uses AuthenticationStrategyRegistry for dynamic strategy selection:
+     * - Priority-based strategy selection (API Key > Social > MFA > Password)
+     * - Auto-discovery of strategies from Spring context
+     * - Runtime strategy selection based on request
+     * - Fallback to default password strategy
+     *
+     * This replaces hard-coded strategy maps with flexible registry pattern.
      */
     public CompletableFuture<Result<AuthenticationResponse, String>> authenticate(
             AuthenticationRequest request, HttpServletRequest httpRequest) {
-        return CompletableFuture.supplyAsync(() -> {
-            String strategy = determineAuthenticationStrategy(request);
-            AuthenticationContext context = new AuthenticationContext(request, httpRequest);
 
-            return Optional.ofNullable(authStrategies.get(strategy))
-                .map(strategyFunc -> strategyFunc.apply(context))
-                .orElse(CompletableFuture.completedFuture(Result.failure("Unsupported authentication strategy")))
-                .join();
-        }, Executors.newVirtualThreadPerTaskExecutor());
+        log.debug("Authenticating user with strategy registry: {}", request.getEmail());
+
+        // Select appropriate strategy from registry
+        return strategyRegistry.selectStrategy(request, httpRequest)
+            .map(strategy -> {
+                log.debug("Selected authentication strategy: {} for user: {}",
+                    strategy.getStrategyName(), request.getEmail());
+                return strategy.authenticate(request, httpRequest);
+            })
+            .orElseGet(() -> {
+                log.error("No authentication strategy found for request");
+                return CompletableFuture.completedFuture(
+                    Result.failure("No suitable authentication strategy found"));
+            });
     }
 
     /**
@@ -790,18 +798,6 @@ public class AuthenticationService {
     }
 
     // Utility methods using functional approaches
-
-    private String determineAuthenticationStrategy(AuthenticationRequest request) {
-        return Stream.of(
-                Optional.ofNullable(request.getMfaCode()).map(code -> "MFA"),
-                Optional.ofNullable(request.getSocialProvider()).map(provider -> "SOCIAL"),
-                Optional.of("PASSWORD")
-            )
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .findFirst()
-            .orElse("PASSWORD");
-    }
 
     private Result<UserRole, String> findOrCreateDefaultRole() {
         return SafeOperations.safelyToResult(() -> 
