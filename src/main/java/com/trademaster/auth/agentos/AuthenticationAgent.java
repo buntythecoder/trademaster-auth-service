@@ -270,14 +270,14 @@ public class AuthenticationAgent implements AgentOSComponent {
             var startTime = System.currentTimeMillis();
             
             // Validate email format
-            if (request.getEmail() == null || !request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
-                throw new IllegalArgumentException("Invalid email format");
-            }
-            
+            Optional.ofNullable(request.getEmail())
+                .filter(email -> email.matches("^[A-Za-z0-9+_.-]+@(.+)$"))
+                .orElseThrow(() -> new IllegalArgumentException("Invalid email format"));
+
             // Validate password strength
-            if (request.getPassword() == null || request.getPassword().length() < 8) {
-                throw new IllegalArgumentException("Password must be at least 8 characters");
-            }
+            Optional.ofNullable(request.getPassword())
+                .filter(password -> password.length() >= 8)
+                .orElseThrow(() -> new IllegalArgumentException("Password must be at least 8 characters"));
             
             // Use authentication service to validate credentials
             var authResult = authenticationService.login(request, null);
@@ -312,20 +312,24 @@ public class AuthenticationAgent implements AgentOSComponent {
             
             return authResult.fold(
                 error -> {
-                    // Analyze error to determine specific account status issues
+                    // Analyze error to determine specific account status issues using functional pattern
                     String lowerError = error.toLowerCase();
-                    if (lowerError.contains("not found") || lowerError.contains("does not exist")) {
-                        throw new RuntimeException("Account not found: " + request.getEmail());
-                    } else if (lowerError.contains("disabled") || lowerError.contains("inactive")) {
-                        throw new RuntimeException("Account is disabled: " + request.getEmail());
-                    } else if (lowerError.contains("locked")) {
-                        throw new RuntimeException("Account is locked: " + request.getEmail());
-                    } else if (lowerError.contains("expired")) {
-                        throw new RuntimeException("Account is expired: " + request.getEmail());
-                    } else {
-                        // If it's just credential error, account exists and is active
-                        return String.format("Account exists and active but authentication failed for: %s", request.getEmail());
-                    }
+                    return Stream.of(
+                            Map.entry(List.of("not found", "does not exist"),
+                                    "Account not found: " + request.getEmail()),
+                            Map.entry(List.of("disabled", "inactive"),
+                                    "Account is disabled: " + request.getEmail()),
+                            Map.entry(List.of("locked"),
+                                    "Account is locked: " + request.getEmail()),
+                            Map.entry(List.of("expired"),
+                                    "Account is expired: " + request.getEmail())
+                        )
+                        .filter(entry -> entry.getKey().stream()
+                            .anyMatch(lowerError::contains))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .map(message -> { throw new RuntimeException(message); })
+                        .orElse(String.format("Account exists and active but authentication failed for: %s", request.getEmail()));
                 },
                 response -> String.format("Account status verified - User active: %s (ID: %d)",
                                         response.getUser().getEmail(), response.getUser().getId())
@@ -549,25 +553,27 @@ public class AuthenticationAgent implements AgentOSComponent {
         try {
             Double healthScore = capabilityRegistry.calculateOverallHealthScore();
             log.debug("Authentication Agent health check - Score: {}", healthScore);
-            
-            // Log health check if score is concerning
-            if (healthScore < 0.7) {
-                log.warn("Authentication Agent health score below threshold: {}", healthScore);
-                
-                securityAuditService.logSecurityEvent(
-                    -1L, // System event
-                    "AGENT_HEALTH_WARNING",
-                    "MEDIUM",
-                    "127.0.0.1",
-                    "AuthenticationAgent",
-                    Map.of(
-                        "agentId", getAgentId(),
-                        "healthScore", healthScore.toString(),
-                        "threshold", "0.7",
-                        "timestamp", System.currentTimeMillis()
-                    )
-                );
-            }
+
+            // Log health check if score is concerning using functional pattern
+            Optional.of(healthScore)
+                .filter(score -> score < 0.7)
+                .ifPresent(score -> {
+                    log.warn("Authentication Agent health score below threshold: {}", score);
+
+                    securityAuditService.logSecurityEvent(
+                        -1L, // System event
+                        "AGENT_HEALTH_WARNING",
+                        "MEDIUM",
+                        "127.0.0.1",
+                        "AuthenticationAgent",
+                        Map.of(
+                            "agentId", getAgentId(),
+                            "healthScore", score.toString(),
+                            "threshold", "0.7",
+                            "timestamp", System.currentTimeMillis()
+                        )
+                    );
+                });
             
         } catch (Exception e) {
             log.error("Authentication Agent health check failed", e);

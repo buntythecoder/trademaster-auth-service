@@ -4,8 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /**
  * Authorization Validator - Validates user permissions and access rights
@@ -52,13 +55,18 @@ public class AuthorizationValidator {
     }
 
     /**
-     * Evaluate authorization level using pattern matching - Rule #14
+     * Evaluate authorization level using functional pattern
      */
     private AuthorizationLevel evaluateAuthorizationLevel(SecurityContext context) {
-        if (!context.hasValidSession()) return AuthorizationLevel.SESSION_REQUIRED;
-        if (!context.isAuthenticated()) return AuthorizationLevel.ACCESS_DENIED;
-        if (isValidUser(context)) return AuthorizationLevel.AUTHORIZED;
-        return AuthorizationLevel.INSUFFICIENT_PRIVILEGES;
+        return Stream.of(
+                Map.entry(() -> !context.hasValidSession(), AuthorizationLevel.SESSION_REQUIRED),
+                Map.entry(() -> !context.isAuthenticated(), AuthorizationLevel.ACCESS_DENIED),
+                Map.entry(() -> isValidUser(context), AuthorizationLevel.AUTHORIZED)
+            )
+            .filter(entry -> entry.getKey().get())
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(AuthorizationLevel.INSUFFICIENT_PRIVILEGES);
     }
 
     /**

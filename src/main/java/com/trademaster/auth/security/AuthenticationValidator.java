@@ -5,7 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /**
  * Authentication Validator - Validates authentication credentials
@@ -83,13 +86,18 @@ public class AuthenticationValidator {
     }
 
     /**
-     * Authentication status evaluation using pattern matching - Rule #14
+     * Authentication status evaluation using functional pattern
      */
     private AuthenticationStatus evaluateAuthenticationStatus(SecurityContext context) {
-        if (!context.isAuthenticated()) return AuthenticationStatus.MISSING_USER_ID;
-        if (context.userId().length() < MIN_USER_ID_LENGTH) return AuthenticationStatus.INVALID_USER_ID;
-        if (!context.hasValidSession()) return AuthenticationStatus.NO_SESSION;
-        return AuthenticationStatus.VALID;
+        return Stream.of(
+                Map.entry(() -> !context.isAuthenticated(), AuthenticationStatus.MISSING_USER_ID),
+                Map.entry(() -> context.userId().length() < MIN_USER_ID_LENGTH, AuthenticationStatus.INVALID_USER_ID),
+                Map.entry(() -> !context.hasValidSession(), AuthenticationStatus.NO_SESSION)
+            )
+            .filter(entry -> entry.getKey().get())
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(AuthenticationStatus.VALID);
     }
 
     /**
