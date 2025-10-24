@@ -3,7 +3,6 @@ package com.trademaster.auth.controller;
 import com.trademaster.auth.service.UserService;
 import com.trademaster.auth.service.SessionManagementService;
 import com.trademaster.auth.service.SecurityAuditService;
-import com.trademaster.auth.service.AuthenticationService;
 import com.trademaster.auth.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +47,6 @@ public class InternalAuthController {
     private final UserService userService;
     private final SessionManagementService sessionService;
     private final SecurityAuditService auditService;
-    private final AuthenticationService authenticationService;
 
     /**
      * Health check for internal services (no authentication required)

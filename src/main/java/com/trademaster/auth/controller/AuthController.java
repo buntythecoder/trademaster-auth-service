@@ -5,7 +5,7 @@ import com.trademaster.auth.dto.AuthenticationRequest;
 import com.trademaster.auth.dto.AuthenticationResponse;
 import com.trademaster.auth.dto.RegistrationRequest;
 import com.trademaster.auth.pattern.SafeOperations;
-import com.trademaster.auth.service.AuthenticationService;
+import com.trademaster.auth.service.AuthenticationFacade;
 import com.trademaster.auth.service.RateLimitingService;
 import com.trademaster.auth.service.UserService;
 import com.trademaster.auth.service.VerificationTokenService;
@@ -50,7 +50,7 @@ import java.util.Optional;
 @Tag(name = "Authentication", description = "User authentication and authorization endpoints")
 public class AuthController {
 
-    private final AuthenticationService authenticationService;
+    private final AuthenticationFacade authenticationFacade;
     private final RateLimitingService rateLimitingService;
     private final VerificationTokenService verificationTokenService;
     private final UserService userService;
@@ -150,7 +150,7 @@ public class AuthController {
             .filter(allowed -> allowed)
             .map(allowed -> {
                 log.info("Registration attempt for email: {}", request.getEmail());
-                return SafeOperations.safelyToResult(() -> authenticationService.register(request, httpRequest))
+                return SafeOperations.safelyToResult(() -> authenticationFacade.register(request, httpRequest))
                     .fold(
                         user -> ResponseEntity.status(HttpStatus.CREATED).body(AuthenticationResponse.builder()
                             .message("Registration successful")
@@ -255,7 +255,7 @@ public class AuthController {
             .<ResponseEntity<AuthenticationResponse>>map(allowed -> {
                 log.info("Login attempt for email: {}", request.getEmail());
                 
-                return authenticationService.login(request, httpRequest)
+                return authenticationFacade.login(request, httpRequest)
                     .fold(
                         error -> {
                             log.warn("Login failed for email {}: {}", request.getEmail(), error);
@@ -357,7 +357,7 @@ public class AuthController {
             .<ResponseEntity<AuthenticationResponse>>map(validEmail -> {
                 log.info("MFA verification attempt for email: {}", validEmail);
                 
-                return authenticationService.completeMfaVerification(
+                return authenticationFacade.completeMfaVerification(
                         validEmail, mfaToken, mfaCode, httpRequest)
                     .fold(
                         error -> {
@@ -447,7 +447,7 @@ public class AuthController {
             .<ResponseEntity<AuthenticationResponse>>map(token -> {
                 log.info("Token refresh attempt");
                 
-                return authenticationService.refreshToken(token, httpRequest)
+                return authenticationFacade.refreshAccessToken(token, httpRequest)
                     .join() // Block for the CompletableFuture result
                     .fold(
                         error -> {
@@ -530,7 +530,7 @@ public class AuthController {
                 String sessionId = httpRequest.getSession().getId();
                 
                 return SafeOperations.safelyToResult(() -> {
-                    authenticationService.logout(token, sessionId, httpRequest.getRemoteAddr());
+                    authenticationFacade.logout(token, sessionId, httpRequest.getRemoteAddr());
                     return "Logged out successfully";
                 })
                 .mapError(error -> {
