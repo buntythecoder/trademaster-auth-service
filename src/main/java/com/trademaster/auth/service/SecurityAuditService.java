@@ -43,6 +43,7 @@ import java.util.stream.Stream;
 public class SecurityAuditService {
 
     private final SecurityAuditLogRepository securityAuditLogRepository;
+    private final CircuitBreakerService circuitBreakerService;
 
     // Geo IP lookup strategies - replaces conditional logic
     private final Map<String, Function<String, String>> geoIpStrategies = Map.of(
@@ -305,31 +306,57 @@ public class SecurityAuditService {
             .orElse("FALLBACK");
     }
 
+    /**
+     * Perform external geo IP lookup with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3 (no try-catch)
+     * MANDATORY: Virtual Threads - Rule #12
+     */
     private String performExternalGeoIpLookup(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
-            okhttp3.Request request = new okhttp3.Request.Builder()
-                .url(String.format("http://ip-api.com/json/%s?fields=country,regionName,city,isp", ipAddress))
-                .build();
-                
-            return SafeOperations.safely(() -> {
-                try (okhttp3.Response response = client.newCall(request).execute()) {
-                    return Optional.ofNullable(response.body())
+        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(5))
+            .readTimeout(java.time.Duration.ofSeconds(10))
+            .build();
+
+        return circuitBreakerService.executeExternalApiOperation(
+            "externalGeoIpLookup",
+            () -> {
+                try {
+                    okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(String.format("http://ip-api.com/json/%s?fields=country,regionName,city,isp", ipAddress))
+                        .build();
+
+                    okhttp3.Response response = client.newCall(request).execute();
+                    String responseBody = Optional.ofNullable(response.body())
                         .map(body -> {
                             try {
                                 return body.string();
                             } catch (IOException e) {
-                                return "Error: " + e.getMessage();
+                                throw new RuntimeException("Failed to read response body", e);
                             }
                         })
-                        .filter(ip -> !ip.trim().isEmpty())
+                        .orElse("");
+                    response.close();
+
+                    return Optional.of(responseBody)
+                        .filter(body -> !body.trim().isEmpty())
                         .map(this::parseGeoIpResponse)
                         .orElse("External IP: " + ipAddress);
                 } catch (IOException e) {
-                    return "External IP: " + ipAddress + " (connection failed)";
+                    throw new RuntimeException("Geo IP lookup HTTP call failed: " + e.getMessage(), e);
                 }
-            }).orElse("External IP: " + ipAddress + " (lookup failed)");
-        }).orElse("External IP: " + ipAddress + " (lookup failed)");
+            }
+        )
+        .thenApply(result -> result
+            .map(geoInfo -> geoInfo)
+            .mapError(error -> {
+                log.warn("External geo IP lookup failed (circuit breaker): {}", error);
+                return "External IP: " + ipAddress + " (lookup failed)";
+            })
+            .orElse("External IP: " + ipAddress)
+        )
+        .join(); // Block to maintain synchronous API (safe with virtual threads)
     }
     
     // Helper method to validate IP address string

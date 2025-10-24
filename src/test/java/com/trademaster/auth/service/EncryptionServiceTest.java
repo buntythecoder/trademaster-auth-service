@@ -1,5 +1,6 @@
 package com.trademaster.auth.service;
 
+import com.trademaster.auth.pattern.Result;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,9 +69,11 @@ class EncryptionServiceTest {
         String plaintext = "This is sensitive data that needs encryption";
 
         // Act
-        String encrypted = encryptionService.encrypt(plaintext);
+        Result<String, String> result = encryptionService.encrypt(plaintext);
 
         // Assert
+        assertTrue(result.isSuccess());
+        String encrypted = result.getValue().orElseThrow();
         assertNotNull(encrypted);
         assertNotEquals(plaintext, encrypted);
         assertTrue(encrypted.length() > 0);
@@ -82,39 +85,45 @@ class EncryptionServiceTest {
     void decrypt_ShouldDecryptEncryptedDataSuccessfully() {
         // Arrange
         String originalText = "Sensitive financial data: Account balance $10,000";
-        String encrypted = encryptionService.encrypt(originalText);
+        Result<String, String> encryptResult = encryptionService.encrypt(originalText);
+        assertTrue(encryptResult.isSuccess());
+        String encrypted = encryptResult.getValue().orElseThrow();
 
         // Act
-        String decrypted = encryptionService.decrypt(encrypted);
+        Result<String, String> decryptResult = encryptionService.decrypt(encrypted);
 
         // Assert
-        assertEquals(originalText, decrypted);
+        assertTrue(decryptResult.isSuccess());
+        assertEquals(originalText, decryptResult.getValue().orElseThrow());
     }
 
     @Test
     void encryptDecrypt_ShouldHandleEmptyStrings() {
         // Test empty string
         String emptyString = "";
-        String encrypted = encryptionService.encrypt(emptyString);
-        assertEquals(emptyString, encrypted);
+        Result<String, String> result = encryptionService.encrypt(emptyString);
+        assertTrue(result.isSuccess());
+        assertEquals(emptyString, result.getValue().orElseThrow());
 
         // Test null string
         String nullString = null;
-        String encryptedNull = encryptionService.encrypt(nullString);
-        assertNull(encryptedNull);
+        Result<String, String> nullResult = encryptionService.encrypt(nullString);
+        assertTrue(nullResult.isFailure());
     }
 
     @Test
     void encryptDecrypt_ShouldHandleSpecialCharacters() {
         // Arrange
         String specialText = "Special chars: !@#$%^&*()_+{}|:<>?[]\\;'\"./,`~áéíóú中文😀";
-        
+
         // Act
-        String encrypted = encryptionService.encrypt(specialText);
-        String decrypted = encryptionService.decrypt(encrypted);
+        Result<String, String> encryptResult = encryptionService.encrypt(specialText);
+        assertTrue(encryptResult.isSuccess());
+        Result<String, String> decryptResult = encryptionService.decrypt(encryptResult.getValue().orElseThrow());
 
         // Assert
-        assertEquals(specialText, decrypted);
+        assertTrue(decryptResult.isSuccess());
+        assertEquals(specialText, decryptResult.getValue().orElseThrow());
     }
 
     @Test
@@ -127,32 +136,40 @@ class EncryptionServiceTest {
         String originalText = largeText.toString();
 
         // Act
-        String encrypted = encryptionService.encrypt(originalText);
-        String decrypted = encryptionService.decrypt(encrypted);
+        Result<String, String> encryptResult = encryptionService.encrypt(originalText);
+        assertTrue(encryptResult.isSuccess());
+        Result<String, String> decryptResult = encryptionService.decrypt(encryptResult.getValue().orElseThrow());
 
         // Assert
-        assertEquals(originalText, decrypted);
-        assertTrue(encrypted.length() > originalText.length()); // Encrypted should be larger due to encoding
+        assertTrue(decryptResult.isSuccess());
+        assertEquals(originalText, decryptResult.getValue().orElseThrow());
+        assertTrue(encryptResult.getValue().orElseThrow().length() > originalText.length()); // Encrypted should be larger due to encoding
     }
 
     @Test
     void encryptField_ShouldHandleVariousDataTypes() {
         // Test different data types
-        String stringField = encryptionService.encryptField("String value");
-        String numberField = encryptionService.encryptField(12345);
-        String booleanField = encryptionService.encryptField(true);
-        String nullField = encryptionService.encryptField(null);
+        String stringResult = encryptionService.encryptField("String value");
+        String numberResult = encryptionService.encryptField(12345);
+        String booleanResult = encryptionService.encryptField(true);
+        String nullResult = encryptionService.encryptField(null);
 
-        assertNotNull(stringField);
-        assertNotNull(numberField);
-        assertNotNull(booleanField);
-        assertNull(nullField);
+        assertNotNull(stringResult);
+        assertNotNull(numberResult);
+        assertNotNull(booleanResult);
+        assertNull(nullResult);
 
         // Decrypt and verify
-        assertEquals("String value", encryptionService.decryptField(stringField));
-        assertEquals("12345", encryptionService.decryptField(numberField));
-        assertEquals("true", encryptionService.decryptField(booleanField));
-        assertNull(encryptionService.decryptField(nullField));
+        String decryptString = encryptionService.decryptField(stringResult);
+        String decryptNumber = encryptionService.decryptField(numberResult);
+        String decryptBoolean = encryptionService.decryptField(booleanResult);
+
+        assertNotNull(decryptString);
+        assertEquals("String value", decryptString);
+        assertNotNull(decryptNumber);
+        assertEquals("12345", decryptNumber);
+        assertNotNull(decryptBoolean);
+        assertEquals("true", decryptBoolean);
     }
 
     @Test
@@ -161,14 +178,14 @@ class EncryptionServiceTest {
         String data = "Test data for hashing";
 
         // Act
-        String hash1 = encryptionService.generateHash(data);
-        String hash2 = encryptionService.generateHash(data);
+        String hashResult1 = encryptionService.generateHash(data);
+        String hashResult2 = encryptionService.generateHash(data);
 
         // Assert
-        assertNotNull(hash1);
-        assertNotNull(hash2);
-        assertEquals(hash1, hash2); // Same input should produce same hash
-        assertNotEquals(data, hash1); // Hash should be different from original
+        assertNotNull(hashResult1);
+        assertNotNull(hashResult2);
+        assertEquals(hashResult1, hashResult2); // Same input should produce same hash
+        assertNotEquals(data, hashResult1); // Hash should be different from original
     }
 
     @Test
@@ -176,6 +193,7 @@ class EncryptionServiceTest {
         // Arrange
         String originalData = "Important financial data";
         String hash = encryptionService.generateHash(originalData);
+        assertNotNull(hash);
 
         // Act & Assert
         assertTrue(encryptionService.verifyHash(originalData, hash));
@@ -217,8 +235,13 @@ class EncryptionServiceTest {
 
         // After rotation, we should still be able to encrypt/decrypt
         String testData = "test after rotation";
-        String encrypted = encryptionService.encrypt(testData);
-        String decrypted = encryptionService.decrypt(encrypted);
+        Result<String, String> encryptResult = encryptionService.encrypt(testData);
+        assertTrue(encryptResult.isSuccess());
+        String encrypted = encryptResult.getValue().orElseThrow();
+
+        Result<String, String> decryptResult = encryptionService.decrypt(encrypted);
+        assertTrue(decryptResult.isSuccess());
+        String decrypted = decryptResult.getValue().orElseThrow();
 
         // Assert
         assertEquals(testData, decrypted);
@@ -230,13 +253,26 @@ class EncryptionServiceTest {
         String plaintext = "Same input text";
 
         // Act
-        String encrypted1 = encryptionService.encrypt(plaintext);
-        String encrypted2 = encryptionService.encrypt(plaintext);
+        Result<String, String> encryptResult1 = encryptionService.encrypt(plaintext);
+        Result<String, String> encryptResult2 = encryptionService.encrypt(plaintext);
+
+        assertTrue(encryptResult1.isSuccess());
+        assertTrue(encryptResult2.isSuccess());
+
+        String encrypted1 = encryptResult1.getValue().orElseThrow();
+        String encrypted2 = encryptResult2.getValue().orElseThrow();
 
         // Assert
         assertNotEquals(encrypted1, encrypted2); // Should be different due to random IV
-        assertEquals(plaintext, encryptionService.decrypt(encrypted1));
-        assertEquals(plaintext, encryptionService.decrypt(encrypted2));
+
+        Result<String, String> decryptResult1 = encryptionService.decrypt(encrypted1);
+        Result<String, String> decryptResult2 = encryptionService.decrypt(encrypted2);
+
+        assertTrue(decryptResult1.isSuccess());
+        assertTrue(decryptResult2.isSuccess());
+
+        assertEquals(plaintext, decryptResult1.getValue().orElseThrow());
+        assertEquals(plaintext, decryptResult2.getValue().orElseThrow());
     }
 
     @Test
@@ -257,8 +293,13 @@ class EncryptionServiceTest {
         String unicodeText = "Unicode test: 中文, العربية, русский, हिन्दी, 日本語, 한국어, Ελληνικά";
 
         // Act
-        String encrypted = encryptionService.encrypt(unicodeText);
-        String decrypted = encryptionService.decrypt(encrypted);
+        Result<String, String> encryptResult = encryptionService.encrypt(unicodeText);
+        assertTrue(encryptResult.isSuccess());
+        String encrypted = encryptResult.getValue().orElseThrow();
+
+        Result<String, String> decryptResult = encryptionService.decrypt(encrypted);
+        assertTrue(decryptResult.isSuccess());
+        String decrypted = decryptResult.getValue().orElseThrow();
 
         // Assert
         assertEquals(unicodeText, decrypted);

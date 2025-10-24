@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -53,6 +54,7 @@ public class SessionManagementService {
     private final UserSessionRepository userSessionRepository;
     private final SessionSettingsRepository sessionSettingsRepository;
     private final AuditService auditService;
+    private final CircuitBreakerService circuitBreakerService;
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(10))
         .readTimeout(java.time.Duration.ofSeconds(30))
@@ -820,26 +822,42 @@ public class SessionManagementService {
             .stream()
             .anyMatch(pattern -> ip.equals(pattern) || ip.startsWith(pattern));
 
+    /**
+     * Perform geo IP lookup with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3 (no try-catch)
+     * MANDATORY: Virtual Threads - Rule #12
+     */
     private String performGeoIpLookup(String ipAddress) {
-        return SafeOperations.safelyToResult(() -> {
-            String apiUrl = String.format("http://ip-api.com/json/%s?fields=country,city,regionName", ipAddress);
-            
-            Request request = new Request.Builder()
-                .url(apiUrl)
-                .build();
-            
-            try {
-                Response response = httpClient.newCall(request).execute();
-                String result = parseGeoIpResponse(response, ipAddress);
-                response.close();
-                return result;
-            } catch (Exception e) {
-                log.warn("Failed to perform geo IP lookup: {}", e.getMessage());
-                return String.format("External IP: %s", ipAddress);
+        return circuitBreakerService.executeExternalApiOperation(
+            "geoIpLookup",
+            () -> {
+                try {
+                    String apiUrl = String.format("http://ip-api.com/json/%s?fields=country,city,regionName", ipAddress);
+
+                    Request request = new Request.Builder()
+                        .url(apiUrl)
+                        .build();
+
+                    Response response = httpClient.newCall(request).execute();
+                    String result = parseGeoIpResponse(response, ipAddress);
+                    response.close();
+                    return result;
+                } catch (IOException e) {
+                    throw new RuntimeException("Geo IP lookup HTTP call failed: " + e.getMessage(), e);
+                }
             }
-        })
-        .mapError(error -> String.format("External IP: %s (lookup failed)", ipAddress))
-        .orElse(String.format("External IP: %s (lookup failed)", ipAddress));
+        )
+        .thenApply(result -> result
+            .map(geoInfo -> geoInfo)
+            .mapError(error -> {
+                log.warn("Geo IP lookup failed (circuit breaker): {}", error);
+                return String.format("External IP: %s (lookup failed)", ipAddress);
+            })
+            .orElse(String.format("External IP: %s", ipAddress))
+        )
+        .join(); // Block to maintain synchronous API (safe with virtual threads)
     }
 
     private String findOldestSession(Set<String> sessionIds) {

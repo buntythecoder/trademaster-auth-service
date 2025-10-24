@@ -2,9 +2,6 @@ package com.trademaster.auth.benchmark;
 
 import com.trademaster.auth.entity.User;
 import com.trademaster.auth.pattern.Result;
-import com.trademaster.auth.service.AuthenticationService;
-import com.trademaster.auth.service.JwtTokenService;
-import com.trademaster.auth.service.PasswordService;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,10 +49,10 @@ public class AuthenticationBenchmark {
 
         testUser = User.builder()
             .id(1L)
-            .username(testEmail)
             .email(testEmail)
             .firstName("Benchmark")
             .lastName("User")
+            .passwordHash("$2a$10$dummyHashForBenchmark")
             .build();
     }
 

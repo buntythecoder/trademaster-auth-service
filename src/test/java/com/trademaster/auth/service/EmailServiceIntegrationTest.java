@@ -1,7 +1,6 @@
 package com.trademaster.auth.service;
 
 import com.trademaster.auth.pattern.Result;
-import com.trademaster.auth.test.config.TestConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,7 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.ActiveProfiles;
@@ -49,7 +48,7 @@ class EmailServiceIntegrationTest {
     @Autowired
     private CircuitBreakerRegistry circuitBreakerRegistry;
 
-    @MockBean
+    @MockitoBean
     private JavaMailSender mailSender;
 
     private MimeMessage mockMessage;
@@ -80,7 +79,7 @@ class EmailServiceIntegrationTest {
         Result<String, String> emailResult = result.get(5, TimeUnit.SECONDS);
 
         assertThat(emailResult.isSuccess()).isTrue();
-        assertThat(emailResult.value()).isEqualTo("Email verification sent successfully");
+        assertThat(emailResult.getValue().orElseThrow()).isEqualTo("Email verification sent successfully");
 
         verify(mailSender, times(1)).createMimeMessage();
         verify(mailSender, times(1)).send(any(MimeMessage.class));
@@ -101,7 +100,7 @@ class EmailServiceIntegrationTest {
         Result<String, String> emailResult = result.get(5, TimeUnit.SECONDS);
 
         assertThat(emailResult.isSuccess()).isTrue();
-        assertThat(emailResult.value()).isEqualTo("Password reset email sent successfully");
+        assertThat(emailResult.getValue().orElseThrow()).isEqualTo("Password reset email sent successfully");
 
         verify(mailSender, times(1)).createMimeMessage();
         verify(mailSender, times(1)).send(any(MimeMessage.class));
@@ -122,7 +121,7 @@ class EmailServiceIntegrationTest {
         Result<String, String> emailResult = result.get(5, TimeUnit.SECONDS);
 
         assertThat(emailResult.isSuccess()).isTrue();
-        assertThat(emailResult.value()).isEqualTo("MFA code email sent successfully");
+        assertThat(emailResult.getValue().orElseThrow()).isEqualTo("MFA code email sent successfully");
 
         verify(mailSender, times(1)).createMimeMessage();
         verify(mailSender, times(1)).send(any(MimeMessage.class));
@@ -156,7 +155,7 @@ class EmailServiceIntegrationTest {
 
         Result<String, String> failFastResult = fastFailResult.get(1, TimeUnit.SECONDS);
         assertThat(failFastResult.isFailure()).isTrue();
-        assertThat(failFastResult.error()).contains("Circuit breaker open");
+        assertThat(failFastResult.getError().orElseThrow()).contains("Circuit breaker open");
     }
 
     @Test

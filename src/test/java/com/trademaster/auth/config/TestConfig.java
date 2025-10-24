@@ -2,7 +2,7 @@ package com.trademaster.auth.config;
 
 import com.trademaster.auth.service.EmailService;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
@@ -23,10 +23,10 @@ import static org.mockito.Mockito.when;
 @Profile("test")
 public class TestConfig {
 
-    @MockBean
+    @MockitoBean
     private KmsClient kmsClient;
 
-    @MockBean 
+    @MockitoBean 
     private EmailService emailService;
 
     @Bean
