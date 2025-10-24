@@ -392,11 +392,11 @@ public class UserService implements UserDetailsService {
     }
 
     private Result<User, String> validateApprovalDocuments(User user, User.KycStatus newStatus, Map<String, Object> kycDocuments) {
-        if (newStatus == User.KycStatus.APPROVED) {
-            return validateDocumentsForApproval(kycDocuments)
-                .map(valid -> user);
-        }
-        return Result.success(user);
+        return Optional.of(newStatus)
+            .filter(status -> status == User.KycStatus.APPROVED)
+            .map(status -> validateDocumentsForApproval(kycDocuments)
+                .map(valid -> user))
+            .orElse(Result.success(user));
     }
 
     private Result<Boolean, String> validateDocumentsForApproval(Map<String, Object> kycDocuments) {
