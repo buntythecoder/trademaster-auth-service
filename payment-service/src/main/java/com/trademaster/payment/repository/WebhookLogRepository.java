@@ -61,9 +61,18 @@ public interface WebhookLogRepository extends JpaRepository<WebhookLog, UUID> {
     List<WebhookLog> findBySignatureVerifiedFalseOrderByReceivedAtDesc();
     
     /**
-     * Find webhooks by webhook ID
+     * Find webhooks by webhook ID (may return duplicates if no unique constraint)
      */
     List<WebhookLog> findByWebhookId(String webhookId);
+
+    /**
+     * Find webhook by gateway and webhook ID for idempotency check
+     * Returns Optional for unique constraint enforcement
+     */
+    java.util.Optional<WebhookLog> findByGatewayAndWebhookId(
+            PaymentGateway gateway,
+            String webhookId
+    );
     
     /**
      * Find recent webhooks for monitoring

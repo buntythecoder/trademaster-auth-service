@@ -671,6 +671,344 @@ public CompletableFuture<ResponseEntity<Result<WebhookResponse, String>>> handle
 }
 ```
 
+## 🔗 **Internal API Endpoints**
+
+### Service-to-Service Communication with Zero Trust Security
+
+The Internal API provides 4 endpoints for secure service-to-service communication with API key authentication, correlation ID tracking, and Result<T,E> error handling.
+
+**Security Requirements**:
+- ✅ API Key Authentication: `@PreAuthorize("hasRole('SERVICE')")`
+- ✅ Correlation ID Tracking: `X-Correlation-ID` header for distributed tracing
+- ✅ Zero Trust Architecture: All requests validated and logged
+- ✅ Railway Programming: Result.fold() for functional error handling
+
+---
+
+### 1. **Verify Payment Status** (Portfolio Service Integration)
+
+```
+GET /api/internal/v1/payment/verify/{paymentId}
+```
+
+**Purpose**: Verify payment completion status before position updates
+
+**Headers**:
+```
+X-Correlation-ID: optional-correlation-id (auto-generated if not provided)
+Authorization: Bearer {api-key}
+```
+
+**Response** (200 OK):
+```json
+{
+  "paymentId": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "COMPLETED",
+  "amount": 999.00,
+  "currency": "INR",
+  "timestamp": "2025-10-26T10:30:00Z",
+  "correlationId": "internal-abc-123"
+}
+```
+
+**Response** (404 Not Found):
+```json
+{
+  "statusCode": 404,
+  "message": "Payment not found",
+  "correlationId": "internal-abc-123",
+  "timestamp": "2025-10-26T10:30:00Z"
+}
+```
+
+**Curl Example**:
+```bash
+curl -X GET http://localhost:8084/api/internal/v1/payment/verify/{paymentId} \
+  -H "Authorization: Bearer {api-key}" \
+  -H "X-Correlation-ID: portfolio-req-123"
+```
+
+**Consumer**: Portfolio Service confirms payment before updating positions
+
+**SLA**: <50ms response time
+
+---
+
+### 2. **Get User Payment Details** (Subscription Service Integration)
+
+```
+GET /api/internal/v1/payment/user/{userId}
+```
+
+**Purpose**: Retrieve payment history for subscription eligibility validation
+
+**Headers**:
+```
+X-Correlation-ID: optional-correlation-id
+Authorization: Bearer {api-key}
+```
+
+**Query Parameters**:
+```
+page: 0 (default)
+size: 10 (default)
+sort: createdAt,desc (default)
+```
+
+**Response** (200 OK):
+```json
+{
+  "userId": "123e4567-e89b-12d3-a456-426614174000",
+  "totalPayments": 15,
+  "lastPayment": {
+    "amount": 999.00,
+    "currency": "INR",
+    "date": "2025-10-25T08:15:00Z"
+  },
+  "timestamp": "2025-10-26T10:30:00Z",
+  "correlationId": "subscription-req-456"
+}
+```
+
+**Response** (404 Not Found):
+```json
+{
+  "statusCode": 404,
+  "message": "User not found",
+  "correlationId": "subscription-req-456",
+  "timestamp": "2025-10-26T10:30:00Z"
+}
+```
+
+**Curl Example**:
+```bash
+curl -X GET "http://localhost:8084/api/internal/v1/payment/user/{userId}?page=0&size=10" \
+  -H "Authorization: Bearer {api-key}" \
+  -H "X-Correlation-ID: subscription-req-456"
+```
+
+**Consumer**: Subscription Service validates payment eligibility for tier upgrades
+
+**SLA**: <100ms response time
+
+---
+
+### 3. **Initiate Refund** (Trading Service Integration)
+
+```
+POST /api/internal/v1/payment/refund
+```
+
+**Purpose**: Automated refund workflows for failed trades or cancellations
+
+**Headers**:
+```
+X-Correlation-ID: optional-correlation-id
+Authorization: Bearer {api-key}
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "transactionId": "123e4567-e89b-12d3-a456-426614174000",
+  "amount": 999.00,
+  "currency": "INR",
+  "reason": "Trade execution failed"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "refundId": "ref_abc123xyz",
+  "status": "PENDING",
+  "amount": 999.00,
+  "currency": "INR",
+  "timestamp": "2025-10-26T10:30:00Z",
+  "correlationId": "trading-refund-789"
+}
+```
+
+**Response** (400 Bad Request):
+```json
+{
+  "statusCode": 400,
+  "message": "Invalid refund amount",
+  "correlationId": "trading-refund-789",
+  "timestamp": "2025-10-26T10:30:00Z"
+}
+```
+
+**Curl Example**:
+```bash
+curl -X POST http://localhost:8084/api/internal/v1/payment/refund \
+  -H "Authorization: Bearer {api-key}" \
+  -H "X-Correlation-ID: trading-refund-789" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "123e4567-e89b-12d3-a456-426614174000",
+    "amount": 999.00,
+    "currency": "INR",
+    "reason": "Trade execution failed"
+  }'
+```
+
+**Consumer**: Trading Service for automated refund processing
+
+**SLA**: <50ms for request initiation (async processing)
+
+**Note**: Uses CompletableFuture for async refund processing with Virtual Threads
+
+---
+
+### 4. **Get Transaction by Gateway Payment ID** (Webhook Processing)
+
+```
+GET /api/internal/v1/payment/gateway-payment/{gatewayPaymentId}
+```
+
+**Purpose**: Retrieve transaction using gateway-specific payment ID for reconciliation
+
+**Headers**:
+```
+X-Correlation-ID: optional-correlation-id
+Authorization: Bearer {api-key}
+```
+
+**Response** (200 OK):
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "userId": "user-uuid",
+  "amount": 999.00,
+  "currency": "INR",
+  "status": "COMPLETED",
+  "paymentGateway": "STRIPE",
+  "gatewayPaymentId": "pi_1234567890",
+  "receiptNumber": "TM_2025_001",
+  "createdAt": "2025-10-26T09:00:00Z"
+}
+```
+
+**Response** (404 Not Found):
+```json
+{
+  "statusCode": 404,
+  "message": "Transaction not found",
+  "correlationId": "internal-webhook-123",
+  "timestamp": "2025-10-26T10:30:00Z"
+}
+```
+
+**Curl Example**:
+```bash
+curl -X GET http://localhost:8084/api/internal/v1/payment/gateway-payment/{gatewayPaymentId} \
+  -H "Authorization: Bearer {api-key}" \
+  -H "X-Correlation-ID: webhook-reconcile-123"
+```
+
+**Consumer**: Internal webhook processors and payment reconciliation services
+
+**Supported Gateway IDs**:
+- Stripe: `pi_*`, `pm_*`, `src_*`
+- Razorpay: `pay_*`, `order_*`
+
+**SLA**: <50ms response time
+
+---
+
+### Internal API Integration Patterns
+
+#### **Portfolio Service Example** (Payment Verification)
+```java
+@Service
+@RequiredArgsConstructor
+public class PortfolioPaymentVerifier {
+    private final InternalServiceClient internalServiceClient;
+
+    public CompletableFuture<Result<Boolean, String>> verifyPaymentBeforePositionUpdate(UUID paymentId) {
+        return internalServiceClient.callPaymentService(
+                "/verify/" + paymentId,
+                null,
+                InternalPaymentVerificationResponse.class
+            )
+            .thenApply(result -> result.map(response -> response.isCompleted())
+                .flatMap(isCompleted -> isCompleted
+                    ? Result.success(true)
+                    : Result.failure("Payment not completed")));
+    }
+}
+```
+
+#### **Subscription Service Example** (Payment History Check)
+```java
+@Service
+@RequiredArgsConstructor
+public class SubscriptionEligibilityChecker {
+    private final InternalServiceClient internalServiceClient;
+
+    public CompletableFuture<Result<Boolean, String>> checkPaymentEligibility(UUID userId) {
+        return internalServiceClient.callPaymentService(
+                "/user/" + userId,
+                null,
+                InternalUserPaymentSummary.class
+            )
+            .thenApply(result -> result.map(summary -> summary.hasPayments())
+                .flatMap(hasPayments -> hasPayments
+                    ? Result.success(true)
+                    : Result.failure("No payment history found")));
+    }
+}
+```
+
+#### **Trading Service Example** (Refund Initiation)
+```java
+@Service
+@RequiredArgsConstructor
+public class TradingRefundService {
+    private final InternalServiceClient internalServiceClient;
+
+    public CompletableFuture<Result<String, String>> initiateTradeRefund(
+            UUID transactionId, BigDecimal amount, String currency, String reason) {
+
+        RefundRequest request = RefundRequest.builder()
+            .transactionId(transactionId)
+            .amount(amount)
+            .currency(currency)
+            .reason(reason)
+            .build();
+
+        return internalServiceClient.callPaymentService(
+                "/refund",
+                request,
+                InternalRefundInitiationResponse.class
+            )
+            .thenApply(result -> result.map(InternalRefundInitiationResponse::refundId));
+    }
+}
+```
+
+---
+
+### Correlation ID Tracking
+
+All internal API endpoints support correlation ID tracking for distributed tracing:
+
+**Automatic Generation**: If `X-Correlation-ID` header is not provided, the service auto-generates an ID with `internal-` prefix
+
+**Propagation**: Correlation ID is returned in response headers and included in response bodies
+
+**Logging**: All requests logged with correlation IDs for debugging and monitoring
+
+**Example Flow**:
+1. Portfolio Service → Payment Service: `X-Correlation-ID: portfolio-payment-verify-123`
+2. Payment Service processes and logs with correlation ID
+3. Payment Service → Response: `correlationId: "portfolio-payment-verify-123"`
+4. Portfolio Service logs completion with same correlation ID
+
+---
+
 ## ⚙️ **Configuration**
 
 ### Required Environment Variables

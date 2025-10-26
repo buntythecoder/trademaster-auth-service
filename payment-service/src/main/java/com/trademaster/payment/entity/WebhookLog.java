@@ -21,7 +21,20 @@ import java.util.UUID;
  * @version 1.0.0
  */
 @Entity
-@Table(name = "webhook_logs")
+@Table(
+    name = "webhook_logs",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_webhook_gateway_event",
+            columnNames = {"gateway", "webhook_id"}
+        )
+    },
+    indexes = {
+        @Index(name = "idx_webhook_gateway", columnList = "gateway"),
+        @Index(name = "idx_webhook_received_at", columnList = "received_at"),
+        @Index(name = "idx_webhook_processed", columnList = "processed")
+    }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -32,15 +45,15 @@ public class WebhookLog {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
-    
+
     // Webhook Details
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PaymentGateway gateway;
-    
+
     @Size(max = 255)
-    @Column(name = "webhook_id")
+    @Column(name = "webhook_id", nullable = true)
     private String webhookId;
     
     @NotBlank

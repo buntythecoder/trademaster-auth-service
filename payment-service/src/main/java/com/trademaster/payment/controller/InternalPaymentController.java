@@ -2,6 +2,11 @@ package com.trademaster.payment.controller;
 
 import com.trademaster.common.functional.Result;
 import com.trademaster.payment.dto.RefundRequest;
+import com.trademaster.payment.dto.internal.InternalErrorResponse;
+import com.trademaster.payment.dto.internal.InternalLastPayment;
+import com.trademaster.payment.dto.internal.InternalPaymentVerificationResponse;
+import com.trademaster.payment.dto.internal.InternalRefundInitiationResponse;
+import com.trademaster.payment.dto.internal.InternalUserPaymentSummary;
 import com.trademaster.payment.entity.PaymentTransaction;
 import com.trademaster.payment.service.PaymentProcessingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -72,7 +77,7 @@ public class InternalPaymentController {
             description = "Payment verification successful",
             content = @Content(
                 mediaType = "application/json",
-                schema = @Schema(implementation = PaymentVerificationResponse.class)
+                schema = @Schema(implementation = InternalPaymentVerificationResponse.class)
             )
         ),
         @ApiResponse(responseCode = "401", description = "Invalid or missing API key"),
@@ -93,7 +98,7 @@ public class InternalPaymentController {
                 paymentId, corrId);
 
         return paymentProcessingService.getTransaction(paymentId)
-            .map(transaction -> new PaymentVerificationResponse(
+            .map(transaction -> new InternalPaymentVerificationResponse(
                 paymentId.toString(),
                 transaction.getStatus().name(),
                 transaction.getAmount(),
@@ -178,7 +183,7 @@ public class InternalPaymentController {
         return paymentProcessingService.processRefund(refundRequest)
             .thenApply(result -> result.fold(
                 refundResponse -> createSuccessResponse(
-                    new RefundInitiationResponse(
+                    new InternalRefundInitiationResponse(
                         refundResponse.getRefundId(),
                         refundResponse.getStatus(),
                         refundResponse.getAmount(),
@@ -235,17 +240,17 @@ public class InternalPaymentController {
      * Functional data transformation (NO loops)
      * Complexity: 3 (within ≤7 limit)
      */
-    private UserPaymentSummary createUserPaymentSummary(
+    private InternalUserPaymentSummary createUserPaymentSummary(
             UUID userId,
             Page<PaymentTransaction> page,
             String correlationId
     ) {
-        return new UserPaymentSummary(
+        return new InternalUserPaymentSummary(
             userId.toString(),
             (int) page.getTotalElements(),
             page.getContent().stream()
                 .findFirst()
-                .map(transaction -> new LastPayment(
+                .map(transaction -> new InternalLastPayment(
                     transaction.getAmount(),
                     transaction.getCurrency(),
                     transaction.getCreatedAt()
@@ -300,60 +305,4 @@ public class InternalPaymentController {
     private String generateCorrelationId() {
         return "internal-" + UUID.randomUUID().toString();
     }
-
-    // ==================== Response DTOs (Immutable Records) ====================
-
-    /**
-     * Payment verification response (Rule 9: Records for immutability)
-     */
-    public record PaymentVerificationResponse(
-        String paymentId,
-        String status,
-        BigDecimal amount,
-        String currency,
-        Instant timestamp,
-        String correlationId
-    ) {}
-
-    /**
-     * User payment summary (Rule 9: Records for immutability)
-     */
-    public record UserPaymentSummary(
-        String userId,
-        int totalPayments,
-        LastPayment lastPayment,
-        Instant timestamp,
-        String correlationId
-    ) {}
-
-    /**
-     * Last payment details (Rule 9: Records for immutability)
-     */
-    public record LastPayment(
-        BigDecimal amount,
-        String currency,
-        Instant date
-    ) {}
-
-    /**
-     * Refund initiation response (Rule 9: Records for immutability)
-     */
-    public record RefundInitiationResponse(
-        String refundId,
-        String status,
-        BigDecimal amount,
-        String currency,
-        Instant timestamp,
-        String correlationId
-    ) {}
-
-    /**
-     * Internal error response (Rule 9: Records for immutability)
-     */
-    public record InternalErrorResponse(
-        int statusCode,
-        String message,
-        String correlationId,
-        Instant timestamp
-    ) {}
 }

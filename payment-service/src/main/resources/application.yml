@@ -7,13 +7,6 @@ spring:
   application:
     name: payment-service
 
-server:
-  port: 8085
-  servlet:
-    context-path: /api/v1
-
-spring:
-
   # MANDATORY: Virtual Threads Configuration
   threads:
     virtual:
@@ -73,10 +66,9 @@ spring:
         format_sql: true
         jdbc:
           batch_size: 25
+          batch_versioned_data: true
         order_inserts: true
         order_updates: true
-        jdbc:
-          batch_versioned_data: true
         connection:
           handling_mode: delayed_acquisition_and_release_after_transaction  # Virtual Threads optimization
   
@@ -120,6 +112,12 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "com.trademaster.payment.events"
+
+# Server Configuration
+server:
+  port: 8085
+  servlet:
+    context-path: /api/v1
 
 # Payment Gateway Configuration
 payment:

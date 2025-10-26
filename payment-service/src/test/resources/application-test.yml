@@ -1,5 +1,5 @@
 # Test Configuration for Payment Service
-# Optimized for unit testing and integration testing
+# Optimized for TestContainer-based integration testing
 
 server:
   port: 0  # Random port for tests
@@ -7,38 +7,46 @@ server:
 spring:
   application:
     name: payment-service-test
-    
-  # In-memory database for tests
+
+  # Disable external services for tests
+  cloud:
+    consul:
+      enabled: false
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+
+  # Database configuration - will be overridden by TestContainer dynamic properties
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
-    
-  # JPA test configuration
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+      connection-timeout: 10000
+
+  # JPA test configuration for PostgreSQL TestContainer
   jpa:
     hibernate:
       ddl-auto: create-drop
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.H2Dialect
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        jdbc:
+          batch_size: 25
     open-in-view: false
-    
-  # Disable Liquibase for tests
-  liquibase:
+
+  # Disable Flyway for tests (using JPA ddl-auto instead)
+  flyway:
     enabled: false
-    
-  # Test Kafka (embedded)
+
+  # Disable Kafka for tests
   kafka:
-    bootstrap-servers: localhost:9092
-    consumer:
-      group-id: payment-service-test
-      auto-offset-reset: earliest
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    enabled: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
       
   # Test mail configuration (mock)
   mail:

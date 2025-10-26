@@ -3,6 +3,7 @@ package com.trademaster.payment.config;
 import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
 import com.stripe.Stripe;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -44,8 +45,9 @@ public class PaymentConfig {
     
     /**
      * Configure Stripe API
+     * Initializes Stripe SDK with API key on application startup
      */
-    @Bean
+    @PostConstruct
     public void configureStripe() {
         log.info("Configuring Stripe API with secret key");
         Stripe.apiKey = stripeSecretKey;
