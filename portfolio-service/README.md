@@ -43,6 +43,8 @@ Enterprise-grade Portfolio Management Service built with **Java 24 Virtual Threa
 - **Real-time Portfolio Tracking** - Live position updates with sub-50ms latency
 - **Multi-Asset Support** - Equities, options, futures, bonds, and complex instruments
 - **Advanced P&L Calculations** - Realized/unrealized P&L with multiple cost basis methods
+- **Portfolio Rebalancing** - Target allocation rebalancing with cost estimation and trade recommendations
+- **Indian Tax Calculations** - STCG, LTCG, STT calculations per Indian tax regulations
 - **Risk Analytics** - VaR, stress testing, concentration limits, and real-time alerts
 - **Performance Attribution** - Comprehensive performance analysis and benchmarking
 
@@ -609,6 +611,332 @@ POST /api/v1/portfolios/{portfolioId}/rebalance?strategy={strategy}
   "initiatedAt": "2025-10-27T16:00:00Z",
   "estimatedCompletionTime": "2025-10-27T16:05:00Z"
 }
+```
+
+---
+
+## 🔄 **Portfolio Rebalancing APIs**
+
+### **1. Generate Rebalancing Plan**
+```http
+POST /api/v1/portfolios/{portfolioId}/rebalancing/plan?strategy={strategy}
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Query Parameters**:
+- `strategy` (optional): Rebalancing strategy (BALANCED (default), GROWTH, CONSERVATIVE)
+
+**Request Body**:
+```json
+[
+  {
+    "symbol": "AAPL",
+    "targetPercentage": 30.00,
+    "minPercentage": 25.00,
+    "maxPercentage": 35.00,
+    "assetClass": "EQUITY",
+    "sector": "Technology"
+  },
+  {
+    "symbol": "GOOGL",
+    "targetPercentage": 25.00,
+    "minPercentage": 20.00,
+    "maxPercentage": 30.00,
+    "assetClass": "EQUITY",
+    "sector": "Technology"
+  }
+]
+```
+
+**Response (200 OK)**:
+```json
+{
+  "portfolioId": 12345,
+  "strategy": "BALANCED",
+  "totalPortfolioValue": 250000.00,
+  "allocations": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "currentPercentage": 35.00,
+      "targetPercentage": 30.00,
+      "deviationPercentage": 5.00,
+      "currentValue": 87500.00,
+      "targetValue": 75000.00,
+      "adjustmentNeeded": -12500.00,
+      "needsRebalancing": true
+    }
+  },
+  "tradeRecommendations": [
+    {
+      "symbol": "AAPL",
+      "action": "SELL",
+      "quantity": 80,
+      "estimatedPrice": 155.00,
+      "estimatedValue": 12400.00,
+      "estimatedCost": 12.40,
+      "taxImpact": 1860.00,
+      "reason": "SELL to reach target allocation of 30.00%",
+      "priority": 2
+    }
+  ],
+  "estimatedTradingCosts": 25.50,
+  "estimatedTaxImpact": 3500.00,
+  "netRebalancingCost": 3525.50,
+  "riskAssessment": "MEDIUM RISK: Moderate cost impact of ₹3525.50",
+  "generatedAt": "2025-10-27T16:00:00Z"
+}
+```
+
+**Example**:
+```bash
+curl -X POST "http://localhost:8083/api/v1/portfolios/12345/rebalancing/plan?strategy=BALANCED" \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "symbol": "AAPL",
+      "targetPercentage": 30.00,
+      "minPercentage": 25.00,
+      "maxPercentage": 35.00,
+      "assetClass": "EQUITY",
+      "sector": "Technology"
+    }
+  ]'
+```
+
+---
+
+### **2. Execute Rebalancing**
+```http
+POST /api/v1/portfolios/{portfolioId}/rebalancing/execute
+```
+
+**Authentication**: Required (JWT + Portfolio Modify Permission)
+
+**Request Body**: RebalancingPlan object (from generate plan endpoint)
+
+**Response (200 OK)**:
+```json
+{
+  "rebalanceId": "RB-12345-1730047200000",
+  "portfolioId": 12345,
+  "status": "INITIATED",
+  "orderIds": [
+    "ORDER-AAPL-1730047200100",
+    "ORDER-GOOGL-1730047200105"
+  ],
+  "estimatedCosts": 25.50,
+  "message": "Rebalancing orders submitted successfully"
+}
+```
+
+**Example**:
+```bash
+curl -X POST http://localhost:8083/api/v1/portfolios/12345/rebalancing/execute \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{ "portfolioId": 12345, "strategy": "BALANCED", ... }'
+```
+
+---
+
+### **3. Get Current Allocation**
+```http
+GET /api/v1/portfolios/{portfolioId}/rebalancing/current-allocation
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Response (200 OK)**:
+```json
+{
+  "AAPL": 35.00,
+  "GOOGL": 28.00,
+  "MSFT": 20.00,
+  "CASH": 17.00
+}
+```
+
+**Example**:
+```bash
+curl http://localhost:8083/api/v1/portfolios/12345/rebalancing/current-allocation \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+---
+
+### **4. Validate Target Allocations**
+```http
+POST /api/v1/portfolios/{portfolioId}/rebalancing/validate
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Request Body**: Array of TargetAllocation objects
+
+**Response (200 OK)**:
+```json
+{
+  "valid": true,
+  "totalPercentage": 100.00,
+  "message": "Target allocations sum to 100%"
+}
+```
+
+**Example**:
+```bash
+curl -X POST http://localhost:8083/api/v1/portfolios/12345/rebalancing/validate \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '[{"symbol": "AAPL", "targetPercentage": 50.00}, {"symbol": "GOOGL", "targetPercentage": 50.00}]'
+```
+
+---
+
+## 💰 **Indian Tax Calculation APIs**
+
+### **1. Calculate Tax Impact**
+```http
+POST /api/v1/portfolios/{portfolioId}/tax/calculate
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Request Body**:
+```json
+{
+  "symbol": "AAPL",
+  "quantity": 100,
+  "sellPrice": 180.00,
+  "purchasePrice": 150.00,
+  "purchaseDate": "2024-05-01T10:00:00Z",
+  "assetType": "EQUITY",
+  "transactionType": "DELIVERY"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "symbol": "AAPL",
+  "grossPnL": 3000.00,
+  "capitalGain": 3000.00,
+  "taxCategory": "STCG",
+  "taxRate": 0.15,
+  "taxAmount": 450.00,
+  "sttAmount": 4.50,
+  "totalTax": 454.50,
+  "netPnL": 2545.50,
+  "explanation": "Short-term holding (210 days). 15% tax on total gains. Capital Gain: ₹3000.00, Tax: ₹450.00, STT: ₹4.50",
+  "isLongTerm": false,
+  "isLoss": false
+}
+```
+
+**Tax Rates** (per Indian regulations):
+- **STCG (Short-Term Capital Gains)**: 15% for equity held < 365 days
+- **LTCG (Long-Term Capital Gains)**: 10% for gains > ₹1 lakh for equity held ≥ 365 days
+- **STT (Securities Transaction Tax)**:
+  - 0.025% for equity delivery transactions
+  - 0.1% for options
+  - 0.01% for futures
+
+**Example**:
+```bash
+curl -X POST http://localhost:8083/api/v1/portfolios/12345/tax/calculate \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "AAPL",
+    "quantity": 100,
+    "sellPrice": 180.00,
+    "purchasePrice": 150.00,
+    "purchaseDate": "2024-05-01T10:00:00Z",
+    "assetType": "EQUITY",
+    "transactionType": "DELIVERY"
+  }'
+```
+
+---
+
+### **2. Generate Tax Report**
+```http
+GET /api/v1/portfolios/{portfolioId}/tax/report?financialYear={year}
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Query Parameters**:
+- `financialYear`: Financial year (e.g., "FY2024-25")
+
+**Response (200 OK)**:
+```json
+{
+  "portfolioId": 12345,
+  "financialYear": "FY2024-25",
+  "totalRealizedGains": 50000.00,
+  "totalRealizedLosses": 5000.00,
+  "netRealizedPnL": 45000.00,
+  "shortTermCapitalGains": 25000.00,
+  "longTermCapitalGains": 20000.00,
+  "stcgTax": 3750.00,
+  "ltcgTax": 0.00,
+  "sttPaid": 125.00,
+  "totalTaxLiability": 3875.00,
+  "netProfitAfterTax": 41125.00,
+  "transactions": [
+    {
+      "symbol": "AAPL",
+      "quantity": 100,
+      "grossPnL": 3000.00,
+      "taxCategory": "STCG",
+      "taxAmount": 450.00,
+      "sttAmount": 4.50,
+      "totalTax": 454.50,
+      "netPnL": 2545.50,
+      "executedAt": "2025-10-15T14:30:00Z"
+    }
+  ],
+  "generatedAt": "2025-10-27T16:00:00Z"
+}
+```
+
+**Example**:
+```bash
+curl "http://localhost:8083/api/v1/portfolios/12345/tax/report?financialYear=FY2024-25" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
+```
+
+---
+
+### **3. Calculate Realized Gains Tax**
+```http
+GET /api/v1/portfolios/{portfolioId}/tax/realized-gains?symbol={symbol}&quantity={qty}&sellPrice={price}
+```
+
+**Authentication**: Required (JWT + Portfolio Access Permission)
+
+**Query Parameters**:
+- `symbol`: Stock symbol
+- `quantity`: Number of shares to sell
+- `sellPrice`: Expected sell price
+
+**Response (200 OK)**:
+```json
+{
+  "taxAmount": 450.00,
+  "capitalGain": 3000.00,
+  "taxCategory": "STCG",
+  "holdingDays": 210,
+  "message": "Estimated tax for selling 100 shares of AAPL at ₹180.00"
+}
+```
+
+**Example**:
+```bash
+curl "http://localhost:8083/api/v1/portfolios/12345/tax/realized-gains?symbol=AAPL&quantity=100&sellPrice=180.00" \
+  -H "Authorization: Bearer ${JWT_TOKEN}"
 ```
 
 ---
@@ -1295,11 +1623,13 @@ open build/reports/jacoco/test/html/index.html
 ```
 
 ### **Test Status**
-✅ **Passing Tests (45 total)**:
+✅ **Passing Tests (91 total)**:
 - PortfolioRepositoryTest: 23 tests (100%)
 - PositionRepositoryTest: 11 tests (100%)
 - PortfolioTaskScopeTest: 10 tests (100%)
 - MCPPortfolioServerTest: All passing
+- **PortfolioRebalancingServiceImplTest: 23 tests (100%)** ✨ NEW
+- **IndianTaxCalculationServiceImplTest: 23 tests (100%)** ✨ NEW
 
 ⚠️ **Pending Tests**:
 - PortfolioServiceIntegrationTest: Requires Spring context setup (documented in test file)
@@ -1395,7 +1725,9 @@ Technical Metrics:
 - ✅ **Virtual Thread Architecture**: Unlimited scalability
 - ✅ **Circuit Breaker Coverage**: All I/O operations protected
 - ✅ **100% Functional Programming**: No if-else statements or loops
-- ✅ **45+ Tests Passing**: High test coverage
+- ✅ **91+ Tests Passing**: High test coverage with comprehensive unit tests
+- ✅ **Portfolio Rebalancing**: Target allocation algorithm with tax-aware optimization
+- ✅ **Indian Tax Calculations**: STCG, LTCG, STT compliance with Indian tax regulations
 - ✅ **Production Ready**: Comprehensive monitoring and observability
 
 ---

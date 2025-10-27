@@ -4,16 +4,22 @@ import com.trademaster.portfolio.dto.CreatePortfolioRequest;
 import com.trademaster.portfolio.dto.PnLBreakdown;
 import com.trademaster.portfolio.dto.PortfolioOptimizationSuggestion;
 import com.trademaster.portfolio.dto.PortfolioSummary;
+import com.trademaster.portfolio.dto.RebalancingPlan;
 import com.trademaster.portfolio.dto.RiskAlert;
 import com.trademaster.portfolio.dto.RiskAssessmentRequest;
 import com.trademaster.portfolio.dto.RiskAssessmentResult;
 import com.trademaster.portfolio.dto.RiskLimitConfiguration;
+import com.trademaster.portfolio.dto.TargetAllocation;
+import com.trademaster.portfolio.dto.TaxCalculationRequest;
+import com.trademaster.portfolio.dto.TaxReport;
 import com.trademaster.portfolio.dto.UpdatePortfolioRequest;
 import com.trademaster.portfolio.entity.Portfolio;
 import com.trademaster.portfolio.error.Result;
 import com.trademaster.portfolio.security.JwtTokenExtractor;
 import com.trademaster.portfolio.service.*;
+import com.trademaster.portfolio.service.IndianTaxCalculationService;
 import com.trademaster.portfolio.service.PortfolioAnalyticsService;
+import com.trademaster.portfolio.service.PortfolioRebalancingService;
 import com.trademaster.portfolio.service.PortfolioRiskService;
 import com.trademaster.portfolio.service.PortfolioService;
 import com.trademaster.portfolio.service.PnLCalculationService;
@@ -83,6 +89,8 @@ public class PortfolioController {
     private final PortfolioAnalyticsService analyticsService;
     private final PortfolioRiskService riskService;
     private final PnLCalculationService pnlService;
+    private final PortfolioRebalancingService rebalancingService;
+    private final IndianTaxCalculationService taxService;
     private final JwtTokenExtractor jwtTokenExtractor;
     
     /**
@@ -469,7 +477,108 @@ public class PortfolioController {
         
         return ResponseEntity.accepted().body(rebalanceResult);
     }
-    
+
+    // ==================== Portfolio Rebalancing Endpoints ====================
+
+    @PostMapping("/{portfolioId}/rebalancing/plan")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Generate rebalancing plan",
+              description = "Generates comprehensive rebalancing plan with target allocations")
+    public ResponseEntity<?> generateRebalancingPlan(
+            @PathVariable Long portfolioId,
+            @RequestBody @Valid List<TargetAllocation> targetAllocations,
+            @RequestParam(defaultValue = "BALANCED") String strategy) {
+
+        log.info("Generating rebalancing plan for portfolio: {}", portfolioId);
+        return rebalancingService.generateRebalancingPlan(portfolioId, targetAllocations, strategy)
+            .handle((result, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to generate rebalancing plan: " + ex.getMessage())
+                : ResponseEntity.ok(result))
+            .join();
+    }
+
+    @PostMapping("/{portfolioId}/rebalancing/execute")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Execute rebalancing", description = "Executes approved rebalancing plan")
+    public ResponseEntity<?> executeRebalancing(
+            @PathVariable Long portfolioId,
+            @RequestBody @Valid RebalancingPlan plan) {
+
+        log.info("Executing rebalancing for portfolio: {}", portfolioId);
+        return rebalancingService.executeRebalancing(portfolioId, plan)
+            .handle((result, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to execute rebalancing: " + ex.getMessage())
+                : ResponseEntity.ok(result))
+            .join();
+    }
+
+    @GetMapping("/{portfolioId}/allocation/current")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Get current allocation", description = "Returns current portfolio allocation")
+    public ResponseEntity<?> getCurrentAllocation(@PathVariable Long portfolioId) {
+        log.info("Getting current allocation for portfolio: {}", portfolioId);
+        return rebalancingService.getCurrentAllocation(portfolioId)
+            .handle((result, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to get current allocation: " + ex.getMessage())
+                : ResponseEntity.ok(result))
+            .join();
+    }
+
+    // ==================== Tax Calculation Endpoints ====================
+
+    @PostMapping("/{portfolioId}/tax/calculate")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Calculate tax impact", description = "Calculates STCG/LTCG/STT for trade")
+    public ResponseEntity<?> calculateTaxImpact(
+            @PathVariable Long portfolioId,
+            @RequestBody @Valid TaxCalculationRequest request) {
+
+        log.info("Calculating tax impact for portfolio: {} symbol: {}", portfolioId, request.symbol());
+        return taxService.calculateTaxImpact(request)
+            .handle((result, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to calculate tax impact: " + ex.getMessage())
+                : ResponseEntity.ok(result))
+            .join();
+    }
+
+    @GetMapping("/{portfolioId}/tax/report")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Generate tax report", description = "Generates comprehensive tax report")
+    public ResponseEntity<?> generateTaxReport(
+            @PathVariable Long portfolioId,
+            @RequestParam(defaultValue = "FY2024-25") String financialYear) {
+
+        log.info("Generating tax report for portfolio: {} FY: {}", portfolioId, financialYear);
+        return taxService.generateTaxReport(portfolioId, financialYear)
+            .handle((result, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to generate tax report: " + ex.getMessage())
+                : ResponseEntity.ok(result))
+            .join();
+    }
+
+    @GetMapping("/{portfolioId}/tax/realized-gains")
+    @PreAuthorize("hasAuthority('ROLE_USER')")
+    @Operation(summary = "Calculate realized gains tax", description = "Calculates tax on position sale")
+    public ResponseEntity<?> calculateRealizedGainsTax(
+            @PathVariable Long portfolioId,
+            @RequestParam String symbol,
+            @RequestParam Integer quantity,
+            @RequestParam BigDecimal sellPrice) {
+
+        log.info("Calculating realized gains tax for portfolio: {} symbol: {}", portfolioId, symbol);
+        return taxService.calculateRealizedGainsTax(portfolioId, symbol, quantity, sellPrice)
+            .handle((tax, ex) -> ex != null
+                ? ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to calculate realized gains tax: " + ex.getMessage())
+                : ResponseEntity.ok(Map.of("taxAmount", tax, "symbol", symbol, "quantity", quantity)))
+            .join();
+    }
+
     /**
      * Map PortfolioError to HTTP status code.
      *
