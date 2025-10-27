@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '3.5.3'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'org.graalvm.buildtools.native' version '0.9.28'
+    id 'jacoco'
 }
 
 group = 'com.trademaster'
@@ -24,7 +25,18 @@ repositories {
     mavenCentral()
 }
 
+// Dependency Management for Spring Cloud (Required by Common Library)
+dependencyManagement {
+    imports {
+        // Spring Cloud BOM for Consul discovery
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:2024.0.0"
+    }
+}
+
 dependencies {
+    // TradeMaster Common Service Library (Foundation) - Composite Build
+    implementation 'com.trademaster:trademaster-common-service-lib:1.0.0'
+
     // Spring Boot Starters
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -73,6 +85,9 @@ dependencies {
     // Monitoring & Metrics
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+    // Hypersistence Utils for JSON column support
+    implementation 'io.hypersistence:hypersistence-utils-hibernate-63:3.7.3'
     
     // Circuit Breaker (Resilience4j)
     implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
@@ -85,7 +100,7 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
     testImplementation 'org.testcontainers:postgresql:1.19.7'
     testImplementation 'org.testcontainers:testcontainers:1.19.7'
-    testImplementation 'org.testcontainers:redis:2.0.1'
+    // Note: Redis container support is included in main testcontainers via GenericContainer
     testImplementation 'com.h2database:h2'
     testImplementation 'org.mockito:mockito-core:5.11.0'
     testImplementation 'org.mockito:mockito-junit-jupiter:5.11.0'
@@ -106,9 +121,25 @@ tasks.named('compileTestJava') {
     options.compilerArgs += ['--enable-preview']
 }
 
+// Enable preview features for AOT compilation
+tasks.withType(JavaCompile).matching { it.name.contains('Aot') }.configureEach {
+    options.compilerArgs += ['--enable-preview']
+}
+
 tasks.named('test') {
     jvmArgs += ['--enable-preview']
     useJUnitPlatform()
+    systemProperty 'spring.aot.enabled', 'false'
+}
+
+// Disable AOT for tests to avoid testcontainers issues
+tasks.withType(Test).configureEach {
+    systemProperty 'spring.aot.enabled', 'false'
+}
+
+// Disable AOT processing tasks entirely for tests
+tasks.matching { it.name.contains('Aot') && it.name.contains('Test') }.configureEach {
+    enabled = false
 }
 
 tasks.withType(JavaExec).configureEach {
@@ -134,3 +165,67 @@ springBoot {
     mainClass = 'com.trademaster.portfolio.PortfolioServiceApplication'
     buildInfo()
 }
+
+// JaCoCo Configuration for Test Coverage
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+jacocoTestReport {
+    dependsOn test
+
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/config/**',
+                '**/dto/**',
+                '**/entity/**',
+                '**/model/**',
+                '**/PortfolioServiceApplication.class',
+                '**/agentos/registry/**'
+            ])
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.80 // 80% minimum for unit tests
+            }
+        }
+        rule {
+            limit {
+                counter = 'BRANCH'
+                value = 'COVEREDRATIO'
+                minimum = 0.70 // 70% branch coverage
+            }
+        }
+    }
+
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/config/**',
+                '**/dto/**',
+                '**/entity/**',
+                '**/model/**',
+                '**/PortfolioServiceApplication.class',
+                '**/agentos/registry/**'
+            ])
+        }))
+    }
+}
+
+test.finalizedBy jacocoTestReport
