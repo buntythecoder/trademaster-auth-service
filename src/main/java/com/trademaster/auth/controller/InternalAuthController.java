@@ -117,14 +117,15 @@ public class InternalAuthController {
         // ✅ FUNCTIONAL PROGRAMMING: Using Optional for null-safe operations
         // Convert String userId to Long for database lookup
         return Optional.of(userId)
-            .flatMap(id -> {
-                try {
-                    return userService.findById(Long.parseLong(id));
-                } catch (NumberFormatException e) {
-                    log.warn("Invalid userId format: {}", id);
-                    return Optional.empty();
-                }
-            })
+            .flatMap(id -> com.trademaster.auth.pattern.SafeOperations.safelyToResult(() ->
+                    userService.findById(Long.parseLong(id)))
+                .fold(
+                    error -> {
+                        log.warn("Invalid userId format: {}", id);
+                        return Optional.<com.trademaster.auth.entity.User>empty();
+                    },
+                    result -> result
+                ))
             .map(user -> Map.<String, Object>of(
                 "userId", userId,
                 "valid", user.isEnabled() && user.isAccountNonExpired(),
@@ -152,14 +153,15 @@ public class InternalAuthController {
 
         // ✅ FUNCTIONAL PROGRAMMING: Using Optional chain for safe operations
         return Optional.of(userId)
-            .flatMap(id -> {
-                try {
-                    return userService.findById(Long.parseLong(id));
-                } catch (NumberFormatException e) {
-                    log.warn("Invalid userId format: {}", id);
-                    return Optional.empty();
-                }
-            })
+            .flatMap(id -> com.trademaster.auth.pattern.SafeOperations.safelyToResult(() ->
+                    userService.findById(Long.parseLong(id)))
+                .fold(
+                    error -> {
+                        log.warn("Invalid userId format: {}", id);
+                        return Optional.<com.trademaster.auth.entity.User>empty();
+                    },
+                    result -> result
+                ))
             .map(user -> Map.<String, Object>of(
                 "userId", userId,
                 "email", user.getEmail(),
@@ -224,7 +226,7 @@ public class InternalAuthController {
 
                 // Calculate real feature health status
                 Map<String, String> featureHealth = Map.of(
-                    "JWT", determineServiceHealth(authenticationService != null),
+                    "JWT", determineServiceHealth(userService != null), // JWT is core service functionality
                     "MFA", determineServiceHealth(userService != null),
                     "DEVICE_MANAGEMENT", determineServiceHealth(sessionService != null),
                     "SECURITY_AUDIT", determineServiceHealth(auditService != null && securityAlerts >= 0)

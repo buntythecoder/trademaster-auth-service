@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -90,16 +91,16 @@ public class AuthenticationFacade {
     /**
      * Complete MFA verification
      *
-     * @param userId User identifier
+     * @param email User email
+     * @param mfaToken Session/MFA token
      * @param mfaCode MFA verification code
-     * @param ipAddress IP address
-     * @param userAgent User agent string
+     * @param httpRequest HTTP request
      * @return Result with authentication response
      */
     public Result<AuthenticationResponse, String> completeMfaVerification(
-            Long userId, String mfaCode, String ipAddress, String userAgent) {
-        log.debug("Facade: Delegating MFA verification to AuthenticationService");
-        return authenticationService.completeMfaVerification(userId, mfaCode, ipAddress, userAgent);
+            String email, String mfaToken, String mfaCode, HttpServletRequest httpRequest) {
+        log.debug("Facade: Delegating MFA verification for email: {}", email);
+        return authenticationService.completeMfaVerification(email, mfaCode, mfaToken, httpRequest);
     }
 
     // ========== Token Operations ==========
@@ -214,7 +215,12 @@ public class AuthenticationFacade {
      */
     public String resetPasswordSync(String token, String newPassword, String ipAddress, String userAgent) {
         log.debug("Facade: Delegating password reset (sync) to PasswordManagementService");
-        return passwordManagementService.resetPassword(token, newPassword, ipAddress, userAgent);
+        return passwordManagementService.resetPassword(token, newPassword, ipAddress, userAgent)
+            .join()
+            .fold(
+                error -> error,
+                success -> success
+            );
     }
 
     /**
@@ -260,9 +266,9 @@ public class AuthenticationFacade {
             RegistrationRequest request) {
         log.debug("Facade: Coordinating registration and token generation");
         return userRegistrationService.registerUser(request)
-            .thenCompose(result -> result.match(
-                user -> tokenManagementService.generateTokens(user),
-                error -> CompletableFuture.completedFuture(Result.failure(error))
+            .thenCompose(result -> result.fold(
+                error -> CompletableFuture.completedFuture(Result.failure(error)),
+                user -> tokenManagementService.generateTokens(user)
             ));
     }
 

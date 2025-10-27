@@ -88,24 +88,24 @@ public class DeviceController {
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String deviceFingerprint,
             HttpServletRequest request) {
-        
+
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
-        
-        try {
+
+        return com.trademaster.auth.pattern.SafeOperations.<ResponseEntity<Map<String, Object>>>safelyToResult(() -> {
             deviceTrustService.trustDevice(Long.valueOf(userId), deviceFingerprint, sessionId);
-            
+
             securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_TRUSTED", deviceFingerprint, request);
-            
+
             return ResponseEntity.ok(Map.of(
                     "message", "Device trusted successfully"
             ));
-            
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "Device not found"
-            ));
-        }
+        }).fold(
+            error -> error.contains("IllegalArgumentException") || error.contains("not found")
+                ? ResponseEntity.badRequest().body(Map.of("message", "Device not found"))
+                : ResponseEntity.status(500).body(Map.of("message", "Failed to trust device: " + error)),
+            response -> response
+        );
     }
 
     @DeleteMapping("/{deviceFingerprint}/trust")
@@ -114,24 +114,24 @@ public class DeviceController {
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable String deviceFingerprint,
             HttpServletRequest request) {
-        
+
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
-        
-        try {
+
+        return com.trademaster.auth.pattern.SafeOperations.<ResponseEntity<Map<String, Object>>>safelyToResult(() -> {
             deviceTrustService.revokeTrust(Long.valueOf(userId), deviceFingerprint, sessionId);
-            
+
             securityAuditService.logDeviceEvent(userId, sessionId, "DEVICE_TRUST_REVOKED", deviceFingerprint, request);
-            
+
             return ResponseEntity.ok(Map.of(
                     "message", "Device trust revoked successfully"
             ));
-            
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "Device not found"
-            ));
-        }
+        }).fold(
+            error -> error.contains("IllegalArgumentException") || error.contains("not found")
+                ? ResponseEntity.badRequest().body(Map.of("message", "Device not found"))
+                : ResponseEntity.status(500).body(Map.of("message", "Failed to revoke trust: " + error)),
+            response -> response
+        );
     }
 
     @PostMapping("/{deviceFingerprint}/block")

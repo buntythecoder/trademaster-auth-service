@@ -44,6 +44,26 @@ public class PasswordManagementService {
     private final SecurityAuditService securityAuditService;
 
     /**
+     * Reset password using verification token (synchronous for tests)
+     *
+     * @param token Password reset token
+     * @param newPassword New password to set
+     * @return Result of PasswordResetResponse
+     */
+    @Transactional
+    public Result<com.trademaster.auth.dto.PasswordResetResponse, String> resetPassword(
+            String token, String newPassword) {
+        return verifyResetToken(token)
+            .flatMap(user -> encodeNewPassword(user, newPassword))
+            .flatMap(this::saveUpdatedUser)
+            .flatMap(user -> markTokenAsUsed(token, user))
+            .map(user -> new com.trademaster.auth.dto.PasswordResetResponse(
+                "Password reset successfully",
+                "session-" + user.getId()
+            ));
+    }
+
+    /**
      * Reset password using verification token
      *
      * @param token Password reset token
@@ -67,34 +87,24 @@ public class PasswordManagementService {
     }
 
     /**
-     * Synchronous password reset wrapper for backward compatibility
+     * Change password for authenticated user using email
+     *
+     * @param email User email address
+     * @param currentPassword Current password for verification
+     * @param newPassword New password to set
+     * @return Result of PasswordChangeResponse with session info
      */
     @Transactional
-    public String resetPassword(String token, String newPassword, String ipAddress, String userAgent) {
-        return SafeOperations.safely(() -> {
-            Optional<User> userOpt = verificationTokenService.verifyPasswordResetToken(token);
-
-            return userOpt.map(user -> {
-                // Encode new password using immutable update - Rule #9
-                User updatedUser = user.withPasswordHash(passwordEncoder.encode(newPassword));
-                userRepository.save(updatedUser);
-
-                // Mark token as used
-                verificationTokenService.markPasswordResetTokenAsUsed(token);
-
-                // Log security event
-                securityAuditService.logSecurityEvent(
-                    user.getId(),
-                    "PASSWORD_RESET",
-                    "MEDIUM",
-                    ipAddress,
-                    userAgent,
-                    Map.of("action", "Password reset completed")
-                );
-
-                return "Password reset successful";
-            }).orElse("Invalid or expired token");
-        }).orElse("Password reset failed");
+    public Result<com.trademaster.auth.dto.PasswordChangeResponse, String> changePassword(
+            String email, String currentPassword, String newPassword) {
+        return findUserByEmail(email)
+            .flatMap(user -> verifyCurrentPassword(user, currentPassword))
+            .flatMap(user -> encodeNewPassword(user, newPassword))
+            .flatMap(this::saveUpdatedUser)
+            .map(user -> new com.trademaster.auth.dto.PasswordChangeResponse(
+                "Password changed successfully",
+                "session-" + user.getId()
+            ));
     }
 
     /**
@@ -171,7 +181,7 @@ public class PasswordManagementService {
     private Result<User, String> findUserByEmail(String email) {
         return Optional.ofNullable(email)
             .filter(e -> !e.isBlank())
-            .flatMap(userRepository::findByEmail)
+            .flatMap(userRepository::findByEmailIgnoreCase)
             .map(Result::<User, String>success)
             .orElse(Result.failure("User not found"));
     }

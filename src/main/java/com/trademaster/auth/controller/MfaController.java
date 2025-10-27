@@ -38,33 +38,38 @@ public class MfaController {
     public ResponseEntity<MfaSetupResponse> setupMfa(
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest request) {
-        
+
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
-        
-        try {
-            MfaConfiguration config = mfaService.setupTotpMfa(userId, sessionId);
-            
-            String qrCodeUrl = mfaService.generateQrCodeUrl(userId, config.getSecretKey());
-            
+
+        return com.trademaster.auth.pattern.SafeOperations.safelyToResult(() -> {
+            var mfaConfig = mfaService.setupTotpMfa(userId, sessionId);
+
+            String qrCodeUrl = mfaService.generateQrCodeUrl(userId, mfaConfig.secretKey());
+
             MfaSetupResponse response = MfaSetupResponse.success(
-                    config.getMfaType().toString(),
-                    config.getSecretKey(),
+                    mfaConfig.mfaType().toString(),
+                    mfaConfig.secretKey(),
                     qrCodeUrl,
                     List.of() // Backup codes should be encrypted, return empty for security
             );
-            
-            securityAuditService.logMfaEvent(userId, "SETUP_INITIATED", "SUCCESS", 
+
+            securityAuditService.logMfaEvent(userId, "SETUP_INITIATED", "SUCCESS",
                 request.getRemoteAddr(), request.getHeader("User-Agent"));
-            
+
             return ResponseEntity.ok(response);
-            
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest()
+        }).fold(
+            error -> error.contains("already configured") || error.contains("IllegalStateException")
+                ? ResponseEntity.badRequest()
                     .body(MfaSetupResponse.builder()
-                            .message("MFA already configured. Disable existing MFA first.")
-                            .build());
-        }
+                        .message("MFA already configured. Disable existing MFA first.")
+                        .build())
+                : ResponseEntity.status(500)
+                    .body(MfaSetupResponse.builder()
+                        .message("MFA setup failed: " + error)
+                        .build()),
+            response -> response
+        );
     }
 
     @PostMapping("/verify-setup")
@@ -138,26 +143,26 @@ public class MfaController {
     public ResponseEntity<Map<String, Object>> regenerateBackupCodes(
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest request) {
-        
+
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
-        
-        try {
+
+        return com.trademaster.auth.pattern.SafeOperations.safelyToResult(() -> {
             List<String> backupCodes = mfaService.regenerateBackupCodes(userId, MfaConfiguration.MfaType.TOTP, sessionId);
-            
-            securityAuditService.logMfaEvent(userId, "BACKUP_CODES_REGENERATED", "SUCCESS", 
+
+            securityAuditService.logMfaEvent(userId, "BACKUP_CODES_REGENERATED", "SUCCESS",
                 request.getRemoteAddr(), request.getHeader("User-Agent"));
-            
+
             return ResponseEntity.ok(Map.of(
                     "backupCodes", backupCodes,
                     "message", "Backup codes regenerated successfully"
             ));
-            
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "MFA not configured"
-            ));
-        }
+        }).fold(
+            error -> error.contains("not configured") || error.contains("IllegalStateException")
+                ? ResponseEntity.badRequest().body(Map.of("message", "MFA not configured"))
+                : ResponseEntity.status(500).body(Map.of("message", "Failed to regenerate backup codes: " + error)),
+            response -> response
+        );
     }
 
     @DeleteMapping("/disable")
@@ -166,26 +171,24 @@ public class MfaController {
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestParam String mfaType,
             HttpServletRequest request) {
-        
+
         String userId = userDetails.getUsername();
         String sessionId = request.getSession().getId();
-        
-        try {
+
+        return com.trademaster.auth.pattern.SafeOperations.<Map<String, Object>>safelyToResult(() -> {
             MfaConfiguration.MfaType type = MfaConfiguration.MfaType.valueOf(mfaType.toUpperCase());
             mfaService.disableMfa(userId, type, sessionId);
-            
-            securityAuditService.logMfaEvent(userId, "DISABLED", "SUCCESS", 
+
+            securityAuditService.logMfaEvent(userId, "DISABLED", "SUCCESS",
                 request.getRemoteAddr(), request.getHeader("User-Agent"));
-            
-            return ResponseEntity.ok(Map.of(
-                    "message", "MFA disabled successfully"
-            ));
-            
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "Invalid MFA type"
-            ));
-        }
+
+            return Map.of("message", "MFA disabled successfully");
+        }).fold(
+            error -> error.contains("Invalid") || error.contains("IllegalArgumentException")
+                ? ResponseEntity.badRequest().body(Map.of("message", "Invalid MFA type"))
+                : ResponseEntity.status(500).body(Map.of("message", "Failed to disable MFA: " + error)),
+            result -> ResponseEntity.ok(result)
+        );
     }
 
     private Function<Boolean, ResponseEntity<MfaSetupResponse>> createMfaSetupResponse(

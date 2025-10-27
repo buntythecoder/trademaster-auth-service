@@ -7,6 +7,7 @@ import com.trademaster.auth.projection.UserStatisticsProjection;
 import com.trademaster.auth.repository.UserRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -30,6 +31,7 @@ import java.util.*;
  * @version 1.0.0
  */
 @Service
+@Primary  // ✅ PRIMARY UserDetailsService bean - resolves ambiguity with UserDataService
 @RequiredArgsConstructor
 @Slf4j
 @Transactional(readOnly = true)

@@ -280,11 +280,15 @@ class EncryptionServiceTest {
         // Arrange
         String corruptedData = "this_is_not_valid_encrypted_data";
 
-        // Act & Assert
-        RuntimeException exception = assertThrows(RuntimeException.class, 
-            () -> encryptionService.decrypt(corruptedData));
-        
-        assertTrue(exception.getMessage().contains("Data decryption failed"));
+        // Act
+        Result<String, String> result = encryptionService.decrypt(corruptedData);
+
+        // Assert
+        assertTrue(result.isFailure());
+        String errorMessage = result.getError().orElseThrow();
+        assertTrue(errorMessage.contains("Decryption operation failed") ||
+                   errorMessage.contains("Illegal base64") ||
+                   errorMessage.contains("Data decryption failed"));
     }
 
     @Test

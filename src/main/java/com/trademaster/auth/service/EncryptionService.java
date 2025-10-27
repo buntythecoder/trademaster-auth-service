@@ -141,21 +141,26 @@ public class EncryptionService {
      */
     public String generateHash(String data) {
         return SafeOperations.safelyToResult(() -> {
-            java.security.MessageDigest digest;
-            try {
-                digest = java.security.MessageDigest.getInstance("SHA-256");
-            } catch (java.security.NoSuchAlgorithmException e) {
-                throw new RuntimeException("SHA-256 algorithm not available", e);
-            }
+            java.security.MessageDigest digest = SafeOperations.safelyToResult(() -> {
+                try {
+                    return java.security.MessageDigest.getInstance("SHA-256");
+                } catch (java.security.NoSuchAlgorithmException e) {
+                    throw new RuntimeException("SHA-256 algorithm not available: " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Failed to get digest: " + error); },
+                success -> success
+            );
+
             byte[] hash = digest.digest(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
         })
         .fold(
-            hash -> hash,
             error -> {
                 log.error("Hash generation failed: {}", error);
                 throw new RuntimeException("Hash generation failed: " + error);
-            }
+            },
+            hash -> hash
         );
     }
 
@@ -284,29 +289,43 @@ public class EncryptionService {
             
             byte[] iv = new byte[GCM_IV_LENGTH];
             secureRandom.nextBytes(iv);
-            
-            Cipher cipher;
-            try {
-                cipher = Cipher.getInstance(encryptionAlgorithm);
-            } catch (javax.crypto.NoSuchPaddingException | java.security.NoSuchAlgorithmException e) {
-                throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm, e);
-            }
-            
+
+            Cipher cipher = SafeOperations.safelyToResult(() -> {
+                try {
+                    return Cipher.getInstance(encryptionAlgorithm);
+                } catch (Exception e) {
+                    throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm + " - " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Cipher error: " + error); },
+                success -> success
+            );
+
             SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            
-            try {
-                cipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec);
-            } catch (java.security.InvalidKeyException | java.security.InvalidAlgorithmParameterException e) {
-                throw new RuntimeException("Cipher initialization failed", e);
-            }
-            
-            byte[] encryptedData;
-            try {
-                encryptedData = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
-            } catch (javax.crypto.IllegalBlockSizeException | javax.crypto.BadPaddingException e) {
-                throw new RuntimeException("Encryption operation failed", e);
-            }
+
+            SafeOperations.safelyToResult(() -> {
+                try {
+                    cipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec);
+                    return cipher;  // Return cipher instance instead of null
+                } catch (Exception e) {
+                    throw new RuntimeException("Cipher initialization failed: " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Init error: " + error); },
+                success -> success
+            );
+
+            byte[] encryptedData = SafeOperations.safelyToResult(() -> {
+                try {
+                    return cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+                } catch (Exception e) {
+                    throw new RuntimeException("Encryption operation failed: " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Encryption error: " + error); },
+                success -> success
+            );
             
             byte[] encryptedWithIv = new byte[GCM_IV_LENGTH + encryptedData.length];
             System.arraycopy(iv, 0, encryptedWithIv, 0, GCM_IV_LENGTH);
@@ -317,11 +336,11 @@ public class EncryptionService {
             return result;
         })
         .fold(
-            result -> result,
             error -> {
                 log.error("Encryption failed: {}", error);
                 throw new RuntimeException("Data encryption failed: " + error);
-            }
+            },
+            result -> result
         );
     }
     
@@ -335,40 +354,54 @@ public class EncryptionService {
             System.arraycopy(encryptedWithIv, GCM_IV_LENGTH, encrypted, 0, encrypted.length);
             
             byte[] dataKey = getDataKey();
-            
-            Cipher cipher;
-            try {
-                cipher = Cipher.getInstance(encryptionAlgorithm);
-            } catch (javax.crypto.NoSuchPaddingException | java.security.NoSuchAlgorithmException e) {
-                throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm, e);
-            }
-            
+
+            Cipher cipher = SafeOperations.safelyToResult(() -> {
+                try {
+                    return Cipher.getInstance(encryptionAlgorithm);
+                } catch (Exception e) {
+                    throw new RuntimeException("Cipher algorithm not available: " + encryptionAlgorithm + " - " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Cipher error: " + error); },
+                success -> success
+            );
+
             SecretKeySpec keySpec = new SecretKeySpec(dataKey, KEY_ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
-            
-            try {
-                cipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec);
-            } catch (java.security.InvalidKeyException | java.security.InvalidAlgorithmParameterException e) {
-                throw new RuntimeException("Cipher initialization failed", e);
-            }
-            
-            byte[] decryptedData;
-            try {
-                decryptedData = cipher.doFinal(encrypted);
-            } catch (javax.crypto.IllegalBlockSizeException | javax.crypto.BadPaddingException e) {
-                throw new RuntimeException("Decryption operation failed", e);
-            }
+
+            SafeOperations.safelyToResult(() -> {
+                try {
+                    cipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec);
+                    return cipher;  // Return cipher instance instead of null
+                } catch (Exception e) {
+                    throw new RuntimeException("Cipher initialization failed: " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Init error: " + error); },
+                success -> success
+            );
+
+            byte[] decryptedData = SafeOperations.safelyToResult(() -> {
+                try {
+                    return cipher.doFinal(encrypted);
+                } catch (Exception e) {
+                    throw new RuntimeException("Decryption operation failed: " + e.getMessage(), e);
+                }
+            }).fold(
+                error -> { throw new RuntimeException("Decryption error: " + error); },
+                success -> success
+            );
             
             String result = new String(decryptedData, StandardCharsets.UTF_8);
             log.debug("Successfully decrypted data");
             return result;
         })
         .fold(
-            result -> result,
             error -> {
                 log.error("Decryption failed: {}", error);
                 throw new RuntimeException("Data decryption failed: " + error);
-            }
+            },
+            result -> result
         );
     }
     

@@ -11,6 +11,7 @@ import com.trademaster.auth.repository.UserRepository;
 import com.trademaster.auth.repository.UserProfileRepository;
 import com.trademaster.auth.repository.UserRoleRepository;
 import com.trademaster.auth.repository.UserRoleAssignmentRepository;
+import com.trademaster.auth.pattern.Result;
 import com.trademaster.auth.security.DeviceFingerprintService;
 import com.trademaster.auth.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
@@ -175,14 +176,14 @@ class AuthenticationServiceTest {
         when(jwtTokenProvider.getJwtExpirationMs()).thenReturn(900000L);
 
         // Act
-        AuthenticationResponse response = authenticationService.register(registrationRequest, httpRequest);
+        Result<User, String> result = authenticationService.register(registrationRequest, httpRequest);
 
         // Assert
-        assertNotNull(response);
-        assertEquals("accessToken", response.getAccessToken());
-        assertEquals("refreshToken", response.getRefreshToken());
-        assertTrue(response.isRequiresEmailVerification());
-        assertFalse(response.isRequiresMfa());
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        User user = result.getValue().orElseThrow();
+        assertNotNull(user);
+        assertEquals("test@example.com", user.getEmail());
         
         verify(userRepository, times(1)).save(any(User.class));
         verify(userProfileRepository, times(1)).save(any(UserProfile.class));
@@ -230,16 +231,18 @@ class AuthenticationServiceTest {
         when(deviceFingerprintService.generateFingerprint(any())).thenReturn("deviceFingerprint");
         when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn(null); // No forwarded header in test
-        when(mfaService.isUserMfaEnabled(anyLong())).thenReturn(false);
+        when(mfaService.isUserMfaEnabled(anyString())).thenReturn(Result.success(false));
         when(jwtTokenProvider.generateToken(any(), anyString(), anyString())).thenReturn("accessToken");
         when(jwtTokenProvider.generateRefreshToken(any(), anyString())).thenReturn("refreshToken");
         when(jwtTokenProvider.getJwtExpirationMs()).thenReturn(900000L);
 
         // Act
-        AuthenticationResponse response = authenticationService.login(authenticationRequest, httpRequest);
+        Result<AuthenticationResponse, String> result = authenticationService.login(authenticationRequest, httpRequest);
 
         // Assert
-        assertNotNull(response);
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        AuthenticationResponse response = result.getValue().orElseThrow();
         assertEquals("accessToken", response.getAccessToken());
         assertEquals("refreshToken", response.getRefreshToken());
         assertFalse(response.isRequiresMfa());
@@ -258,14 +261,16 @@ class AuthenticationServiceTest {
         when(deviceFingerprintService.generateFingerprint(any())).thenReturn("deviceFingerprint");
         when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn(null); // No forwarded header in test
-        when(mfaService.isUserMfaEnabled(anyLong())).thenReturn(true);
+        when(mfaService.isUserMfaEnabled(anyString())).thenReturn(Result.success(true));
         when(mfaService.generateMfaChallenge(anyLong())).thenReturn("mfaChallenge");
 
         // Act
-        AuthenticationResponse response = authenticationService.login(authenticationRequest, httpRequest);
+        Result<AuthenticationResponse, String> result = authenticationService.login(authenticationRequest, httpRequest);
 
         // Assert
-        assertNotNull(response);
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        AuthenticationResponse response = result.getValue().orElseThrow();
         assertTrue(response.isRequiresMfa());
         assertEquals("mfaChallenge", response.getMfaChallenge());
         assertEquals("MFA verification required", response.getMessage());
@@ -319,7 +324,7 @@ class AuthenticationServiceTest {
     void completeMfaVerification_ShouldSucceedWithValidCode() {
         // Arrange
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(testUser));
-        when(mfaService.verifyMfaCode(anyLong(), anyString(), anyString())).thenReturn(true);
+        when(mfaService.verifyMfaCode(anyString(), anyString(), anyString())).thenReturn(Result.success(true));
         when(deviceFingerprintService.generateFingerprint(any())).thenReturn("deviceFingerprint");
         when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn(null); // No forwarded header in test
@@ -329,18 +334,20 @@ class AuthenticationServiceTest {
         when(jwtTokenProvider.getJwtExpirationMs()).thenReturn(900000L);
 
         // Act
-        AuthenticationResponse response = authenticationService.completeMfaVerification(
-            "test@trademaster.com", "mfaToken", "123456", httpRequest);
+        Result<AuthenticationResponse, String> result = authenticationService.completeMfaVerification(
+            "test@trademaster.com", "123456", "mfaToken", httpRequest);
 
         // Assert
-        assertNotNull(response);
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        AuthenticationResponse response = result.getValue().orElseThrow();
         assertEquals("accessToken", response.getAccessToken());
         assertEquals("refreshToken", response.getRefreshToken());
         assertFalse(response.isRequiresMfa());
         assertEquals("MFA verification successful", response.getMessage());
-        
-        verify(mfaService, times(1)).verifyMfaCode(anyLong(), eq("mfaToken"), eq("123456"));
-        verify(auditService, times(1)).logAuthenticationEvent(anyLong(), eq("MFA_SUCCESS"), eq("SUCCESS"), 
+
+        verify(mfaService, times(1)).verifyMfaCode(anyString(), eq("123456"), eq("mfaToken"));
+        verify(auditService, times(1)).logAuthenticationEvent(anyLong(), eq("MFA_SUCCESS"), eq("SUCCESS"),
             anyString(), anyString(), anyString(), any(), isNull());
     }
 
@@ -348,7 +355,7 @@ class AuthenticationServiceTest {
     void completeMfaVerification_ShouldFailWithInvalidCode() {
         // Arrange
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(testUser));
-        when(mfaService.verifyMfaCode(anyLong(), anyString(), anyString())).thenReturn(false);
+        when(mfaService.verifyMfaCode(anyString(), anyString(), anyString())).thenReturn(Result.success(false));
         when(deviceFingerprintService.generateFingerprint(any())).thenReturn("deviceFingerprint");
         when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         when(httpRequest.getHeader("X-Forwarded-For")).thenReturn(null); // No forwarded header in test
@@ -384,10 +391,12 @@ class AuthenticationServiceTest {
         when(jwtTokenProvider.getJwtExpirationMs()).thenReturn(900000L);
 
         // Act
-        AuthenticationResponse response = authenticationService.refreshToken(refreshToken, httpRequest);
+        Result<AuthenticationResponse, String> result = authenticationService.refreshToken(refreshToken, httpRequest).join();
 
         // Assert
-        assertNotNull(response);
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        AuthenticationResponse response = result.getValue().orElseThrow();
         assertEquals("newAccessToken", response.getAccessToken());
         assertEquals("newRefreshToken", response.getRefreshToken());
         assertEquals("Token refreshed successfully", response.getMessage());

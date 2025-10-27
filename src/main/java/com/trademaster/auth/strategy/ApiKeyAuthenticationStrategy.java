@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -155,13 +156,12 @@ public class ApiKeyAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Validate API key format using functional patterns
      */
-    private Function<Result<ApiKeyContext, String>, Result<ApiKeyContext, String>> validateApiKeyFormat() {
-        return result -> result.flatMap(context ->
+    private Function<ApiKeyContext, Result<ApiKeyContext, String>> validateApiKeyFormat() {
+        return context ->
             Optional.of(context.apiKey())
                 .filter(this::isValidApiKeyFormat)
                 .map(key -> Result.<ApiKeyContext, String>success(context))
-                .orElse(Result.failure("Invalid API key format"))
-        );
+                .orElse(Result.<ApiKeyContext, String>failure("Invalid API key format"));
     }
 
     /**
@@ -177,8 +177,8 @@ public class ApiKeyAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Find service user associated with API key using functional approach
      */
-    private Function<Result<ApiKeyContext, String>, Result<ServiceUserContext, String>> findServiceUser() {
-        return result -> result.flatMap(context ->
+    private Function<ApiKeyContext, Result<ServiceUserContext, String>> findServiceUser() {
+        return context ->
             findServiceUserByApiKey(context.apiKey())
                 .map(user -> Result.<ServiceUserContext, String>success(
                     new ServiceUserContext(context, user)))
@@ -195,8 +195,7 @@ public class ApiKeyAuthenticationStrategy implements AuthenticationStrategy {
                         null
                     );
                     return Result.<ServiceUserContext, String>failure("Invalid API key");
-                })
-        );
+                });
     }
 
     /**
@@ -215,20 +214,19 @@ public class ApiKeyAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Validate service account status using functional patterns
      */
-    private Function<Result<ServiceUserContext, String>, Result<ServiceUserContext, String>> validateServiceAccountStatus() {
-        return result -> result.flatMap(serviceContext ->
+    private Function<ServiceUserContext, Result<ServiceUserContext, String>> validateServiceAccountStatus() {
+        return serviceContext ->
             Optional.of(serviceContext.user().getAccountStatus())
                 .filter(status -> status == User.AccountStatus.ACTIVE)
                 .map(status -> Result.<ServiceUserContext, String>success(serviceContext))
-                .orElse(Result.failure("Service account is not active"))
-        );
+                .orElse(Result.<ServiceUserContext, String>failure("Service account is not active"));
     }
 
     /**
      * Generate service tokens with shorter expiration using functional approach
      */
-    private Function<Result<ServiceUserContext, String>, Result<TokenGenerationContext, String>> generateServiceTokens() {
-        return result -> result.flatMap(serviceContext ->
+    private Function<ServiceUserContext, Result<TokenGenerationContext, String>> generateServiceTokens() {
+        return serviceContext ->
             SafeOperations.safelyToResult(() -> {
                 String deviceFingerprint = deviceFingerprintService.generateFingerprint(
                     serviceContext.apiKeyContext().authContext().httpRequest());
@@ -264,8 +262,7 @@ public class ApiKeyAuthenticationStrategy implements AuthenticationStrategy {
                     .build();
 
                 return new TokenGenerationContext(serviceContext, response);
-            })
-        );
+            });
     }
 
     /**

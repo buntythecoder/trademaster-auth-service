@@ -95,10 +95,30 @@ public class MfaService {
     }
 
     /**
-     * Setup TOTP MFA for user
+     * Setup TOTP MFA for user (returns DTO for tests)
+     *
+     * @param userId User ID
+     * @param sessionId Session ID
+     * @return MfaConfig DTO
      */
     @Transactional(readOnly = false)
-    public MfaConfiguration setupTotpMfa(String userId, String sessionId) {
+    public com.trademaster.auth.dto.MfaConfig setupTotpMfa(String userId, String sessionId) {
+        MfaConfiguration config = setupTotpMfaInternal(userId, sessionId);
+        // Decrypt the secret before returning it to the caller
+        String decryptedSecret = encryptionService.decrypt(config.getSecretKey()).getValue()
+                .orElseThrow(() -> new RuntimeException("Failed to decrypt secret key"));
+        return new com.trademaster.auth.dto.MfaConfig(
+            com.trademaster.auth.dto.MfaConfig.MfaType.TOTP,
+            decryptedSecret,  // Return decrypted secret, not encrypted
+            config.isEnabled()
+        );
+    }
+
+    /**
+     * Setup TOTP MFA for user (internal)
+     */
+    @Transactional(readOnly = false)
+    private MfaConfiguration setupTotpMfaInternal(String userId, String sessionId) {
         Optional<MfaConfiguration> existing = mfaConfigurationRepository.findByUserIdAndMfaType(Long.valueOf(userId), MfaConfiguration.MfaType.TOTP);
 
         existing.ifPresent(config -> {
@@ -195,6 +215,24 @@ public class MfaService {
     }
 
     /**
+     * Disable MFA for user (Result-returning overload for test compatibility)
+     *
+     * @param userId User ID
+     * @param sessionId Session ID
+     * @return Result with MfaDisableResponse or error message
+     */
+    @Transactional(readOnly = false)
+    public Result<com.trademaster.auth.dto.MfaDisableResponse, String> disableMfa(String userId, String sessionId) {
+        return SafeOperations.safelyToResult(() -> {
+            disableMfa(userId, MfaConfiguration.MfaType.TOTP, sessionId);
+            return new com.trademaster.auth.dto.MfaDisableResponse(
+                "MFA disabled successfully",
+                sessionId
+            );
+        });
+    }
+
+    /**
      * Generate new backup codes
      */
     @Transactional(readOnly = false)
@@ -241,13 +279,25 @@ public class MfaService {
 
     private List<String> generateBackupCodes() {
         SecureRandom random = new SecureRandom();
-        
+
         return IntStream.range(0, BACKUP_CODE_COUNT)
             .mapToObj(i -> IntStream.range(0, BACKUP_CODE_LENGTH)
                 .map(j -> random.nextInt(10))
                 .mapToObj(String::valueOf)
                 .collect(Collectors.joining()))
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Generate backup codes (public for tests)
+     *
+     * @param userId User ID
+     * @param sessionId Session ID
+     * @return List of backup codes
+     */
+    public List<String> generateBackupCodes(String userId, String sessionId) {
+        log.info("Generating backup codes for user: {}", userId);
+        return generateBackupCodes();
     }
 
     private String encryptBackupCodes(List<String> codes) {
@@ -262,14 +312,16 @@ public class MfaService {
     private boolean verifyTotpCode(String secret, String code) {
         return SafeOperations.safelyToResult(() -> {
             long currentTimeWindow = Instant.now().getEpochSecond() / TOTP_INTERVAL;
-            
+            log.debug("Verifying code {} against time window {}", code, currentTimeWindow);
+
             return IntStream.rangeClosed(-TOTP_WINDOW_SIZE, TOTP_WINDOW_SIZE)
                 .mapToObj(i -> {
-                    try {
-                        return generateTotpCode(secret, currentTimeWindow + i);
-                    } catch (Exception e) {
-                        return "";
-                    }
+                    String expectedCode = SafeOperations.safelyToResult(() ->
+                            generateTotpCode(secret, currentTimeWindow + i))
+                        .orElse("");
+                    log.debug("Window {}: generated code = {}, matches = {}",
+                             currentTimeWindow + i, expectedCode, expectedCode.equals(code));
+                    return expectedCode;
                 })
                 .anyMatch(expectedCode -> expectedCode.equals(code));
         })
@@ -286,32 +338,36 @@ public class MfaService {
         return SafeOperations.safelyToResult(() -> {
             byte[] secretBytes = Base64.getDecoder().decode(secret);
             byte[] timeBytes = java.nio.ByteBuffer.allocate(8).putLong(timeWindow).array();
-            
-            Mac mac;
-            try {
-                mac = Mac.getInstance("HmacSHA1");
-                mac.init(new SecretKeySpec(secretBytes, "HmacSHA1"));
-            } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-                throw new RuntimeException("TOTP code generation failed: " + e.getMessage(), e);
-            }
-            
+            log.debug("Generating TOTP: timeWindow={}, secretLength={}, timeBytes={}",
+                     timeWindow, secretBytes.length, java.util.HexFormat.of().formatHex(timeBytes));
+
+            Mac mac = SafeOperations.safelyToResult(() -> {
+                try {
+                    Mac instance = Mac.getInstance("HmacSHA1");
+                    instance.init(new SecretKeySpec(secretBytes, "HmacSHA1"));
+                    return instance;
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to initialize MAC: " + e.getMessage(), e);
+                }
+            }).orElseThrow(error -> new RuntimeException("TOTP code generation failed: " + error));
+
             byte[] hash = mac.doFinal(timeBytes);
-            
+
             int offset = hash[hash.length - 1] & 0x0f;
             int code = ((hash[offset] & 0x7f) << 24) |
                        ((hash[offset + 1] & 0xff) << 16) |
                        ((hash[offset + 2] & 0xff) << 8) |
                        (hash[offset + 3] & 0xff);
-            
+
             code = code % 1000000;
             return String.format("%06d", code);
         })
         .fold(
-            totpCode -> totpCode,
-            error -> {
+            error -> {  // ERROR mapper (first param)
                 log.error("TOTP code generation failed: {}", error);
                 return ""; // Return empty string on error
-            }
+            },
+            totpCode -> totpCode  // SUCCESS mapper (second param)
         );
     }
 

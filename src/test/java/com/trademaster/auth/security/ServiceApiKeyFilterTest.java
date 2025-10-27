@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -34,33 +35,18 @@ import static org.mockito.Mockito.*;
  * - Error handling with functional fallback patterns
  * - Authentication audit logging for security compliance
  *
- * ⚠️ DISABLED - REQUIRES API MIGRATION ⚠️
- * Spring Boot 3.5.3 upgrade changed ServiceApiKeyFilter API:
- *
- * 1. Constructor Change (13 compilation errors):
- *    - Old: ServiceApiKeyFilter(KongConfiguration.KongHeaders kongHeaders)
- *    - New: ServiceApiKeyFilter() - No-arg constructor
- *
- * 2. Method Signature Change:
- *    - Old: doFilterInternal(request, response, filterChain)
- *    - New: doFilter(request, response, filterChain)
- *
- * 3. Configuration Approach Changed:
- *    - Kong header configuration now handled differently
- *    - Filter registration mechanism updated
- *
- * TODO: Rewrite tests to match new ServiceApiKeyFilter no-arg constructor and doFilter() method
+ * ✅ UPDATED FOR Spring Boot 3.5.3:
+ * - No-arg constructor with @Value injection
+ * - doFilterInternal() instead of doFilter()
+ * - shouldNotFilter() method for path filtering
+ * - Uses ReflectionTestUtils to inject @Value fields in tests
  *
  * @author TradeMaster Development Team
  * @version 2.0.0 (Functional Programming + Kong Integration)
  */
-@Disabled("Spring Boot 3.5.3 API migration required - ServiceApiKeyFilter constructor and method signatures changed")
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Service API Key Filter Tests")
 class ServiceApiKeyFilterTest {
-
-    @Mock
-    private KongConfiguration.KongHeaders kongHeaders;
 
     @Mock
     private HttpServletRequest request;
@@ -78,13 +64,11 @@ class ServiceApiKeyFilterTest {
 
     @BeforeEach
     void setUp() {
-        // Setup Kong headers configuration
-        when(kongHeaders.consumerId()).thenReturn("X-Consumer-ID");
-        when(kongHeaders.consumerUsername()).thenReturn("X-Consumer-Username");
-        when(kongHeaders.consumerCustomId()).thenReturn("X-Consumer-Custom-ID");
-        when(kongHeaders.apiKey()).thenReturn("X-API-Key");
+        serviceApiKeyFilter = new ServiceApiKeyFilter();
 
-        serviceApiKeyFilter = new ServiceApiKeyFilter(kongHeaders);
+        // Inject @Value fields using ReflectionTestUtils
+        ReflectionTestUtils.setField(serviceApiKeyFilter, "masterServiceApiKey", "pTB9KkzqJWNkFDUJHIFyDv5b1tSUpP4q");
+        ReflectionTestUtils.setField(serviceApiKeyFilter, "serviceAuthEnabled", true);
 
         // Setup SecurityContext mock
         SecurityContextHolder.setContext(securityContext);
@@ -99,7 +83,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-Custom-ID")).thenReturn("custom-trading-id");
         when(request.getHeader("X-API-Key")).thenReturn("trademaster-trading-api-key-2024-prod");
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Verify authentication was set
         ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
@@ -123,7 +107,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-ID")).thenReturn(null);
         when(request.getHeader("X-Consumer-Username")).thenReturn("trading-service-internal");
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Verify no authentication was set
         verify(securityContext, never()).setAuthentication(any());
@@ -139,7 +123,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-ID")).thenReturn("service-trading-001");
         when(request.getHeader("X-Consumer-Username")).thenReturn(null);
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Verify no authentication was set
         verify(securityContext, never()).setAuthentication(any());
@@ -157,7 +141,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-Custom-ID")).thenReturn(null); // Missing custom ID
         when(request.getHeader("X-API-Key")).thenReturn(null); // Missing API key
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Should still authenticate (custom ID and API key are optional)
         ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
@@ -175,6 +159,7 @@ class ServiceApiKeyFilterTest {
     void testShouldNotFilterInternalPaths() {
         // ✅ FUNCTIONAL PROGRAMMING: Testing functional path filtering
         when(request.getRequestURI()).thenReturn("/api/internal/v1/auth/greeting");
+        when(request.getServletPath()).thenReturn("/api/internal/v1/auth/greeting");
 
         boolean shouldNotFilter = serviceApiKeyFilter.shouldNotFilter(request);
 
@@ -195,6 +180,7 @@ class ServiceApiKeyFilterTest {
 
         for (String path : publicPaths) {
             when(request.getRequestURI()).thenReturn(path);
+            when(request.getServletPath()).thenReturn(path);
 
             boolean shouldNotFilter = serviceApiKeyFilter.shouldNotFilter(request);
 
@@ -215,7 +201,7 @@ class ServiceApiKeyFilterTest {
         doThrow(new RuntimeException("Security context error"))
             .when(securityContext).setAuthentication(any());
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Verify security context was cleared after error
         verify(securityContext).setAuthentication(any()); // Initial attempt
@@ -239,7 +225,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-Custom-ID")).thenReturn(expectedCustomId);
         when(request.getHeader("X-API-Key")).thenReturn(expectedApiKey);
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Verify authentication with correct principal
         ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
@@ -259,7 +245,7 @@ class ServiceApiKeyFilterTest {
         when(request.getRemoteAddr()).thenReturn("172.18.0.5");
         when(request.getHeader("User-Agent")).thenReturn("OkHttp/4.9.3");
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
         verify(securityContext).setAuthentication(authCaptor.capture());
@@ -287,7 +273,7 @@ class ServiceApiKeyFilterTest {
             when(request.getHeader("X-Consumer-ID")).thenReturn(config[0]);
             when(request.getHeader("X-Consumer-Username")).thenReturn(config[1]);
 
-            serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+            serviceApiKeyFilter.doFilter(request, response, filterChain);
 
             ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
             verify(securityContext).setAuthentication(authCaptor.capture());
@@ -308,7 +294,7 @@ class ServiceApiKeyFilterTest {
         when(request.getHeader("X-Consumer-ID")).thenReturn(null);
         when(request.getHeader("X-Consumer-Username")).thenReturn(null);
 
-        serviceApiKeyFilter.doFilterInternal(request, response, filterChain);
+        serviceApiKeyFilter.doFilter(request, response, filterChain);
 
         // Should not set any authentication
         verify(securityContext, never()).setAuthentication(any());
@@ -336,6 +322,7 @@ class ServiceApiKeyFilterTest {
 
         for (int i = 0; i < testPaths.length; i++) {
             when(request.getRequestURI()).thenReturn(testPaths[i]);
+            when(request.getServletPath()).thenReturn(testPaths[i]);
 
             boolean shouldNotFilter = serviceApiKeyFilter.shouldNotFilter(request);
             boolean shouldApplyFilter = !shouldNotFilter;

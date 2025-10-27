@@ -7,6 +7,8 @@ import com.trademaster.auth.entity.User;
 import com.trademaster.auth.entity.UserProfile;
 import com.trademaster.auth.entity.UserRole;
 import com.trademaster.auth.entity.UserRoleAssignment;
+import com.trademaster.auth.pattern.Result;
+import com.trademaster.auth.pattern.SafeOperations;
 import com.trademaster.auth.pattern.VirtualThreadFactory;
 import com.trademaster.auth.repository.UserProfileRepository;
 import com.trademaster.auth.repository.UserRepository;
@@ -31,6 +33,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.function.Function;
 
@@ -274,9 +277,17 @@ public class FunctionalAuthenticationService {
         private CompletableFuture<AuthResult<T, String>> retryAfterDelay(int currentAttempt) {
             long delayMs = Math.min(1000 * (long) Math.pow(2, currentAttempt), 10000);
             return CompletableFuture
-                .runAsync(() -> {
-                    try { Thread.sleep(delayMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                })
+                .runAsync(() ->
+                    SafeOperations.safelyToResult(() -> {
+                        try {
+                            Thread.sleep(delayMs);
+                            return null;
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Sleep interrupted", e);
+                        }
+                    })
+                )
                 .thenCompose(ignored -> executeWithExponentialBackoff(currentAttempt + 1));
         }
     }
@@ -350,79 +361,92 @@ public class FunctionalAuthenticationService {
 
     private AuthResult<AuthenticationResponse, String> processRegistration(
             RegistrationRequest request, HttpServletRequest httpRequest) {
-        
-        try {
-            // Structured concurrency for parallel operations
-            return CompletableFuture.<AuthResult<AuthenticationResponse, String>>supplyAsync(() -> {
-                try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                    
-                    // Fork parallel tasks
-                    var existsCheck = scope.fork(() -> userService.existsByEmail(request.getEmail()));
-                    var passwordValidation = scope.fork(() -> {
-                        passwordPolicyService.validatePassword(request.getPassword(), request.getEmail());
-                        return true; // Return success indicator
-                    });
-                    var deviceFingerprint = scope.fork(() -> 
-                        deviceFingerprintService.generateFingerprint(httpRequest));
-                    
-                    scope.join();
-                    scope.throwIfFailed();
-                    
-                    // Check results
-                    return Optional.of(existsCheck.get())
-                        .filter(Boolean::booleanValue)
-                        .map(exists -> AuthResult.<AuthenticationResponse, String>failure("User with this email already exists"))
-                        .orElseGet(() -> {
-                            String fingerprint = deviceFingerprint.get();
-                            String ipAddress = getClientIpAddress(httpRequest);
-                            return createUserWithProfile(request, fingerprint, ipAddress, httpRequest);
-                        });
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return AuthResult.<AuthenticationResponse, String>failure("Registration interrupted");
-                } catch (Exception e) {
-                    return AuthResult.<AuthenticationResponse, String>failure("Registration failed: " + e.getMessage());
-                }
-            }).join();
 
-        } catch (Exception e) {
-            log.error("Registration failed for email {}: {}", request.getEmail(), e.getMessage());
-            return AuthResult.failure("Registration failed: " + e.getMessage());
-        }
+        return SafeOperations.safelyToResult(() -> {
+            // Structured concurrency for parallel operations
+            return CompletableFuture.<AuthResult<AuthenticationResponse, String>>supplyAsync(() ->
+                SafeOperations.safelyToResult(() -> {
+                    try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+
+                        // Fork parallel tasks
+                        var existsCheck = scope.fork(() -> userService.existsByEmail(request.getEmail()));
+                        var passwordValidation = scope.fork(() -> {
+                            passwordPolicyService.validatePassword(request.getPassword(), request.getEmail());
+                            return true; // Return success indicator
+                        });
+                        var deviceFingerprint = scope.fork(() ->
+                            deviceFingerprintService.generateFingerprint(httpRequest));
+
+                        try {
+                            scope.join();
+                            scope.throwIfFailed();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Task interrupted: " + e.getMessage(), e);
+                        } catch (ExecutionException e) {
+                            throw new RuntimeException("Task execution failed: " + e.getMessage(), e);
+                        }
+
+                        // Check results
+                        return Optional.of(existsCheck.get())
+                            .filter(Boolean::booleanValue)
+                            .map(exists -> AuthResult.<AuthenticationResponse, String>failure("User with this email already exists"))
+                            .orElseGet(() -> {
+                                String fingerprint = deviceFingerprint.get();
+                                String ipAddress = getClientIpAddress(httpRequest);
+                                return createUserWithProfile(request, fingerprint, ipAddress, httpRequest);
+                            });
+                    }
+                }).fold(
+                    error -> AuthResult.<AuthenticationResponse, String>failure("Registration failed: " + error),
+                    result -> result
+                )
+            ).join();
+        }).fold(
+            error -> {
+                log.error("Registration failed for email {}: {}", request.getEmail(), error);
+                return AuthResult.failure("Registration failed: " + error);
+            },
+            result -> result
+        );
     }
 
     private AuthResult<AuthenticationResponse, String> processLogin(
             AuthenticationRequest request, HttpServletRequest httpRequest) {
-        
-        try {
+
+        return SafeOperations.safelyToResult(() -> {
             String deviceFingerprint = deviceFingerprintService.generateFingerprint(httpRequest);
             String ipAddress = getClientIpAddress(httpRequest);
-            
+
             // Find user and validate account status
             return userService.findByEmail(request.getEmail())
                 .map(user -> validateAndAuthenticate(user, request, deviceFingerprint, ipAddress))
                 .orElse(AuthResult.failure("Invalid credentials"));
-                
-        } catch (Exception e) {
-            log.error("Login failed for email {}: {}", request.getEmail(), e.getMessage());
-            return AuthResult.failure("Login failed: " + e.getMessage());
-        }
+        }).fold(
+            error -> {
+                log.error("Login failed for email {}: {}", request.getEmail(), error);
+                return AuthResult.failure("Login failed: " + error);
+            },
+            result -> result
+        );
     }
 
     private AuthResult<AuthenticationResponse, String> processTokenRefresh(String refreshToken, String deviceFingerprint) {
-        try {
-            return Optional.of(refreshToken)
+        return SafeOperations.safelyToResult(() ->
+            Optional.of(refreshToken)
                 .filter(token -> jwtTokenProvider.validateToken(token) && jwtTokenProvider.isRefreshToken(token))
                 .map(jwtTokenProvider::getUserIdFromToken)
                 .flatMap(userService::findById)
                 .map(user -> generateTokenResponse(user, deviceFingerprint, ""))
                 .<AuthResult<AuthenticationResponse, String>>map(AuthResult::success)
-                .orElse(AuthResult.<AuthenticationResponse, String>failure("Invalid refresh token"));
-                
-        } catch (Exception e) {
-            log.error("Token refresh failed: {}", e.getMessage());
-            return AuthResult.failure("Token refresh failed: " + e.getMessage());
-        }
+                .orElse(AuthResult.<AuthenticationResponse, String>failure("Invalid refresh token"))
+        ).fold(
+            error -> {
+                log.error("Token refresh failed: {}", error);
+                return AuthResult.failure("Token refresh failed: " + error);
+            },
+            result -> result
+        );
     }
 
     // Validation Methods (Strategy Pattern)
@@ -452,8 +476,8 @@ public class FunctionalAuthenticationService {
     }
 
     private static AuthResult<User, String> validateStandardLogin(AuthenticationRequest request) {
-        try {
-            return validateCredentialsPresent(request)
+        return SafeOperations.safelyToResult(() ->
+            validateCredentialsPresent(request)
                 .flatMap(FunctionalAuthenticationService::validateLoginId)
                 .flatMap(FunctionalAuthenticationService::validatePasswordLength)
                 .map(req -> {
@@ -463,11 +487,11 @@ public class FunctionalAuthenticationService {
                         .email(loginId.contains("@") ? loginId : loginId + "@trademaster.in")
                         .passwordHash("hashed_password")
                         .build();
-                });
-
-        } catch (Exception e) {
-            return AuthResult.failure("Authentication failed: " + e.getMessage());
-        }
+                })
+        ).fold(
+            error -> AuthResult.failure("Authentication failed: " + error),
+            result -> result
+        );
     }
 
     private static AuthResult<AuthenticationRequest, String> validateCredentialsPresent(AuthenticationRequest request) {
@@ -508,18 +532,18 @@ public class FunctionalAuthenticationService {
     }
 
     private static AuthResult<User, String> validateMfaLogin(AuthenticationRequest request) {
-        try {
-            return validateMfaCodePresent(request)
+        return SafeOperations.safelyToResult(() ->
+            validateMfaCodePresent(request)
                 .flatMap(FunctionalAuthenticationService::validateMfaCodeFormat)
                 .map(req -> User.builder()
                     .id(2L)
                     .email("mfa@trademaster.in")
                     .passwordHash("hashed_password")
-                    .build());
-
-        } catch (Exception e) {
-            return AuthResult.failure("MFA authentication failed: " + e.getMessage());
-        }
+                    .build())
+        ).fold(
+            error -> AuthResult.failure("MFA authentication failed: " + error),
+            result -> result
+        );
     }
 
     private static AuthResult<AuthenticationRequest, String> validateSocialDataPresent(AuthenticationRequest request) {
@@ -537,25 +561,25 @@ public class FunctionalAuthenticationService {
     }
 
     private static AuthResult<User, String> validateSocialLogin(AuthenticationRequest request) {
-        try {
-            return validateSocialDataPresent(request)
+        return SafeOperations.safelyToResult(() ->
+            validateSocialDataPresent(request)
                 .flatMap(FunctionalAuthenticationService::validateSocialTokenFormat)
                 .map(req -> User.builder()
                     .id(3L)
                     .email("social_user_" + req.getSocialProvider() + "@trademaster.in")
                     .passwordHash("social_auth_hash")
-                    .build());
-
-        } catch (Exception e) {
-            return AuthResult.failure("Social authentication failed: " + e.getMessage());
-        }
+                    .build())
+        ).fold(
+            error -> AuthResult.failure("Social authentication failed: " + error),
+            result -> result
+        );
     }
 
     // Helper Methods
     private AuthResult<AuthenticationResponse, String> createUserWithProfile(
             RegistrationRequest request, String deviceFingerprint, String ipAddress, HttpServletRequest httpRequest) {
-        
-        try {
+
+        return SafeOperations.<AuthResult<AuthenticationResponse, String>>safelyToResult(() -> {
             // Create user entity
             User user = User.builder()
                 .email(request.getEmail().toLowerCase().trim())
@@ -595,30 +619,32 @@ public class FunctionalAuthenticationService {
             // Generate response
             AuthenticationResponse response = generateTokenResponse(savedUser, deviceFingerprint, ipAddress);
             return AuthResult.success(response);
-
-        } catch (Exception e) {
-            return AuthResult.failure("Failed to create user: " + e.getMessage());
-        }
+        }).fold(
+            error -> AuthResult.failure("Failed to create user: " + error),
+            result -> result
+        );
     }
 
     private AuthResult<AuthenticationResponse, String> validateAndAuthenticate(
             User user, AuthenticationRequest request, String deviceFingerprint, String ipAddress) {
-        
-        try {
-            // Validate account status
-            return validateAccountStatus(user)
-                .flatMap(valid -> proceedWithAuthentication(user, request, deviceFingerprint, ipAddress));
 
-        } catch (Exception e) {
-            handleFailedLoginAsync(request.getEmail(), ipAddress, deviceFingerprint);
-            return AuthResult.failure("Authentication failed: " + e.getMessage());
-        }
+        return SafeOperations.safelyToResult(() ->
+            // Validate account status
+            validateAccountStatus(user)
+                .flatMap(valid -> proceedWithAuthentication(user, request, deviceFingerprint, ipAddress))
+        ).fold(
+            error -> {
+                handleFailedLoginAsync(request.getEmail(), ipAddress, deviceFingerprint);
+                return AuthResult.failure("Authentication failed: " + error);
+            },
+            result -> result
+        );
     }
 
     private AuthResult<AuthenticationResponse, String> proceedWithAuthentication(
             User user, AuthenticationRequest request, String deviceFingerprint, String ipAddress) {
 
-        try {
+        return SafeOperations.<AuthResult<AuthenticationResponse, String>>safelyToResult(() -> {
             // Perform authentication
             Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
@@ -632,11 +658,13 @@ public class FunctionalAuthenticationService {
             // Generate response
             AuthenticationResponse response = generateTokenResponse(authenticatedUser, deviceFingerprint, ipAddress);
             return AuthResult.success(response);
-
-        } catch (AuthenticationException e) {
-            handleFailedLoginAsync(request.getEmail(), ipAddress, deviceFingerprint);
-            return AuthResult.failure("Authentication failed: " + e.getMessage());
-        }
+        }).fold(
+            error -> {
+                handleFailedLoginAsync(request.getEmail(), ipAddress, deviceFingerprint);
+                return AuthResult.failure("Authentication failed: " + error);
+            },
+            result -> result
+        );
     }
 
     private AuthResult<Boolean, String> validateAccountStatus(User user) {
@@ -671,8 +699,8 @@ public class FunctionalAuthenticationService {
     // Async Helper Methods using Virtual Threads
     @Async("authenticationExecutor")
     protected CompletableFuture<Void> assignDefaultRoleAsync(Long userId) {
-        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
-            try {
+        return VirtualThreadFactory.INSTANCE.runAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 userRoleRepository.findByRoleName("USER")
                     .ifPresent(role -> {
                         UserRoleAssignment assignment = UserRoleAssignment.builder()
@@ -684,31 +712,33 @@ public class FunctionalAuthenticationService {
                             .build();
                         userRoleAssignmentRepository.save(assignment);
                     });
-            } catch (Exception e) {
-                log.error("Failed to assign default role to user {}: {}", userId, e.getMessage());
-            }
-        });
+                return null;
+            }).onFailure(error ->
+                log.error("Failed to assign default role to user {}: {}", userId, error)
+            )
+        );
     }
 
     @Async("notificationExecutor")
     protected CompletableFuture<Void> sendNotificationsAsync(User user, HttpServletRequest httpRequest,
                                                              String deviceFingerprint, String ipAddress) {
-        return VirtualThreadFactory.INSTANCE.runAsync(() -> {
-            try {
+        return VirtualThreadFactory.INSTANCE.runAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 // Send email verification
                 String verificationToken = verificationTokenService.generateEmailVerificationToken(
                     user, ipAddress, httpRequest.getHeader("User-Agent"));
                 emailService.sendEmailVerification(user.getEmail(), verificationToken);
-                
+
                 // Log audit event
-                auditService.logAuthenticationEvent(user.getId(), "REGISTRATION", "SUCCESS", 
-                    ipAddress, httpRequest.getHeader("User-Agent"), deviceFingerprint, 
+                auditService.logAuthenticationEvent(user.getId(), "REGISTRATION", "SUCCESS",
+                    ipAddress, httpRequest.getHeader("User-Agent"), deviceFingerprint,
                     Map.of("registration_method", "email", "subscription_tier", "free"), null);
-                    
-            } catch (Exception e) {
-                log.error("Failed to send notifications for user {}: {}", user.getId(), e.getMessage());
-            }
-        });
+
+                return null;
+            }).onFailure(error ->
+                log.error("Failed to send notifications for user {}: {}", user.getId(), error)
+            )
+        );
     }
 
     @Async("authenticationExecutor")

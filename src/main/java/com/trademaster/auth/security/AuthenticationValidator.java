@@ -90,15 +90,20 @@ public class AuthenticationValidator {
      */
     private AuthenticationStatus evaluateAuthenticationStatus(SecurityContext context) {
         return Stream.of(
-                Map.entry(() -> !context.isAuthenticated(), AuthenticationStatus.MISSING_USER_ID),
-                Map.entry(() -> context.userId().length() < MIN_USER_ID_LENGTH, AuthenticationStatus.INVALID_USER_ID),
-                Map.entry(() -> !context.hasValidSession(), AuthenticationStatus.NO_SESSION)
+                new ValidationRule(() -> !context.isAuthenticated(), AuthenticationStatus.MISSING_USER_ID),
+                new ValidationRule(() -> context.userId().length() < MIN_USER_ID_LENGTH, AuthenticationStatus.INVALID_USER_ID),
+                new ValidationRule(() -> !context.hasValidSession(), AuthenticationStatus.NO_SESSION)
             )
-            .filter(entry -> entry.getKey().get())
-            .map(Map.Entry::getValue)
+            .filter(rule -> rule.condition().get())
+            .map(ValidationRule::status)
             .findFirst()
             .orElse(AuthenticationStatus.VALID);
     }
+
+    /**
+     * Validation rule record for functional validation chains
+     */
+    private record ValidationRule(Supplier<Boolean> condition, AuthenticationStatus status) {}
 
     /**
      * Authentication status enumeration for pattern matching

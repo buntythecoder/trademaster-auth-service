@@ -129,16 +129,18 @@ public class PasswordAuthenticationStrategy implements AuthenticationStrategy {
      * Authentication request validation
      */
     private Function<AuthenticationContext, Result<AuthenticationContext, String>> validateAuthenticationRequest() {
-        return context -> AuthenticationValidators.validateAuthenticationRequest
-            .validate(context.request())
-            .map(validRequest -> context);
+        return context -> Optional.ofNullable(context.request())
+            .filter(req -> req.getEmail() != null && !req.getEmail().trim().isEmpty())
+            .filter(req -> req.getPassword() != null && !req.getPassword().trim().isEmpty())
+            .map(req -> Result.<AuthenticationContext, String>success(context))
+            .orElse(Result.<AuthenticationContext, String>failure("Email and password are required"));
     }
 
     /**
      * User lookup using Optional - replaces if-else
      */
-    private Function<Result<AuthenticationContext, String>, Result<AuthenticatedUserContext, String>> findUserByEmail() {
-        return result -> result.flatMap(context ->
+    private Function<AuthenticationContext, Result<AuthenticatedUserContext, String>> findUserByEmail() {
+        return context ->
             userRepository.findByEmailIgnoreCase(context.request().getEmail())
                 .map(user -> Result.<AuthenticatedUserContext, String>success(
                     new AuthenticatedUserContext(context, user)))
@@ -150,15 +152,14 @@ public class PasswordAuthenticationStrategy implements AuthenticationStrategy {
                         deviceFingerprintService.generateFingerprint(context.httpRequest())
                     );
                     return Result.<AuthenticatedUserContext, String>failure("User not found");
-                })
-        );
+                });
     }
 
     /**
      * Credential authentication using SafeOperations - replaces try-catch
      */
-    private Function<Result<AuthenticatedUserContext, String>, Result<AuthenticatedUserContext, String>> authenticateCredentials() {
-        return result -> result.flatMap(context ->
+    private Function<AuthenticatedUserContext, Result<AuthenticatedUserContext, String>> authenticateCredentials() {
+        return context ->
             SafeOperations.safelyToResult(() -> {
                 Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
@@ -169,9 +170,8 @@ public class PasswordAuthenticationStrategy implements AuthenticationStrategy {
                 return authentication.isAuthenticated();
             })
             .flatMap(authenticated -> authenticated
-                ? Result.success(context)
-                : handleAuthenticationFailure(context))
-        );
+                ? Result.<AuthenticatedUserContext, String>success(context)
+                : handleAuthenticationFailure(context));
     }
 
     /**
@@ -189,20 +189,19 @@ public class PasswordAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Account status validation using functional chains
      */
-    private Function<Result<AuthenticatedUserContext, String>, Result<AuthenticatedUserContext, String>> checkAccountStatus() {
-        return result -> result.flatMap(context ->
+    private Function<AuthenticatedUserContext, Result<AuthenticatedUserContext, String>> checkAccountStatus() {
+        return context ->
             validateAccountEnabled(context.user())
                 .flatMap(this::validateAccountNonLocked)
                 .flatMap(this::validateAccountNonExpired)
-                .map(user -> context)
-        );
+                .map(user -> context);
     }
 
     /**
      * Token generation using function composition
      */
-    private Function<Result<AuthenticatedUserContext, String>, Result<TokenGenerationContext, String>> generateTokens() {
-        return result -> result.flatMap(context ->
+    private Function<AuthenticatedUserContext, Result<TokenGenerationContext, String>> generateTokens() {
+        return context ->
             SafeOperations.safelyToResult(() -> {
                 String deviceFingerprint = deviceFingerprintService.generateFingerprint(
                     context.authContext().httpRequest());
@@ -236,8 +235,7 @@ public class PasswordAuthenticationStrategy implements AuthenticationStrategy {
                     .build();
 
                 return new TokenGenerationContext(context, response);
-            })
-        );
+            });
     }
 
     /**

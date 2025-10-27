@@ -111,18 +111,23 @@ public class DeviceFingerprintService {
      * Generate SHA-256 hash of input string
      */
     private Result<String, String> generateHash(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            
-            String hash = IntStream.range(0, hashBytes.length)
-                .mapToObj(i -> String.format("%02x", hashBytes[i] & 0xff))
-                .collect(Collectors.joining());
-                
-            return Result.success(hash);
-        } catch (Exception e) {
-            return Result.failure("Hash generation failed: " + e.getMessage());
-        }
+        return SafeOperations.safelyToResult(() -> {
+            try {
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+
+                String hash = IntStream.range(0, hashBytes.length)
+                    .mapToObj(i -> String.format("%02x", hashBytes[i] & 0xff))
+                    .collect(Collectors.joining());
+
+                return hash;
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to generate hash: " + e.getMessage(), e);
+            }
+        }).fold(
+            error -> Result.failure("Hash generation failed: " + error),
+            hash -> Result.success(hash)
+        );
     }
 
     /**

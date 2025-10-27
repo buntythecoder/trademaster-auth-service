@@ -59,12 +59,12 @@ public class AuthorizationValidator {
      */
     private AuthorizationLevel evaluateAuthorizationLevel(SecurityContext context) {
         return Stream.of(
-                Map.entry(() -> !context.hasValidSession(), AuthorizationLevel.SESSION_REQUIRED),
-                Map.entry(() -> !context.isAuthenticated(), AuthorizationLevel.ACCESS_DENIED),
-                Map.entry(() -> isValidUser(context), AuthorizationLevel.AUTHORIZED)
+                new AuthorizationRule(() -> !context.hasValidSession(), AuthorizationLevel.SESSION_REQUIRED),
+                new AuthorizationRule(() -> !context.isAuthenticated(), AuthorizationLevel.ACCESS_DENIED),
+                new AuthorizationRule(() -> isValidUser(context), AuthorizationLevel.AUTHORIZED)
             )
-            .filter(entry -> entry.getKey().get())
-            .map(Map.Entry::getValue)
+            .filter(rule -> rule.condition().get())
+            .map(AuthorizationRule::level)
             .findFirst()
             .orElse(AuthorizationLevel.INSUFFICIENT_PRIVILEGES);
     }
@@ -77,6 +77,11 @@ public class AuthorizationValidator {
                !context.userId().trim().isEmpty() &&
                context.userId().length() >= 3;
     }
+
+    /**
+     * Authorization rule record for functional authorization chains
+     */
+    private record AuthorizationRule(Supplier<Boolean> condition, AuthorizationLevel level) {}
 
     /**
      * Authorization level enumeration for pattern matching

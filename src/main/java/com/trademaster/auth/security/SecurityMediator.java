@@ -1,5 +1,7 @@
 package com.trademaster.auth.security;
 
+import com.trademaster.auth.pattern.Result;
+import com.trademaster.auth.pattern.SafeOperations;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -157,14 +159,15 @@ public class SecurityMediator {
             SecurityContext context,
             Function<SecurityContext, T> operation) {
 
-        try {
-            T result = operation.apply(context);
-            return SecurityResult.success(result, context);
-        } catch (Exception e) {
-            log.error("Synchronous secure operation failed: correlation={}, error={}",
-                context.correlationId(), e.getMessage());
-            return SecurityResult.failure(SecurityError.OPERATION_FAILED, e.getMessage());
-        }
+        return SafeOperations.safelyToResult(() -> operation.apply(context))
+            .fold(
+                error -> {
+                    log.error("Synchronous secure operation failed: correlation={}, error={}",
+                        context.correlationId(), error);
+                    return SecurityResult.failure(SecurityError.OPERATION_FAILED, error);
+                },
+                result -> SecurityResult.success(result, context)
+            );
     }
 
     /**

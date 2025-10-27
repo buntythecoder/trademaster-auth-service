@@ -139,8 +139,8 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * User lookup for MFA using Optional chains
      */
-    private Function<Result<AuthenticationContext, String>, Result<MfaAuthContext, String>> findUserForMfa() {
-        return result -> result.flatMap(context ->
+    private Function<AuthenticationContext, Result<MfaAuthContext, String>> findUserForMfa() {
+        return context ->
             userRepository.findByEmailIgnoreCase(context.request().getEmail())
                 .map(user -> Result.<MfaAuthContext, String>success(
                     new MfaAuthContext(context, user)))
@@ -157,15 +157,14 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
                         null
                     );
                     return Result.<MfaAuthContext, String>failure("User not found");
-                })
-        );
+                });
     }
 
     /**
      * Password authentication for MFA using SafeOperations
      */
-    private Function<Result<MfaAuthContext, String>, Result<MfaAuthContext, String>> authenticatePasswordForMfa() {
-        return result -> result.flatMap(mfaContext ->
+    private Function<MfaAuthContext, Result<MfaAuthContext, String>> authenticatePasswordForMfa() {
+        return mfaContext ->
             SafeOperations.safelyToResult(() -> {
                 Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
@@ -176,9 +175,8 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
                 return authentication.isAuthenticated();
             })
             .flatMap(authenticated -> authenticated
-                ? Result.success(mfaContext)
-                : handlePasswordAuthenticationFailure(mfaContext))
-        );
+                ? Result.<MfaAuthContext, String>success(mfaContext)
+                : handlePasswordAuthenticationFailure(mfaContext));
     }
 
     /**
@@ -208,8 +206,8 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * MFA code verification using functional validation
      */
-    private Function<Result<MfaAuthContext, String>, Result<MfaAuthContext, String>> verifyMfaCode() {
-        return result -> result.flatMap(mfaContext -> {
+    private Function<MfaAuthContext, Result<MfaAuthContext, String>> verifyMfaCode() {
+        return mfaContext -> {
             String mfaCode = mfaContext.authContext().request().getMfaCode().trim();
             Result<Boolean, String> mfaValidation = mfaService.verifyMfaCode(
                 mfaContext.user().getId().toString(),
@@ -220,7 +218,7 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
             return mfaValidation.isSuccess() && mfaValidation.getValue().orElse(false)
                 ? Result.<MfaAuthContext, String>success(mfaContext)
                 : handleMfaVerificationFailure(mfaContext, "Invalid MFA code");
-        });
+        };
     }
 
     /**
@@ -249,8 +247,8 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Generate MFA tokens using functional approach
      */
-    private Function<Result<MfaAuthContext, String>, Result<TokenGenerationContext, String>> generateMfaTokens() {
-        return result -> result.flatMap(mfaContext ->
+    private Function<MfaAuthContext, Result<TokenGenerationContext, String>> generateMfaTokens() {
+        return mfaContext ->
             SafeOperations.safelyToResult(() -> {
                 String deviceFingerprint = deviceFingerprintService.generateFingerprint(
                     mfaContext.authContext().httpRequest());
@@ -284,8 +282,7 @@ public class MfaAuthenticationStrategy implements AuthenticationStrategy {
                     .build();
 
                 return new TokenGenerationContext(mfaContext, response);
-            })
-        );
+            });
     }
 
     /**

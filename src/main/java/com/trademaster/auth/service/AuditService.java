@@ -169,18 +169,17 @@ public class AuditService {
      * Generate blockchain hash using functional approach
      */
     private Function<Result<AuditLogData, String>, Result<BlockchainHashedData, String>> generateBlockchainHash() {
-        return result -> result.flatMap(data -> 
+        return result -> result.flatMap(data ->
             SafeOperations.safelyToResult(() -> {
                 try {
                     return generateBlockchainHashSafely(data.auditLog(), data.auditLog().getPreviousHash());
                 } catch (Exception e) {
-                    throw new RuntimeException("Failed to generate blockchain hash", e);
+                    throw new RuntimeException("Failed to generate blockchain hash: " + e.getMessage(), e);
                 }
+            }).map(hash -> {
+                data.auditLog().setBlockchainHash(hash);
+                return new BlockchainHashedData(data, hash);
             })
-                .map(hash -> {
-                    data.auditLog().setBlockchainHash(hash);
-                    return new BlockchainHashedData(data, hash);
-                })
         );
     }
     

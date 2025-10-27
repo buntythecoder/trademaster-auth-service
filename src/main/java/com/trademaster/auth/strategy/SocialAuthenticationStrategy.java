@@ -151,47 +151,44 @@ public class SocialAuthenticationStrategy implements AuthenticationStrategy {
     /**
      * Validate social token with provider using circuit breaker (Rule #25)
      */
-    private Function<Result<SocialAuthData, String>, Result<SocialUserInfo, String>> validateSocialToken() {
-        return result -> result.flatMap(socialData ->
+    private Function<SocialAuthData, Result<SocialUserInfo, String>> validateSocialToken() {
+        return socialData ->
             validateSocialTokenWithProvider(socialData.socialToken(), socialData.provider())
                 .flatMap(socialUserInfo ->
                     Optional.ofNullable(socialUserInfo.getEmail())
                         .filter(email -> !email.trim().isEmpty())
                         .map(email -> Result.<SocialUserInfo, String>success(socialUserInfo))
-                        .orElse(Result.failure("Invalid social token or missing email from provider"))
-                )
-        );
+                        .orElse(Result.<SocialUserInfo, String>failure("Invalid social token or missing email from provider"))
+                );
     }
 
     /**
      * Find or create social user using functional approach
      */
-    private Function<Result<SocialUserInfo, String>, Result<SocialAuthContext, String>> findOrCreateSocialUser() {
-        return result -> result.flatMap(socialUserInfo ->
+    private Function<SocialUserInfo, Result<SocialAuthContext, String>> findOrCreateSocialUser() {
+        return socialUserInfo ->
             SafeOperations.safelyToResult(() ->
                 findOrCreateSocialUser(socialUserInfo, socialUserInfo.getProvider())
             )
-            .map(user -> new SocialAuthContext(socialUserInfo, user))
-        );
+            .map(user -> new SocialAuthContext(socialUserInfo, user));
     }
 
     /**
      * Validate social account status using functional patterns
      */
-    private Function<Result<SocialAuthContext, String>, Result<SocialAuthContext, String>> validateSocialAccountStatus() {
-        return result -> result.flatMap(socialContext ->
+    private Function<SocialAuthContext, Result<SocialAuthContext, String>> validateSocialAccountStatus() {
+        return socialContext ->
             Optional.of(socialContext.user().getAccountStatus())
                 .filter(status -> status == User.AccountStatus.ACTIVE)
                 .map(status -> Result.<SocialAuthContext, String>success(socialContext))
-                .orElse(Result.failure("Account is not active"))
-        );
+                .orElse(Result.<SocialAuthContext, String>failure("Account is not active"));
     }
 
     /**
      * Generate social authentication tokens using functional approach
      */
-    private Function<Result<SocialAuthContext, String>, Result<TokenGenerationContext, String>> generateSocialTokens() {
-        return result -> result.flatMap(socialContext ->
+    private Function<SocialAuthContext, Result<TokenGenerationContext, String>> generateSocialTokens() {
+        return socialContext ->
             SafeOperations.safelyToResult(() -> {
                 String deviceFingerprint = deviceFingerprintService.generateFingerprint(
                     socialContext.socialUserInfo().getHttpRequest());
@@ -225,8 +222,7 @@ public class SocialAuthenticationStrategy implements AuthenticationStrategy {
                     .build();
 
                 return new TokenGenerationContext(socialContext, response);
-            })
-        );
+            });
     }
 
     /**
@@ -278,22 +274,34 @@ public class SocialAuthenticationStrategy implements AuthenticationStrategy {
      */
     private Result<SocialUserInfo, String> validateSocialTokenWithProvider(String socialToken, String provider) {
         return switch (provider.toUpperCase()) {
-            case "GOOGLE" -> SafeOperations.safelyToResult(() -> {
-                try { return validateGoogleToken(socialToken); }
-                catch (Exception e) { throw new RuntimeException("Google token validation failed: " + e.getMessage()); }
-            });
-            case "FACEBOOK" -> SafeOperations.safelyToResult(() -> {
-                try { return validateFacebookToken(socialToken); }
-                catch (Exception e) { throw new RuntimeException("Facebook token validation failed: " + e.getMessage()); }
-            });
-            case "GITHUB" -> SafeOperations.safelyToResult(() -> {
-                try { return validateGithubToken(socialToken); }
-                catch (Exception e) { throw new RuntimeException("GitHub token validation failed: " + e.getMessage()); }
-            });
-            case "LINKEDIN" -> SafeOperations.safelyToResult(() -> {
-                try { return validateLinkedInToken(socialToken); }
-                catch (Exception e) { throw new RuntimeException("LinkedIn token validation failed: " + e.getMessage()); }
-            });
+            case "GOOGLE" -> SafeOperations.<SocialUserInfo>safelyToResult(() -> {
+                try {
+                    return validateGoogleToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("Google validation error: " + e.getMessage(), e);
+                }
+            }).mapError(error -> "Google token validation failed: " + error);
+            case "FACEBOOK" -> SafeOperations.<SocialUserInfo>safelyToResult(() -> {
+                try {
+                    return validateFacebookToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("Facebook validation error: " + e.getMessage(), e);
+                }
+            }).mapError(error -> "Facebook token validation failed: " + error);
+            case "GITHUB" -> SafeOperations.<SocialUserInfo>safelyToResult(() -> {
+                try {
+                    return validateGithubToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("GitHub validation error: " + e.getMessage(), e);
+                }
+            }).mapError(error -> "GitHub token validation failed: " + error);
+            case "LINKEDIN" -> SafeOperations.<SocialUserInfo>safelyToResult(() -> {
+                try {
+                    return validateLinkedInToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("LinkedIn validation error: " + e.getMessage(), e);
+                }
+            }).mapError(error -> "LinkedIn token validation failed: " + error);
             default -> Result.failure("Unsupported social provider: " + provider);
         };
     }

@@ -124,13 +124,17 @@ public class SessionManagementService {
 
             // Store in Redis
             String sessionKey = SESSION_PREFIX + sessionId;
-            String sessionJson;
-            try {
-                sessionJson = objectMapper.writeValueAsString(sessionInfo);
-            } catch (Exception e) {
-                log.warn("Failed to serialize session info: {}", e.getMessage());
-                sessionJson = "{}";
-            }
+            String sessionJson = SafeOperations.safely(() -> {
+                try {
+                    return objectMapper.writeValueAsString(sessionInfo);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to serialize session: " + e.getMessage(), e);
+                }
+            })
+                .orElseGet(() -> {
+                    log.warn("Failed to serialize session info, using empty JSON");
+                    return "{}";
+                });
             sessionRedisTemplate.opsForValue().set(sessionKey, sessionJson, Duration.ofMinutes(defaultSessionTimeoutMinutes));
 
             // Track sessions
@@ -189,17 +193,21 @@ public class SessionManagementService {
             .ifPresent(sessionInfo -> {
                 Result<SessionInfo, String> result = SafeOperations.safelyToResult(() -> {
                     String sessionKey = SESSION_PREFIX + sessionId;
-                    String sessionJson;
-                    try {
-                        sessionJson = objectMapper.writeValueAsString(sessionInfo);
-                    } catch (Exception e) {
-                        log.warn("Failed to serialize session info for update: {}", e.getMessage());
-                        sessionJson = "{}";
-                    }
-                    
+                    String sessionJson = SafeOperations.safely(() -> {
+                        try {
+                            return objectMapper.writeValueAsString(sessionInfo);
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to serialize session: " + e.getMessage(), e);
+                        }
+                    })
+                        .orElseGet(() -> {
+                            log.warn("Failed to serialize session info for update, using empty JSON");
+                            return "{}";
+                        });
+
                     sessionRedisTemplate.opsForValue().set(
-                        sessionKey, 
-                        sessionJson, 
+                        sessionKey,
+                        sessionJson,
                         Duration.ofMinutes(defaultSessionTimeoutMinutes)
                     );
                     log.debug("Updated activity for session: {}", sessionId);
@@ -214,10 +222,27 @@ public class SessionManagementService {
     }
 
     /**
+     * Invalidate a user session (for tests and commands)
+     *
+     * @param userId User ID
+     * @param sessionId Session ID to invalidate
+     * @return Result with LogoutResponse
+     */
+    public Result<com.trademaster.auth.dto.LogoutResponse, String> invalidateUserSession(String userId, String sessionId) {
+        return SafeOperations.safelyToResult(() -> {
+            invalidateSession(sessionId, "USER_LOGOUT");
+            return new com.trademaster.auth.dto.LogoutResponse(
+                "Logged out successfully",
+                sessionId
+            );
+        });
+    }
+
+    /**
      * Invalidate a specific session
      */
     public void invalidateSession(String sessionId, String reason) {
-        try {
+        SafeOperations.safelyToResult(() -> {
             Optional.ofNullable(getSession(sessionId))
                 .ifPresent(sessionInfo -> {
                     // Remove from Redis
@@ -240,10 +265,10 @@ public class SessionManagementService {
 
                     log.info("Session invalidated: {} (reason: {})", sessionId, reason);
                 });
-
-        } catch (Exception e) {
-            log.error("Failed to invalidate session {}: {}", sessionId, e.getMessage());
-        }
+            return null;
+        }).onFailure(error ->
+            log.error("Failed to invalidate session {}: {}", sessionId, error)
+        );
     }
 
     /**
@@ -277,26 +302,27 @@ public class SessionManagementService {
      * Get active session count for user
      */
     public long getUserSessionCount(Long userId) {
-        try {
+        return SafeOperations.safely(() -> {
             String userSessionsKey = USER_SESSIONS_PREFIX + userId;
             Long count = sessionRedisTemplate.opsForSet().size(userSessionsKey);
-            return count != null ? count : 0;
-        } catch (Exception e) {
-            log.error("Failed to get session count for user {}: {}", userId, e.getMessage());
-            return 0;
-        }
+            return count != null ? count : 0L;
+        }).orElseGet(() -> {
+            log.error("Failed to get session count for user {}", userId);
+            return 0L;
+        });
     }
 
     /**
      * Clean up expired sessions
      */
     public void cleanupExpiredSessions() {
-        try {
+        SafeOperations.safelyToResult(() -> {
             // This is handled automatically by Redis TTL, but we can add additional cleanup logic here
             log.debug("Session cleanup completed");
-        } catch (Exception e) {
-            log.error("Session cleanup failed: {}", e.getMessage());
-        }
+            return null;
+        }).onFailure(error ->
+            log.error("Session cleanup failed: {}", error)
+        );
     }
 
     /**
@@ -417,11 +443,12 @@ public class SessionManagementService {
     @Scheduled(cron = "0 */5 * * * ?") // Every 5 minutes
     @Transactional(readOnly = false)
     public void cleanupExpiredUserSessions() {
-        try {
+        SafeOperations.safelyToResult(() -> {
             performSessionCleanup();
-        } catch (Exception e) {
-            log.error("Session cleanup failed: {}", e.getMessage(), e);
-        }
+            return null;
+        }).onFailure(error ->
+            log.error("Session cleanup failed: {}", error, error)
+        );
     }
 
     @Transactional(readOnly = false)
@@ -536,17 +563,21 @@ public class SessionManagementService {
 
         return SafeOperations.safely(() -> {
             String sessionKey = SESSION_PREFIX + context.sessionId();
-            String sessionJson;
-            try {
-                sessionJson = objectMapper.writeValueAsString(sessionInfo);
-            } catch (Exception e) {
-                log.warn("Failed to serialize session info for Redis storage: {}", e.getMessage());
-                sessionJson = "{}";
-            }
-            
+            String sessionJson = SafeOperations.safely(() -> {
+                try {
+                    return objectMapper.writeValueAsString(sessionInfo);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to serialize session: " + e.getMessage(), e);
+                }
+            })
+                .orElseGet(() -> {
+                    log.warn("Failed to serialize session info for Redis storage, using empty JSON");
+                    return "{}";
+                });
+
             sessionRedisTemplate.opsForValue().set(
-                sessionKey, 
-                sessionJson, 
+                sessionKey,
+                sessionJson,
                 Duration.ofMinutes(defaultSessionTimeoutMinutes)
             );
             return context.sessionId();
@@ -702,15 +733,19 @@ public class SessionManagementService {
                 .filter(Response::isSuccessful)
                 .map(Response::body)
                 .filter(Objects::nonNull)
-                .flatMap(body -> SafeOperations.safely(() -> {
-                    try {
-                        String bodyString = body.string();
-                        return objectMapper.readValue(bodyString, Map.class);
-                    } catch (Exception e) {
-                        log.warn("Failed to parse geo IP response: {}", e.getMessage());
-                        return Map.of();
-                    }
-                }))
+                .flatMap(body -> SafeOperations.safely(() ->
+                    SafeOperations.safely(() -> {
+                        try {
+                            return objectMapper.readValue(body.string(), Map.class);
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
+                        }
+                    })
+                        .orElseGet(() -> {
+                            log.warn("Failed to parse geo IP response, using empty map");
+                            return Map.of();
+                        })
+                ))
                 .filter(responseMap -> "success".equals(responseMap.get("status")))
                 .map(responseMap -> String.format("%s, %s, %s", 
                     responseMap.getOrDefault("city", "Unknown"),
@@ -725,14 +760,19 @@ public class SessionManagementService {
         SafeOperations.safelyToResult(() -> {
             String sessionKey = SESSION_PREFIX + session.getSessionId();
             SessionInfo sessionInfo = buildSessionInfo(session);
-            
-            String sessionJson;
-            try {
-                sessionJson = objectMapper.writeValueAsString(sessionInfo);
-            } catch (Exception e) {
-                log.warn("Failed to serialize session info for Redis: {}", e.getMessage());
-                sessionJson = "{}";
-            }
+
+            String sessionJson = SafeOperations.safely(() -> {
+                try {
+                    return objectMapper.writeValueAsString(sessionInfo);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to serialize session: " + e.getMessage(), e);
+                }
+            })
+                .orElseGet(() -> {
+                    log.warn("Failed to serialize session info for Redis, using empty JSON");
+                    return "{}";
+                });
+
             sessionRedisTemplate.opsForValue().set(sessionKey, sessionJson, Duration.ofMinutes(timeoutMinutes));
             return sessionInfo;
         })
@@ -802,15 +842,20 @@ public class SessionManagementService {
      */
     private Optional<SessionInfo> deserializeSessionInfo(String sessionId, String sessionJson) {
         return SafeOperations.safely(() -> {
-            SessionInfo sessionInfo;
-            try {
-                sessionInfo = objectMapper.readValue(sessionJson, SessionInfo.class);
-            } catch (Exception e) {
-                log.warn("Failed to deserialize session info: {}", e.getMessage());
-                sessionInfo = null;
-            }
+            SessionInfo sessionInfo = SafeOperations.safely(() -> {
+                try {
+                    return objectMapper.readValue(sessionJson, SessionInfo.class);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to deserialize session: " + e.getMessage(), e);
+                }
+            })
+                .orElseGet(() -> {
+                    log.warn("Failed to deserialize session info, returning null");
+                    return null;
+                });
+
             // Ensure sessionId is set in case it's missing from JSON
-            Optional.of(sessionInfo)
+            Optional.ofNullable(sessionInfo)
                 .filter(info -> info.getSessionId() == null)
                 .ifPresent(info -> info.setSessionId(sessionId));
             return sessionInfo;
@@ -832,22 +877,24 @@ public class SessionManagementService {
     private String performGeoIpLookup(String ipAddress) {
         return circuitBreakerService.executeExternalApiOperation(
             "geoIpLookup",
-            () -> {
+            () -> SafeOperations.safelyToResult(() -> {
+                String apiUrl = String.format("http://ip-api.com/json/%s?fields=country,city,regionName", ipAddress);
+
+                Request request = new Request.Builder()
+                    .url(apiUrl)
+                    .build();
+
                 try {
-                    String apiUrl = String.format("http://ip-api.com/json/%s?fields=country,city,regionName", ipAddress);
-
-                    Request request = new Request.Builder()
-                        .url(apiUrl)
-                        .build();
-
                     Response response = httpClient.newCall(request).execute();
                     String result = parseGeoIpResponse(response, ipAddress);
                     response.close();
                     return result;
-                } catch (IOException e) {
-                    throw new RuntimeException("Geo IP lookup HTTP call failed: " + e.getMessage(), e);
+                } catch (Exception e) {
+                    throw new RuntimeException("HTTP call failed: " + e.getMessage(), e);
                 }
-            }
+            }).orElseThrow(error ->
+                new RuntimeException("Geo IP lookup HTTP call failed: " + error)
+            )
         )
         .thenApply(result -> result
             .map(geoInfo -> geoInfo)

@@ -65,12 +65,38 @@ public class AuthenticationService {
     private final CircuitBreakerService circuitBreakerService;
     private final com.trademaster.auth.strategy.AuthenticationStrategyRegistry strategyRegistry;
 
+    // Cached USER role - initialized at startup, thread-safe reads with volatile
+    @lombok.Getter
+    private volatile UserRole cachedUserRole;
+
     // Registration strategies - replaces if-else chains
     private final Map<String, Function<RegistrationContext, Result<User, String>>> registrationStrategies = Map.of(
         "STANDARD", this::processStandardRegistration,
         "PREMIUM", this::processPremiumRegistration,
         "ADMIN", this::processAdminRegistration
     );
+
+    /**
+     * Initialize default USER role at service startup to avoid concurrent creation race conditions.
+     * Uses @PostConstruct to ensure role exists before any registration requests.
+     * This eliminates the need for synchronization and improves concurrent registration performance.
+     */
+    @jakarta.annotation.PostConstruct
+    public void initializeDefaultRole() {
+        try {
+            cachedUserRole = userRoleRepository.findByRoleName("USER")
+                .orElseGet(() -> userRoleRepository.save(
+                    UserRole.builder()
+                        .roleName("USER")
+                        .description("Default user role")
+                        .build()
+                ));
+            log.info("Cached USER role initialized successfully: ID={}", cachedUserRole.getId());
+        } catch (Exception e) {
+            log.error("Failed to initialize USER role cache", e);
+            throw new RuntimeException("Critical: Could not initialize default USER role", e);
+        }
+    }
 
     /**
      * Functional user registration using railway-oriented programming
@@ -195,6 +221,7 @@ public class AuthenticationService {
         return result -> result.flatMap(data ->
             ServiceOperations.execute("createUserProfile", () -> {
                 UserProfile profile = UserProfile.builder()
+                    .userId(data.user().getId())  // ✅ FIXED: Set user_id column explicitly
                     .user(data.user())
                     .dateOfBirth(data.request().getDateOfBirth())
                     .phoneNumber(data.request().getPhoneNumber())
@@ -799,22 +826,25 @@ public class AuthenticationService {
 
     // Utility methods using functional approaches
 
+    /**
+     * Returns cached USER role initialized at startup.
+     * Zero synchronization overhead - thread-safe reads via volatile.
+     * Zero database calls - role cached in memory.
+     * High-performance for concurrent registrations.
+     */
     private Result<UserRole, String> findOrCreateDefaultRole() {
-        return SafeOperations.safelyToResult(() -> 
-            userRoleRepository.findByRoleName("USER")
-                .orElseGet(() -> userRoleRepository.save(
-                    UserRole.builder()
-                        .roleName("USER")
-                        .description("Default user role")
-                        .build()
-                ))
-        );
+        if (cachedUserRole == null) {
+            return Result.failure("USER role not initialized - service startup may have failed");
+        }
+        return Result.success(cachedUserRole);
     }
 
     private Result<UserRoleAssignment, String> assignRoleToUser(User user, UserRole role) {
         return ServiceOperations.execute("assignRole", () ->
             userRoleAssignmentRepository.save(
                 UserRoleAssignment.builder()
+                    .userId(user.getId())  // ✅ FIXED: Set user_id column explicitly
+                    .roleId(role.getId())  // ✅ FIXED: Set role_id column explicitly
                     .user(user)
                     .role(role)
                     .assignedAt(LocalDateTime.now())
@@ -903,11 +933,12 @@ public class AuthenticationService {
      * Login method for compatibility
      */
     public Result<AuthenticationResponse, String> login(AuthenticationRequest request, HttpServletRequest httpRequest) {
-        try {
-            return authenticate(request, httpRequest).get();
-        } catch (Exception e) {
-            return Result.failure("Authentication failed: " + e.getMessage());
-        }
+        return SafeOperations.safelyToResult(() ->
+            authenticate(request, httpRequest).join()
+        ).fold(
+            error -> Result.failure("Authentication failed: " + error),
+            result -> result
+        );
     }
     
     /**
@@ -1166,13 +1197,25 @@ public class AuthenticationService {
     private Result<SocialUserInfo, String> validateSocialTokenWithProvider(String socialToken, String provider) {
         return switch (provider.toUpperCase()) {
             case "GOOGLE" -> SafeOperations.safelyToResult(() -> {
-                try { return validateGoogleToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+                try {
+                    return validateGoogleToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("Google token validation failed", e);
+                }
             });
             case "FACEBOOK" -> SafeOperations.safelyToResult(() -> {
-                try { return validateFacebookToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+                try {
+                    return validateFacebookToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("Facebook token validation failed", e);
+                }
             });
             case "GITHUB" -> SafeOperations.safelyToResult(() -> {
-                try { return validateGithubToken(socialToken); } catch (Exception e) { throw new RuntimeException(e); }
+                try {
+                    return validateGithubToken(socialToken);
+                } catch (Exception e) {
+                    throw new RuntimeException("Github token validation failed", e);
+                }
             });
             default -> Result.failure("Unsupported social provider: " + provider);
         };

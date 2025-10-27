@@ -1,6 +1,8 @@
 package com.trademaster.auth.agentos;
 
 import com.trademaster.auth.agentos.model.*;
+import com.trademaster.auth.pattern.Result;
+import com.trademaster.auth.pattern.SafeOperations;
 import com.trademaster.auth.service.AuthenticationService;
 import com.trademaster.auth.service.MfaService;
 import com.trademaster.auth.service.SecurityAuditService;
@@ -49,13 +51,13 @@ public class AuthMCPController {
     @PostMapping("/register")
     public ResponseEntity<AgentRegistrationResponse> registerAgent(
             @RequestBody AgentRegistrationRequest request) {
-        
+
         log.info("Registering authentication agent with AgentOS orchestrator");
-        
-        try {
+
+        return SafeOperations.safelyToResult(() -> {
             var capabilities = authenticationAgent.getCapabilities();
             var healthScore = authenticationAgent.getHealthScore();
-            
+
             var response = AgentRegistrationResponse.builder()
                 .agentId(authenticationAgent.getAgentId())
                 .agentType(authenticationAgent.getAgentType())
@@ -64,18 +66,20 @@ public class AuthMCPController {
                 .status(AuthConstants.STATUS_REGISTERED)
                 .registrationTime(System.currentTimeMillis())
                 .build();
-                
+
             log.info("Authentication agent registered successfully with health score: {}", healthScore);
             return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("Failed to register authentication agent", e);
-            return ResponseEntity.status(500)
-                .body(AgentRegistrationResponse.builder()
-                    .status(AuthConstants.STATUS_REGISTRATION_FAILED)
-                    .errorMessage(e.getMessage())
-                    .build());
-        }
+        }).fold(
+            error -> {
+                log.error("Failed to register authentication agent", error);
+                return ResponseEntity.status(500)
+                    .body(AgentRegistrationResponse.builder()
+                        .status(AuthConstants.STATUS_REGISTRATION_FAILED)
+                        .errorMessage(error)
+                        .build());
+            },
+            response -> response
+        );
     }
     
     /**
@@ -83,33 +87,35 @@ public class AuthMCPController {
      */
     @GetMapping("/health")
     public ResponseEntity<AgentHealthResponse> getAgentHealth() {
-        
-        try {
+
+        return SafeOperations.safelyToResult(() -> {
             var overallHealth = authenticationAgent.getHealthScore();
             var capabilitySummary = capabilityRegistry.getPerformanceSummary();
-            
+
             var response = AgentHealthResponse.builder()
                 .agentId(authenticationAgent.getAgentId())
                 .healthScore(overallHealth)
-                .status(overallHealth > AuthConstants.HEALTH_SCORE_HEALTHY ? AuthConstants.STATUS_HEALTHY : 
-                        overallHealth > AuthConstants.HEALTH_SCORE_DEGRADED ? AuthConstants.STATUS_DEGRADED : 
+                .status(overallHealth > AuthConstants.HEALTH_SCORE_HEALTHY ? AuthConstants.STATUS_HEALTHY :
+                        overallHealth > AuthConstants.HEALTH_SCORE_DEGRADED ? AuthConstants.STATUS_DEGRADED :
                         AuthConstants.STATUS_UNHEALTHY)
                 .capabilityHealth(capabilitySummary)
                 .lastUpdated(System.currentTimeMillis())
                 .build();
-                
+
             log.debug("Agent health check completed - Score: {}", overallHealth);
             return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("Health check failed", e);
-            return ResponseEntity.status(500)
-                .body(AgentHealthResponse.builder()
-                    .agentId(authenticationAgent.getAgentId())
-                    .status(AuthConstants.STATUS_HEALTH_CHECK_FAILED)
-                    .errorMessage(e.getMessage())
-                    .build());
-        }
+        }).fold(
+            error -> {
+                log.error("Health check failed", error);
+                return ResponseEntity.status(500)
+                    .body(AgentHealthResponse.builder()
+                        .agentId(authenticationAgent.getAgentId())
+                        .status(AuthConstants.STATUS_HEALTH_CHECK_FAILED)
+                        .errorMessage(error)
+                        .build());
+            },
+            response -> response
+        );
     }
     
     /**
@@ -117,8 +123,8 @@ public class AuthMCPController {
      */
     @GetMapping("/capabilities")
     public ResponseEntity<AgentCapabilitiesResponse> getAgentCapabilities() {
-        
-        try {
+
+        return SafeOperations.safelyToResult(() -> {
             var capabilities = authenticationAgent.getCapabilities();
             Map<String, Map<String, Object>> capabilityDetails = Map.of(
                 AuthConstants.CAPABILITY_USER_AUTHENTICATION, Map.of(
@@ -128,7 +134,7 @@ public class AuthMCPController {
                     "avgExecutionTime", capabilityRegistry.getCapabilityAverageExecutionTime(AuthConstants.CAPABILITY_USER_AUTHENTICATION)
                 ),
                 AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH, Map.of(
-                    "proficiency", AuthConstants.PROFICIENCY_EXPERT, 
+                    "proficiency", AuthConstants.PROFICIENCY_EXPERT,
                     "description", "MFA setup, verification, and recovery",
                     "successRate", capabilityRegistry.getCapabilitySuccessRate(AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH),
                     "avgExecutionTime", capabilityRegistry.getCapabilityAverageExecutionTime(AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH)
@@ -152,24 +158,26 @@ public class AuthMCPController {
                     "avgExecutionTime", capabilityRegistry.getCapabilityAverageExecutionTime("DEVICE_TRUST")
                 )
             );
-            
+
             var response = AgentCapabilitiesResponse.builder()
                 .agentId(authenticationAgent.getAgentId())
                 .capabilities(capabilities)
                 .capabilityDetails(capabilityDetails)
                 .totalCapabilities(capabilities.size())
                 .build();
-                
+
             log.debug("Agent capabilities requested - {} capabilities available", capabilities.size());
             return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("Failed to retrieve agent capabilities", e);
-            return ResponseEntity.status(500)
-                .body(AgentCapabilitiesResponse.builder()
-                    .errorMessage(e.getMessage())
-                    .build());
-        }
+        }).fold(
+            error -> {
+                log.error("Failed to retrieve agent capabilities", error);
+                return ResponseEntity.status(500)
+                    .body(AgentCapabilitiesResponse.builder()
+                        .errorMessage(error)
+                        .build());
+            },
+            response -> response
+        );
     }
     
     /**
@@ -250,27 +258,29 @@ public class AuthMCPController {
      */
     @GetMapping("/metrics")
     public ResponseEntity<AgentMetricsResponse> getAgentMetrics() {
-        
-        try {
+
+        return SafeOperations.safelyToResult(() -> {
             var performanceSummary = capabilityRegistry.getPerformanceSummary();
             var overallHealth = authenticationAgent.getHealthScore();
-            
+
             var response = AgentMetricsResponse.builder()
                 .agentId(authenticationAgent.getAgentId())
                 .healthScore(overallHealth)
                 .capabilityMetrics(performanceSummary)
                 .timestamp(System.currentTimeMillis())
                 .build();
-                
+
             log.debug("Agent metrics requested - Health: {}", overallHealth);
             return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("Failed to retrieve agent metrics", e);
-            return ResponseEntity.status(500)
-                .body(AgentMetricsResponse.builder()
-                    .errorMessage(e.getMessage())
-                    .build());
-        }
+        }).fold(
+            error -> {
+                log.error("Failed to retrieve agent metrics", error);
+                return ResponseEntity.status(500)
+                    .body(AgentMetricsResponse.builder()
+                        .errorMessage(error)
+                        .build());
+            },
+            response -> response
+        );
     }
 }

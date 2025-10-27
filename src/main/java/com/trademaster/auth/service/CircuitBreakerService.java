@@ -1,6 +1,7 @@
 package com.trademaster.auth.service;
 
 import com.trademaster.auth.pattern.Result;
+import com.trademaster.auth.pattern.SafeOperations;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import lombok.RequiredArgsConstructor;
@@ -113,23 +114,20 @@ public class CircuitBreakerService {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return circuitBreaker.executeSupplier(() -> {
-                    try {
-                        T result = operation.get();
-                        return Result.success(result);
-                    } catch (Exception e) {
-                        log.error("Operation '{}' failed: {}", operationName, e.getMessage());
-                        throw new RuntimeException(e.getMessage(), e);
-                    }
+                    T result = operation.get();
+                    return Result.<T, String>success(result);
                 });
             } catch (io.github.resilience4j.circuitbreaker.CallNotPermittedException e) {
                 log.warn("Circuit breaker '{}' is OPEN for operation '{}'",
                     circuitBreaker.getName(), operationName);
-                return Result.failure("Circuit breaker is open");
+                return Result.<T, String>failure("Circuit breaker is open");
             } catch (Exception e) {
                 log.error("Circuit breaker execution failed for '{}': {}", operationName, e.getMessage());
-                return Result.failure("Operation failed: " + e.getMessage());
+                return Result.<T, String>failure("Operation failed: " + e.getMessage());
             }
-        }, Executors.newVirtualThreadPerTaskExecutor());
+        },
+            Executors.newVirtualThreadPerTaskExecutor()
+        );
     }
 
     /**

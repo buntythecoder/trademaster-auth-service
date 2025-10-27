@@ -28,18 +28,17 @@ public class AwsConfig {
      */
     @Bean
     public KmsClient kmsClient() {
-        try {
+        return com.trademaster.auth.pattern.SafeOperations.safelyToResult(() -> {
             KmsClient client = KmsClient.builder()
                 .region(Region.of(awsRegion))
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
-            
+
             log.info("AWS KMS client configured for region: {}", awsRegion);
             return client;
-            
-        } catch (Exception e) {
-            log.error("Failed to configure AWS KMS client: {}", e.getMessage());
-            throw new RuntimeException("AWS KMS configuration failed", e);
-        }
+        }).orElseThrow(error -> {
+            log.error("Failed to configure AWS KMS client: {}", error);
+            return new RuntimeException("AWS KMS configuration failed" + error);
+        });
     }
 }

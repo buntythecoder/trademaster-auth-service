@@ -1,10 +1,7 @@
 package com.trademaster.auth.security;
 
-import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.ServletRequest;
-import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +11,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
@@ -44,7 +42,7 @@ import java.util.List;
  */
 @Component
 @Slf4j
-public class ServiceApiKeyFilter implements Filter {
+public class ServiceApiKeyFilter extends OncePerRequestFilter {
 
     private static final String API_KEY_HEADER = "X-API-Key";
     private static final String KONG_CONSUMER_ID_HEADER = "X-Consumer-ID";
@@ -64,38 +62,76 @@ public class ServiceApiKeyFilter implements Filter {
         log.info("===============================================");
     }
 
+    /**
+     * Determine if this filter should NOT be applied to the given request
+     *
+     * ✅ FUNCTIONAL PROGRAMMING: Using Optional and functional composition
+     *
+     * @param request the HTTP request
+     * @return true if filter should be skipped, false if filter should be applied
+     */
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-            throws IOException, ServletException {
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String requestPath = request.getRequestURI();
+        String servletPath = request.getServletPath();
 
-        log.info("ServiceApiKeyFilter.doFilter() INVOKED!");
+        // Skip filter for public paths
+        boolean isPublicPath = isPublicEndpoint(requestPath, servletPath);
 
-        HttpServletRequest httpRequest = (HttpServletRequest) request;
-        HttpServletResponse httpResponse = (HttpServletResponse) response;
-
-        String requestPath = httpRequest.getRequestURI();
-        String servletPath = httpRequest.getServletPath();
-        String contextPath = httpRequest.getContextPath();
-
-        // Log all path information for debugging
-        log.info("ServiceApiKeyFilter - Request URI: {}, Servlet Path: {}, Context Path: {}",
-                 requestPath, servletPath, contextPath);
-
-        // Only process internal API requests (handle context path correctly)
-        boolean isInternalRequest = requestPath.contains(INTERNAL_API_PATH) ||
-                                   servletPath.startsWith(INTERNAL_API_PATH);
+        // Apply filter only to paths that START with /internal/ or /api/internal/
+        // This prevents matching paths like /some/other/internal/path
+        boolean isInternalPath = (requestPath != null && (requestPath.startsWith(INTERNAL_API_PATH) ||
+                                                          requestPath.startsWith("/api" + INTERNAL_API_PATH))) ||
+                                (servletPath != null && (servletPath.startsWith(INTERNAL_API_PATH) ||
+                                                        servletPath.startsWith("/api" + INTERNAL_API_PATH)));
 
         // Skip public health endpoints (actuator endpoints only, not internal API health)
-        boolean isPublicHealthEndpoint = (requestPath.equals("/health") ||
+        boolean isPublicHealthEndpoint = requestPath != null && servletPath != null &&
+                                       (requestPath.equals("/health") ||
                                         requestPath.equals("/actuator/health") ||
                                         servletPath.equals("/health") ||
                                         servletPath.equals("/actuator/health")) &&
                                        !requestPath.contains(INTERNAL_API_PATH);
 
-        if (!isInternalRequest || isPublicHealthEndpoint) {
-            chain.doFilter(httpRequest, httpResponse);
-            return;
-        }
+        // Should NOT filter if it's a public path OR if it's not an internal path OR if it's a public health endpoint
+        boolean shouldNotFilter = isPublicPath || !isInternalPath || isPublicHealthEndpoint;
+
+        log.debug("ServiceApiKeyFilter.shouldNotFilter() - Path: {}, shouldNotFilter: {}",
+                 requestPath, shouldNotFilter);
+
+        return shouldNotFilter;
+    }
+
+    /**
+     * Check if the path is a public endpoint that doesn't require API key authentication
+     *
+     * ✅ FUNCTIONAL PROGRAMMING: Using Stream API and pattern matching
+     */
+    private boolean isPublicEndpoint(String requestPath, String servletPath) {
+        List<String> publicPatterns = List.of(
+            "/api/v1/auth/login",
+            "/api/v1/auth/register",
+            "/actuator/health",
+            "/actuator/info",
+            "/swagger-ui",
+            "/v3/api-docs",
+            "/api-docs"
+        );
+
+        return publicPatterns.stream()
+            .anyMatch(pattern -> requestPath.startsWith(pattern) || servletPath.startsWith(pattern));
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest httpRequest, HttpServletResponse httpResponse, FilterChain chain)
+            throws IOException, ServletException {
+
+        log.info("ServiceApiKeyFilter.doFilterInternal() INVOKED!");
+
+        String requestPath = httpRequest.getRequestURI();
+
+        // Log all path information for debugging
+        log.info("ServiceApiKeyFilter - Request URI: {}", requestPath);
 
         // Skip authentication if disabled (for local development)
         if (!serviceAuthEnabled) {

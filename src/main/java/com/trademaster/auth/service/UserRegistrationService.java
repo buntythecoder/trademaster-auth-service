@@ -111,7 +111,7 @@ public class UserRegistrationService {
      * Registration validation using functional chains
      */
     private Function<RegistrationRequest, Result<RegistrationRequest, String>> validateRegistrationRequest() {
-        return AuthenticationValidators.validateRegistrationRequest::validate;
+        return AuthenticationValidators.validateRegistrationRequest();
     }
 
     /**

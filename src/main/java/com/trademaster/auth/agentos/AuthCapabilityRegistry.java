@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -71,7 +72,7 @@ public class AuthCapabilityRegistry {
             .ifPresent(metrics -> {
                 metrics.recordFailure(error);
                 log.warn("Recorded failed execution for capability: {} - Error: {}",
-                        capability, error.getMessage());
+                        capability, error);
             });
     }
     

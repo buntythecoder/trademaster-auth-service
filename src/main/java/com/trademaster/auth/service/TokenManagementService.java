@@ -3,6 +3,7 @@ package com.trademaster.auth.service;
 import com.trademaster.auth.dto.AuthenticationResponse;
 import com.trademaster.auth.entity.User;
 import com.trademaster.auth.pattern.Result;
+import com.trademaster.auth.pattern.SafeOperations;
 import com.trademaster.auth.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -120,27 +121,37 @@ public class TokenManagementService {
     // Private helper methods - Functional composition
 
     private Result<AuthenticationResponse, String> createAuthenticationResponse(User user) {
-        try {
-            String accessToken = jwtTokenProvider.generateToken(user);
-            String refreshToken = jwtTokenProvider.generateRefreshToken(user);
+        return SafeOperations.safelyToResult(() -> {
+            // Use placeholder deviceFingerprint when HttpServletRequest is not available
+            String deviceFingerprint = "token-service-generated";
+
+            String accessToken = jwtTokenProvider.generateToken(
+                user.getEmail(),
+                user.getId(),
+                deviceFingerprint,
+                false
+            );
+            String refreshToken = jwtTokenProvider.generateToken(
+                user.getEmail(),
+                user.getId(),
+                deviceFingerprint,
+                true
+            );
 
             AuthenticationResponse response = AuthenticationResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .expiresIn(jwtTokenProvider.getJwtExpirationMs())
-                .userId(user.getId())
-                .email(user.getEmail())
-                .roles(user.getRoles().stream()
-                    .map(role -> role.getName())
-                    .toList())
+                .expiresIn(jwtTokenProvider.getExpirationTime())
+                .deviceFingerprint(deviceFingerprint)
+                .requiresMfa(user.isMfaEnabled())
                 .build();
 
-            return Result.success(response);
-        } catch (Exception e) {
-            log.error("Failed to create authentication response", e);
-            return Result.failure("Token generation failed: " + e.getMessage());
-        }
+            return response;
+        }).mapError(error -> {
+            log.error("Failed to create authentication response: {}", error);
+            return "Token generation failed: " + error;
+        });
     }
 
     private Result<Long, String> validateAndExtractUserId(String refreshToken) {
