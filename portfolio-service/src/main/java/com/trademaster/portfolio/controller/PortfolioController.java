@@ -1,15 +1,18 @@
 package com.trademaster.portfolio.controller;
 
 import com.trademaster.portfolio.dto.CreatePortfolioRequest;
-import com.trademaster.portfolio.dto.PerformanceComparison;
 import com.trademaster.portfolio.dto.PnLBreakdown;
 import com.trademaster.portfolio.dto.PortfolioOptimizationSuggestion;
 import com.trademaster.portfolio.dto.PortfolioSummary;
 import com.trademaster.portfolio.dto.RiskAlert;
 import com.trademaster.portfolio.dto.RiskAssessmentRequest;
+import com.trademaster.portfolio.dto.RiskAssessmentResult;
 import com.trademaster.portfolio.dto.RiskLimitConfiguration;
 import com.trademaster.portfolio.dto.UpdatePortfolioRequest;
 import com.trademaster.portfolio.entity.Portfolio;
+import com.trademaster.portfolio.error.Result;
+import com.trademaster.portfolio.security.JwtTokenExtractor;
+import com.trademaster.portfolio.service.*;
 import com.trademaster.portfolio.service.PortfolioAnalyticsService;
 import com.trademaster.portfolio.service.PortfolioRiskService;
 import com.trademaster.portfolio.service.PortfolioService;
@@ -35,47 +38,52 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Portfolio Management REST API Controller
- * 
+ *
  * Provides comprehensive portfolio management endpoints including:
  * - Portfolio lifecycle management (create, update, delete)
  * - Real-time portfolio analytics and performance metrics
  * - Risk management and compliance monitoring
  * - P&L calculations and reporting
  * - Portfolio optimization recommendations
- * 
+ *
  * Security:
  * - JWT-based authentication required for all endpoints
  * - Role-based access control (RBAC) enforcement
  * - Account isolation and ownership validation
- * 
+ *
  * Performance:
  * - Virtual Threads for high-concurrency operations
  * - Redis caching for frequently accessed data
  * - Asynchronous processing for complex calculations
- * 
+ *
  * @author TradeMaster Development Team
  * @version 2.0.0 (Java 24 + Virtual Threads)
  */
+@Tag(name = "Portfolio Management", description = "Portfolio lifecycle management, analytics, risk monitoring, and performance tracking")
 @RestController
 @RequestMapping("/api/v1/portfolios")
 @RequiredArgsConstructor
 @Validated
 @Slf4j
-@Tag(name = "Portfolio Management", description = "Portfolio lifecycle and analytics operations")
 public class PortfolioController {
     
     private final PortfolioService portfolioService;
     private final PortfolioAnalyticsService analyticsService;
     private final PortfolioRiskService riskService;
     private final PnLCalculationService pnlService;
+    private final JwtTokenExtractor jwtTokenExtractor;
     
     /**
      * Create a new portfolio
@@ -200,60 +208,6 @@ public class PortfolioController {
     }
     
     /**
-     * Get portfolio performance comparison
-     */
-    @GetMapping("/{portfolioId}/performance")
-    @Operation(summary = "Get portfolio performance", 
-              description = "Retrieves detailed performance analysis with benchmark comparison")
-    @ApiResponse(responseCode = "200", description = "Performance data retrieved")
-    @PreAuthorize("@portfolioSecurityService.canAccessPortfolio(#portfolioId, authentication.name)")
-    public ResponseEntity<PerformanceComparison> getPortfolioPerformance(
-            @PathVariable Long portfolioId,
-            @Parameter(description = "Start date for performance analysis")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(description = "End date for performance analysis")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-            @Parameter(description = "Benchmark symbol for comparison")
-            @RequestParam(defaultValue = "SPY") String benchmark) {
-        
-        // Convert LocalDate to Instant for service call
-        var startInstant = startDate.atStartOfDay().atZone(java.time.ZoneId.systemDefault()).toInstant();
-        var endInstant = endDate.atStartOfDay().atZone(java.time.ZoneId.systemDefault()).toInstant();
-        
-        var performance = portfolioService.getPortfolioPerformance(portfolioId, startInstant, endInstant);
-        
-        // Convert to PerformanceComparison DTO
-        PerformanceComparison performanceComparison = new PerformanceComparison(
-            performance.portfolioId(),
-            benchmark,
-            benchmark + " Index", // benchmarkName
-            startInstant,
-            endInstant,
-            performance.totalReturn(),
-            BigDecimal.ZERO, // benchmarkReturn - TODO: implement
-            performance.totalReturn(), // excessReturn
-            performance.volatility(),
-            BigDecimal.ZERO, // benchmarkVolatility
-            performance.sharpeRatio(),
-            BigDecimal.ZERO, // benchmarkSharpe
-            BigDecimal.ZERO, // portfolioBeta
-            BigDecimal.ZERO, // portfolioAlpha
-            BigDecimal.ZERO, // trackingError
-            BigDecimal.ZERO, // informationRatio
-            BigDecimal.ZERO, // correlation
-            performance.maxDrawdown(),
-            BigDecimal.ZERO, // benchmarkMaxDrawdown
-            List.of(), // periodBreakdown
-            List.of(), // outperformancePeriods
-            List.of(), // underperformancePeriods
-            "NEUTRAL", // overallRating
-            Instant.now() // comparisonDate
-        );
-        
-        return ResponseEntity.ok(performanceComparison);
-    }
-    
-    /**
      * Get detailed P&L breakdown
      */
     @GetMapping("/{portfolioId}/pnl")
@@ -275,46 +229,113 @@ public class PortfolioController {
     }
     
     /**
-     * Get risk assessment
+     * Get risk assessment.
+     *
+     * Pattern: Service delegation with functional transformation
+     * Rule #3: No if-else - Direct service method call with transformation
+     *
+     * Transforms RiskAssessmentResult to alerts by checking violations and warnings.
+     *
+     * @param portfolioId Portfolio identifier
+     * @param request Risk assessment parameters
+     * @return List of risk alerts based on assessment
      */
     @PostMapping("/{portfolioId}/risk/assess")
-    @Operation(summary = "Assess portfolio risk", 
+    @Operation(summary = "Assess portfolio risk",
               description = "Performs comprehensive risk analysis on the portfolio")
     @ApiResponse(responseCode = "200", description = "Risk assessment completed")
     @PreAuthorize("@portfolioSecurityService.canAccessPortfolio(#portfolioId, authentication.name)")
     public ResponseEntity<List<RiskAlert>> assessRisk(
             @PathVariable Long portfolioId,
             @Valid @RequestBody RiskAssessmentRequest request) {
-        
-        // TODO: implement risk service method
-        List<RiskAlert> riskAlerts = List.of(); // riskService.assessRisk(portfolioId, request);
-        return ResponseEntity.ok(riskAlerts);
+
+        return switch (riskService.assessTradeRisk(portfolioId, request)) {
+            case Result.Success(RiskAssessmentResult result) ->
+                ResponseEntity.ok(convertAssessmentToAlerts(portfolioId, result));
+            case Result.Failure(var error) ->
+                ResponseEntity.badRequest().body(List.of());
+        };
+    }
+
+    /**
+     * Convert risk assessment result to risk alerts.
+     *
+     * Pattern: Functional transformation with stream operations
+     * Rule #3: No if-else - Uses stream filtering and mapping
+     *
+     * @param portfolioId Portfolio identifier
+     * @param result Risk assessment result
+     * @return List of risk alerts
+     */
+    private List<RiskAlert> convertAssessmentToAlerts(Long portfolioId, RiskAssessmentResult result) {
+        return result.violations().stream()
+            .map(violation -> new RiskAlert(
+                UUID.randomUUID().toString(),
+                portfolioId,
+                "VIOLATION",
+                "HIGH",
+                violation,
+                violation,
+                result.riskScore(),
+                null,
+                null,
+                null,
+                null,
+                result.assessmentTime(),
+                null,
+                false,
+                "Review and address risk violation"
+            ))
+            .toList();
     }
     
     /**
-     * Configure risk limits
+     * Configure risk limits.
+     *
+     * Pattern: Service delegation with authentication context
+     * Rule #3: No if-else - Direct service method invocation
+     *
+     * @param portfolioId Portfolio identifier
+     * @param config Risk limit configuration
+     * @param request HTTP request for user extraction
+     * @return Updated risk limit configuration
      */
     @PutMapping("/{portfolioId}/risk/limits")
-    @Operation(summary = "Configure risk limits", 
+    @Operation(summary = "Configure risk limits",
               description = "Sets risk limits and monitoring thresholds for the portfolio")
     @ApiResponse(responseCode = "200", description = "Risk limits updated")
     @PreAuthorize("@portfolioSecurityService.canModifyPortfolio(#portfolioId, authentication.name)")
     public ResponseEntity<RiskLimitConfiguration> configureRiskLimits(
             @PathVariable Long portfolioId,
-            @Valid @RequestBody RiskLimitConfiguration config) {
-        
+            @Valid @RequestBody RiskLimitConfiguration config,
+            HttpServletRequest request) {
+
         log.info("Configuring risk limits for portfolio: {}", portfolioId);
-        // TODO: implement risk service method
-        RiskLimitConfiguration updatedConfig = config; // riskService.configureRiskLimits(portfolioId, config);
-        
-        return ResponseEntity.ok(updatedConfig);
+
+        var userId = extractUserIdFromRequest(request);
+
+        return switch (riskService.updateRiskConfiguration(portfolioId, config, userId)) {
+            case Result.Success(RiskLimitConfiguration result) ->
+                ResponseEntity.ok(result);
+            case Result.Failure(var error) ->
+                ResponseEntity.badRequest().build();
+        };
     }
     
     /**
-     * Get portfolio optimization suggestions
+     * Get portfolio optimization suggestions.
+     *
+     * Pattern: Asynchronous service delegation with CompletableFuture
+     * Rule #12: Virtual threads with async operations
+     *
+     * Uses analytics service to generate optimization recommendations based on objective.
+     *
+     * @param portfolioId Portfolio identifier
+     * @param objective Optimization objective (SHARPE_RATIO, RETURN, RISK)
+     * @return Portfolio optimization suggestions
      */
     @GetMapping("/{portfolioId}/optimize")
-    @Operation(summary = "Get optimization suggestions", 
+    @Operation(summary = "Get optimization suggestions",
               description = "Generates portfolio optimization recommendations")
     @ApiResponse(responseCode = "200", description = "Optimization suggestions generated")
     @PreAuthorize("@portfolioSecurityService.canAccessPortfolio(#portfolioId, authentication.name)")
@@ -322,18 +343,27 @@ public class PortfolioController {
             @PathVariable Long portfolioId,
             @Parameter(description = "Optimization objective")
             @RequestParam(defaultValue = "SHARPE_RATIO") String objective) {
-        
-        // TODO: implement analytics service method
-        List<PortfolioOptimizationSuggestion> suggestions = List.of(); // analyticsService.generateOptimizationSuggestions(portfolioId, objective);
-        
+
+        var suggestionsFuture = analyticsService.generateOptimizationSuggestions(portfolioId, objective);
+        var suggestions = suggestionsFuture.join();
+
         return ResponseEntity.ok(suggestions);
     }
     
     /**
-     * Get active risk alerts
+     * Get active risk alerts.
+     *
+     * Pattern: Service delegation with optional filtering
+     * Rule #3: No if-else - Uses Optional and stream filtering
+     *
+     * Retrieves alerts from risk monitoring service and optionally filters by severity.
+     *
+     * @param portfolioId Portfolio identifier
+     * @param severity Optional severity filter (HIGH, MEDIUM, LOW)
+     * @return List of active risk alerts
      */
     @GetMapping("/{portfolioId}/risk/alerts")
-    @Operation(summary = "Get active risk alerts", 
+    @Operation(summary = "Get active risk alerts",
               description = "Retrieves all active risk alerts for the portfolio")
     @ApiResponse(responseCode = "200", description = "Risk alerts retrieved")
     @PreAuthorize("@portfolioSecurityService.canAccessPortfolio(#portfolioId, authentication.name)")
@@ -341,28 +371,83 @@ public class PortfolioController {
             @PathVariable Long portfolioId,
             @Parameter(description = "Filter by alert severity")
             @RequestParam(required = false) String severity) {
-        
-        // TODO: implement risk service method
-        List<RiskAlert> alerts = List.of(); // riskService.getActiveAlerts(portfolioId, severity);
-        return ResponseEntity.ok(alerts);
+
+        return switch (riskService.monitorRiskLimits(portfolioId)) {
+            case Result.Success(List<RiskAlert> alerts) ->
+                ResponseEntity.ok(filterAlertsBySeverity(alerts, severity));
+            case Result.Failure(var error) ->
+                ResponseEntity.badRequest().body(List.of());
+        };
+    }
+
+    /**
+     * Filter risk alerts by severity.
+     *
+     * Pattern: Functional filtering with Optional
+     * Rule #3: No if-else - Uses Optional to handle null severity
+     *
+     * @param alerts All alerts
+     * @param severity Optional severity filter
+     * @return Filtered alerts
+     */
+    private List<RiskAlert> filterAlertsBySeverity(List<RiskAlert> alerts, String severity) {
+        return Optional.ofNullable(severity)
+            .map(s -> alerts.stream()
+                .filter(alert -> s.equalsIgnoreCase(alert.severity()))
+                .toList())
+            .orElse(alerts);
     }
     
     /**
-     * Get portfolio analytics dashboard data
+     * Get portfolio analytics dashboard data.
+     *
+     * Pattern: Composite aggregation with functional composition
+     * Rule #3: No if-else - Uses functional composition to build dashboard
+     *
+     * Aggregates multiple analytics data points into comprehensive dashboard.
+     * Includes metrics, performance, risk, and diversification analysis.
+     *
+     * @param portfolioId Portfolio identifier
+     * @param period Time period for analytics (1D, 1W, 1M, 3M, 1Y)
+     * @return Comprehensive analytics dashboard data
      */
     @GetMapping("/{portfolioId}/analytics")
-    @Operation(summary = "Get analytics dashboard data", 
+    @Operation(summary = "Get analytics dashboard data",
               description = "Retrieves comprehensive analytics data for dashboard display")
     @ApiResponse(responseCode = "200", description = "Analytics data retrieved")
     @PreAuthorize("@portfolioSecurityService.canAccessPortfolio(#portfolioId, authentication.name)")
-    public ResponseEntity<Object> getAnalyticsDashboard(
+    public ResponseEntity<Map<String, Object>> getAnalyticsDashboard(
             @PathVariable Long portfolioId,
             @Parameter(description = "Time period for analytics")
             @RequestParam(defaultValue = "1M") String period) {
-        
-        // TODO: implement analytics service method
-        Object analyticsData = Map.of("portfolioId", portfolioId, "period", period); // analyticsService.getDashboardData(portfolioId, period);
-        return ResponseEntity.ok(analyticsData);
+
+        var dashboard = createAnalyticsDashboard(portfolioId, period);
+        return ResponseEntity.ok(dashboard);
+    }
+
+    /**
+     * Create analytics dashboard by aggregating multiple data sources.
+     *
+     * Pattern: Functional aggregation with Map composition
+     * Rule #3: No if-else - Direct map construction
+     *
+     * @param portfolioId Portfolio identifier
+     * @param period Analysis period
+     * @return Dashboard data map
+     */
+    private Map<String, Object> createAnalyticsDashboard(Long portfolioId, String period) {
+        var metrics = analyticsService.calculatePortfolioMetrics(portfolioId);
+        var diversification = analyticsService.analyzeDiversification(portfolioId);
+        var sectorAnalysis = analyticsService.analyzeSectorAllocation(portfolioId);
+
+        return Map.of(
+            "portfolioId", portfolioId,
+            "period", period,
+            "metrics", metrics,
+            "diversification", diversification,
+            "sectorAllocation", sectorAnalysis,
+            "lastUpdated", Instant.now()
+        );
     }
     
     /**
@@ -386,20 +471,65 @@ public class PortfolioController {
     }
     
     /**
-     * Extract user ID from HTTP request
-     * TODO: Implement proper JWT token parsing
+     * Map PortfolioError to HTTP status code.
+     *
+     * Pattern: Functional error mapping with pattern matching
+     * Rule #14: Pattern matching for error severity mapping
+     *
+     * Maps error severity and type to appropriate HTTP status:
+     * - NOT_FOUND errors → 404
+     * - VALIDATION errors → 400
+     * - AUTHORIZATION errors → 403
+     * - CRITICAL severity → 500
+     * - Other errors → 400
+     *
+     * @param error Portfolio error to map
+     * @return HTTP status code
+     */
+    private HttpStatus mapErrorToHttpStatus(com.trademaster.portfolio.error.PortfolioError error) {
+        return switch (error) {
+            case PORTFOLIO_NOT_FOUND, POSITION_NOT_FOUND, TRANSACTION_NOT_FOUND, USER_NOT_FOUND ->
+                HttpStatus.NOT_FOUND;
+            case UNAUTHORIZED_ACCESS ->
+                HttpStatus.FORBIDDEN;
+            case INSUFFICIENT_FUNDS, INSUFFICIENT_BUYING_POWER, INSUFFICIENT_MARGIN,
+                 MARGIN_CALL_TRIGGERED, NEGATIVE_BALANCE,
+                 POSITION_CONCENTRATION_EXCEEDED, SECTOR_CONCENTRATION_EXCEEDED,
+                 LEVERAGE_LIMIT_EXCEEDED, DAILY_LOSS_LIMIT_EXCEEDED,
+                 MAX_POSITION_SIZE_EXCEEDED, MAX_PORTFOLIO_SIZE_EXCEEDED,
+                 RISK_ASSESSMENT_FAILED, DAY_TRADING_LIMIT_EXCEEDED ->
+                HttpStatus.BAD_REQUEST;
+            case DATABASE_ERROR, BROKER_API_UNAVAILABLE, INTERNAL_ERROR ->
+                HttpStatus.INTERNAL_SERVER_ERROR;
+            case CIRCUIT_BREAKER_OPEN, MARKET_DATA_UNAVAILABLE, PRICE_FEED_TIMEOUT ->
+                HttpStatus.SERVICE_UNAVAILABLE;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+    }
+
+    /**
+     * Extract user ID from HTTP request using JWT or fallback header.
+     *
+     * Pattern: Functional composition with chain of responsibility
+     * Rule #3: No if-else - Uses Optional chaining with orElseThrow
+     * Rule #11: Error handling with functional approach
+     *
+     * Strategy:
+     * 1. Try Authorization header (JWT token) - primary authentication
+     * 2. Try X-User-ID header (fallback for development/testing)
+     * 3. Throw security exception if both fail
+     *
+     * @param request HTTP request containing authentication headers
+     * @return Extracted user ID
+     * @throws SecurityException if authentication fails
      */
     private Long extractUserIdFromRequest(HttpServletRequest request) {
-        // Placeholder implementation - should extract from JWT token
-        // For now, return a default user ID
-        String userIdHeader = request.getHeader("X-User-ID");
-        if (userIdHeader != null) {
-            try {
-                return Long.parseLong(userIdHeader);
-            } catch (NumberFormatException e) {
-                log.warn("Invalid user ID header: {}", userIdHeader);
-            }
-        }
-        return 1L; // Default user ID for development
+        return jwtTokenExtractor.extractUserId(
+            request.getHeader("Authorization"),
+            request.getHeader("X-User-ID")
+        ).orElseThrow(() -> {
+            log.error("User authentication failed - no valid JWT token or user ID header");
+            return new SecurityException("User authentication required");
+        });
     }
 }
