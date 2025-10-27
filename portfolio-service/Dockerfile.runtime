@@ -1,0 +1,60 @@
+# TradeMaster Portfolio Service - Runtime-only Dockerfile
+# Simplified Dockerfile that uses pre-built JAR
+# Use this when building JAR locally with: ./gradlew clean bootJar -x test -x processAot
+
+FROM amazoncorretto:24-alpine-jdk
+
+# Labels for container metadata
+LABEL maintainer="TradeMaster Development Team"
+LABEL version="1.0.0"
+LABEL description="TradeMaster Portfolio Service with Java 24 Virtual Threads"
+LABEL org.opencontainers.image.source="https://github.com/trademaster/portfolio-service"
+
+# Environment variables
+ENV JAVA_OPTS="-XX:+UseZGC \
+               -XX:+UnlockExperimentalVMOptions \
+               -XX:+EnableJVMCI \
+               -Xmx2g \
+               -Xms1g \
+               -Dspring.threads.virtual.enabled=true \
+               --enable-preview \
+               -Djava.security.egd=file:/dev/./urandom \
+               -Dspring.profiles.active=docker"
+
+ENV SERVER_PORT=8087
+ENV MANAGEMENT_SERVER_PORT=9087
+
+# Install curl for health checks and create non-root user (Alpine Linux)
+RUN apk add --no-cache curl && \
+    addgroup -g 1000 -S trademaster && \
+    adduser -u 1000 -S trademaster -G trademaster
+
+# Create application directories and set permissions
+RUN mkdir -p /app /app/logs /opt/trademaster/logs && \
+    chown -R trademaster:trademaster /app /opt/trademaster/logs
+
+# Copy pre-built JAR
+COPY --chown=trademaster:trademaster build/libs/portfolio-service-1.0.0-SNAPSHOT.jar /app/portfolio-service.jar
+
+# Switch to non-root user
+USER trademaster:trademaster
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${SERVER_PORT}/actuator/health || exit 1
+
+# Expose ports
+EXPOSE ${SERVER_PORT} ${MANAGEMENT_SERVER_PORT}
+
+# JVM optimization for containers
+ENTRYPOINT ["java", \
+    "-XX:+UseZGC", \
+    "-XX:+UnlockExperimentalVMOptions", \
+    "-XX:+EnableJVMCI", \
+    "-Xmx2g", \
+    "-Xms1g", \
+    "-Dspring.threads.virtual.enabled=true", \
+    "--enable-preview", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-Dspring.profiles.active=docker", \
+    "-jar", "/app/portfolio-service.jar"]

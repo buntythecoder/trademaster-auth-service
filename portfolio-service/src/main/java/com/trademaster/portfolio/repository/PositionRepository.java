@@ -103,24 +103,101 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
      * Get top losers in portfolio
      */
     @Query("""
-        SELECT p FROM Position p 
-        WHERE p.portfolioId = :portfolioId 
-        AND p.quantity != 0 
+        SELECT p FROM Position p
+        WHERE p.portfolioId = :portfolioId
+        AND p.quantity != 0
         AND p.unrealizedPnl < 0
         ORDER BY p.unrealizedPnl ASC
         """)
     List<Position> findTopLosers(@Param("portfolioId") Long portfolioId);
-    
+
+    // ==================== TASK 1.4: POSITION QUERY METHODS ====================
+    // Rule #3: Functional Programming - No if-else, pure queries
+    // Rule #13: Stream API Mastery - Optimized for stream processing
+    // Rule #22: Performance Standards - Indexed queries <50ms
+
+    /**
+     * Calculate total invested amount for portfolio
+     * Rule #3: Functional aggregation with null safety
+     * Rule #22: Performance optimized with indexed query
+     *
+     * @param portfolioId Portfolio identifier
+     * @return Total invested amount (quantity * average cost)
+     */
+    @Query("SELECT COALESCE(SUM(p.quantity * p.averageCost), 0) FROM Position p WHERE p.portfolioId = :portfolioId AND p.quantity != 0")
+    BigDecimal calculateTotalInvestedAmount(@Param("portfolioId") Long portfolioId);
+
+    /**
+     * Get top gainers in portfolio with pagination
+     * Rule #3: Functional query for performance filtering
+     * Rule #13: Stream-optimized with Pageable for efficient result limiting
+     *
+     * @param portfolioId Portfolio identifier
+     * @param pageable Pagination parameters
+     * @return Top N gainers sorted by unrealized P&L
+     */
+    @Query("""
+        SELECT p FROM Position p
+        WHERE p.portfolioId = :portfolioId
+        AND p.quantity != 0
+        AND p.unrealizedPnl > 0
+        ORDER BY p.unrealizedPnl DESC
+        """)
+    List<Position> findTopGainersWithPagination(
+        @Param("portfolioId") Long portfolioId,
+        org.springframework.data.domain.Pageable pageable
+    );
+
+    /**
+     * Get top losers in portfolio with pagination
+     * Rule #3: Functional query for loss filtering
+     * Rule #13: Stream-optimized with Pageable for efficient result limiting
+     *
+     * @param portfolioId Portfolio identifier
+     * @param pageable Pagination parameters
+     * @return Top N losers sorted by unrealized P&L
+     */
+    @Query("""
+        SELECT p FROM Position p
+        WHERE p.portfolioId = :portfolioId
+        AND p.quantity != 0
+        AND p.unrealizedPnl < 0
+        ORDER BY p.unrealizedPnl ASC
+        """)
+    List<Position> findTopLosersWithPagination(
+        @Param("portfolioId") Long portfolioId,
+        org.springframework.data.domain.Pageable pageable
+    );
+
+    /**
+     * Find positions expiring before specified date
+     * Rule #3: Functional query for expiry filtering
+     * Rule #22: Performance optimized with indexed expiry_date field
+     * Used for options/derivatives trading to manage expiring contracts
+     *
+     * @param expiryDate Cutoff expiry date
+     * @return Positions expiring before the specified date
+     */
+    @Query("""
+        SELECT p FROM Position p
+        WHERE p.expiryDate IS NOT NULL
+        AND p.expiryDate < :expiryDate
+        AND p.quantity != 0
+        ORDER BY p.expiryDate ASC
+        """)
+    List<Position> findByExpiryDateBefore(@Param("expiryDate") Instant expiryDate);
+
     /**
      * Update position price and market value - atomic operation
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
-        UPDATE Position p 
+        UPDATE Position p
         SET p.currentPrice = :price,
             p.marketValue = :price * ABS(p.quantity),
             p.unrealizedPnl = (:price * ABS(p.quantity)) - (p.averageCost * ABS(p.quantity)),
-            p.lastPriceUpdateAt = :timestamp
+            p.lastPriceUpdateAt = :timestamp,
+            p.updatedAt = :timestamp
         WHERE p.positionId = :positionId
         """)
     int updatePositionPrice(
@@ -132,7 +209,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     /**
      * Batch update prices for multiple positions
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Position p 
         SET p.currentPrice = :price,
@@ -150,7 +227,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     /**
      * Update position from trade execution - complex atomic operation
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Position p 
         SET p.quantity = :newQuantity,
@@ -176,7 +253,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     /**
      * Update day P&L for end-of-day calculations
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Position p 
         SET p.dayPnl = (:currentPrice - p.previousClosePrice) * p.quantity,
@@ -341,7 +418,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     /**
      * Delete closed positions older than specified date
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("DELETE FROM Position p WHERE p.quantity = 0 AND p.updatedAt < :cutoffDate")
     int deleteClosedPositionsOlderThan(@Param("cutoffDate") Instant cutoffDate);
 }

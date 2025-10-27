@@ -25,7 +25,8 @@ import java.time.Instant;
     @Index(name = "idx_position_portfolio_id", columnList = "portfolio_id"),
     @Index(name = "idx_position_symbol", columnList = "symbol"),
     @Index(name = "idx_position_portfolio_symbol", columnList = "portfolio_id, symbol", unique = true),
-    @Index(name = "idx_position_updated_at", columnList = "updated_at")
+    @Index(name = "idx_position_updated_at", columnList = "updated_at"),
+    @Index(name = "idx_position_expiry_date", columnList = "expiry_date")
 })
 @Data
 @Builder
@@ -52,7 +53,11 @@ public class Position {
     @Column(name = "instrument_type", length = 20)
     @Builder.Default
     private String instrumentType = "EQUITY";
-    
+
+    @Column(name = "sector", length = 50)
+    @Builder.Default
+    private String sector = "UNKNOWN";
+
     @Column(name = "quantity", nullable = false)
     private Integer quantity;
     
@@ -102,7 +107,10 @@ public class Position {
     
     @Column(name = "opened_at", nullable = false)
     private Instant openedAt;
-    
+
+    @Column(name = "expiry_date")
+    private Instant expiryDate;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

@@ -1,0 +1,5 @@
+// Portfolio Service Settings
+rootProject.name = 'portfolio-service'
+
+// Include common library as composite build
+includeBuild('../trademaster-common-service-lib')

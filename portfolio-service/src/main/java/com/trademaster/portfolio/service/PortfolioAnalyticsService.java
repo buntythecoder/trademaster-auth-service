@@ -1,5 +1,6 @@
 package com.trademaster.portfolio.service;
 
+import com.trademaster.portfolio.dto.PerformanceAttribution;
 import com.trademaster.portfolio.dto.PerformanceComparison;
 import com.trademaster.portfolio.dto.PortfolioOptimizationSuggestion;
 

@@ -84,19 +84,101 @@ spring:
   security:
     enabled: true
 
-# Rule #25: Circuit Breaker Configuration - MANDATORY
-portfolio:
-  circuit-breaker:
-    failure-rate-threshold: ${CB_FAILURE_RATE:50.0}
-    wait-duration-in-open-state: ${CB_WAIT_DURATION:PT60S}
-    sliding-window-size: ${CB_SLIDING_WINDOW:10}
-    minimum-number-of-calls: ${CB_MIN_CALLS:5}
-    slow-call-rate-threshold: ${CB_SLOW_RATE:100.0}
-    slow-call-duration-threshold: ${CB_SLOW_DURATION:PT5S}
-    permitted-calls-in-half-open-state: ${CB_HALF_OPEN_CALLS:3}
-    automatic-transition-enabled: ${CB_AUTO_TRANSITION:true}
-    metrics-enabled: ${CB_METRICS_ENABLED:true}
-    event-logging-enabled: ${CB_EVENT_LOGGING:true}
+# TradeMaster Common Service Library Configuration
+trademaster:
+  common:
+    service:
+      name: ${spring.application.name}
+      version: 1.0.0
+      description: "Portfolio Management Service with real-time P&L calculations and risk analytics"
+      environment: ${SPRING_PROFILES_ACTIVE:development}
+
+    security:
+      enabled: true
+      service-api-key: ${PORTFOLIO_SERVICE_API_KEY:portfolio-service-secret-key}
+      jwt-secret: ${JWT_SECRET:TradeMasterPortfolioServiceSecretKey2024!}
+      jwt-expiration-ms: 900000 # 15 minutes
+      jwt-refresh-expiration-ms: 86400000 # 24 hours
+      internal-paths:
+        - /api/internal/**
+        - /internal/**
+      public-paths:
+        - /actuator/**
+        - /swagger-ui/**
+        - /api-docs/**
+        - /api/v2/health
+      known-services:
+        auth-service: "auth-service"
+        trading-service: "trading-service"
+        broker-auth-service: "broker-auth-service"
+        event-bus-service: "event-bus-service"
+
+    kong:
+      enabled: ${KONG_ENABLED:true}
+      admin-url: ${KONG_ADMIN_URL:http://kong:8001}
+      gateway-url: ${KONG_GATEWAY_URL:http://kong:8000}
+      service-name: trademaster-portfolio-service
+      service-url: http://portfolio-service:8083
+      headers:
+        consumer-id: "X-Consumer-ID"
+        consumer-username: "X-Consumer-Username"
+        api-key: "X-API-Key"
+
+    consul:
+      enabled: ${CONSUL_ENABLED:true}
+      host: ${CONSUL_HOST:consul}
+      port: ${CONSUL_PORT:8500}
+      service-name: portfolio-service
+      health-check-interval: "10s"
+      health-check-path: "/actuator/health"
+      datacenter: "trademaster-dc"
+      tags:
+        - "portfolio"
+        - "finance"
+        - "trademaster"
+
+    health:
+      detailed-enabled: true
+      circuit-breaker-enabled: true
+      kong-status-enabled: true
+      consul-status-enabled: true
+      performance-metrics-enabled: true
+
+    internal-client:
+      connection-timeout: 5000
+      read-timeout: 10000
+      max-connections: 100
+      max-connections-per-route: 20
+      circuit-breaker-enabled: true
+      services:
+        auth-service:
+          base-url: ${AUTH_SERVICE_URL:http://localhost:8080}
+          health-check-path: /api/internal/health
+        trading-service:
+          base-url: ${TRADING_SERVICE_URL:http://localhost:8082}
+          health-check-path: /api/internal/health
+        broker-auth-service:
+          base-url: ${BROKER_AUTH_SERVICE_URL:http://localhost:8084}
+          health-check-path: /api/internal/health
+        event-bus-service:
+          base-url: ${EVENT_BUS_SERVICE_URL:http://localhost:8085}
+          health-check-path: /api/internal/health
+
+    openapi:
+      enabled: true
+      title: "TradeMaster Portfolio Management API"
+      description: "Comprehensive portfolio management service with real-time position tracking, P&L calculations, and risk analytics"
+      version: "2.0.0"
+      contact:
+        name: "TradeMaster Development Team"
+        email: "dev@trademaster.com"
+      servers:
+        - url: "http://localhost:8083"
+          description: "Development"
+        - url: "http://portfolio-service:8083"
+          description: "Docker"
+
+# Rule #25: Circuit Breaker Configuration moved to trademaster.portfolio section below
 
 # Management & Actuator
 management:
@@ -188,8 +270,20 @@ agentos:
       min-health-score: ${AGENTOS_MIN_HEALTH_SCORE:0.7}
 
 # Portfolio Service Configuration
-trademaster:
   portfolio:
+    # Rule #25: Circuit Breaker Configuration - MANDATORY
+    circuit-breaker:
+      failure-rate-threshold: ${CB_FAILURE_RATE:50.0}
+      wait-duration-in-open-state: ${CB_WAIT_DURATION:PT60S}
+      sliding-window-size: ${CB_SLIDING_WINDOW:10}
+      minimum-number-of-calls: ${CB_MIN_CALLS:5}
+      slow-call-rate-threshold: ${CB_SLOW_RATE:100.0}
+      slow-call-duration-threshold: ${CB_SLOW_DURATION:PT5S}
+      permitted-calls-in-half-open-state: ${CB_HALF_OPEN_CALLS:3}
+      automatic-transition-enabled: ${CB_AUTO_TRANSITION:true}
+      metrics-enabled: ${CB_METRICS_ENABLED:true}
+      event-logging-enabled: ${CB_EVENT_LOGGING:true}
+
     # P&L Calculation Settings
     pnl:
       calculation-interval: ${PNL_CALCULATION_INTERVAL:PT1M} # 1 minute

@@ -1,8 +1,11 @@
 package com.trademaster.portfolio.service;
 
 import com.trademaster.portfolio.dto.RiskAlert;
-import com.trademaster.portfolio.dto.RiskLimitConfiguration;
 import com.trademaster.portfolio.dto.RiskAssessmentRequest;
+import com.trademaster.portfolio.dto.RiskAssessmentResult;
+import com.trademaster.portfolio.dto.RiskLimitConfiguration;
+import com.trademaster.portfolio.error.PortfolioError;
+import com.trademaster.portfolio.error.Result;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,258 +40,243 @@ public interface PortfolioRiskService {
     
     /**
      * Validate portfolio operation against risk limits
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param operation The operation being performed
-     * @return true if operation is within risk limits
+     * @return Result with boolean if operation is within risk limits or error
      */
-    boolean validatePortfolioOperation(Long portfolioId, String operation);
-    
+    Result<Boolean, PortfolioError> validatePortfolioOperation(Long portfolioId, String operation);
+
     /**
      * Assess risk for proposed trade
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param request Risk assessment request
-     * @return Risk assessment result
+     * @return Result with risk assessment result or error
      */
-    RiskAssessmentResult assessTradeRisk(Long portfolioId, RiskAssessmentRequest request);
-    
+    Result<RiskAssessmentResult, PortfolioError> assessTradeRisk(Long portfolioId, RiskAssessmentRequest request);
+
     /**
      * Assess risk for proposed trade asynchronously
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param request Risk assessment request
-     * @return CompletableFuture with risk assessment result
+     * @return CompletableFuture with Result of risk assessment or error
      */
-    CompletableFuture<RiskAssessmentResult> assessTradeRiskAsync(Long portfolioId, RiskAssessmentRequest request);
-    
+    CompletableFuture<Result<RiskAssessmentResult, PortfolioError>> assessTradeRiskAsync(Long portfolioId, RiskAssessmentRequest request);
+
     /**
      * Calculate current portfolio risk metrics
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Portfolio risk metrics
+     * @return Result with portfolio risk metrics or error
      */
-    PortfolioRiskMetrics calculateRiskMetrics(Long portfolioId);
-    
+    Result<PortfolioRiskMetrics, PortfolioError> calculateRiskMetrics(Long portfolioId);
+
     /**
      * Monitor risk limits and generate alerts
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return List of active risk alerts
+     * @return Result with list of active risk alerts or error
      */
-    List<RiskAlert> monitorRiskLimits(Long portfolioId);
-    
+    Result<List<RiskAlert>, PortfolioError> monitorRiskLimits(Long portfolioId);
+
     /**
      * Get current risk configuration for portfolio
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Risk limit configuration
+     * @return Result with risk limit configuration or error
      */
-    RiskLimitConfiguration getRiskConfiguration(Long portfolioId);
-    
+    Result<RiskLimitConfiguration, PortfolioError> getRiskConfiguration(Long portfolioId);
+
     /**
      * Update risk configuration for portfolio
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param configuration New risk configuration
      * @param adminUserId Admin user making the change
-     * @return Updated risk configuration
+     * @return Result with updated risk configuration or error
      */
-    RiskLimitConfiguration updateRiskConfiguration(Long portfolioId, RiskLimitConfiguration configuration, Long adminUserId);
-    
+    Result<RiskLimitConfiguration, PortfolioError> updateRiskConfiguration(Long portfolioId, RiskLimitConfiguration configuration, Long adminUserId);
+
     /**
      * Calculate concentration risk for portfolio
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Concentration risk analysis
+     * @return Result with concentration risk analysis or error
      */
-    ConcentrationRiskAssessment calculateConcentrationRisk(Long portfolioId);
-    
+    Result<ConcentrationRiskAssessment, PortfolioError> calculateConcentrationRisk(Long portfolioId);
+
     /**
      * Calculate margin requirements
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Margin requirement calculation
+     * @return Result with margin requirement calculation or error
      */
-    MarginRequirement calculateMarginRequirement(Long portfolioId);
-    
+    Result<MarginRequirement, PortfolioError> calculateMarginRequirement(Long portfolioId);
+
     /**
      * Monitor margin utilization and generate alerts
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Margin monitoring result
+     * @return Result with margin monitoring result or error
      */
-    MarginMonitoringResult monitorMarginUtilization(Long portfolioId);
-    
+    Result<MarginMonitoringResult, PortfolioError> monitorMarginUtilization(Long portfolioId);
+
     /**
      * Calculate position-level risk metrics
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param symbol The symbol
-     * @return Position risk metrics
+     * @return Result with position risk metrics or error
      */
-    PositionRiskMetrics calculatePositionRisk(Long portfolioId, String symbol);
-    
+    Result<PositionRiskMetrics, PortfolioError> calculatePositionRisk(Long portfolioId, String symbol);
+
     /**
      * Validate buying power for trade
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param tradeValue Trade value
      * @param tradeType Trade type (BUY, SELL, SHORT_SELL, BUY_TO_COVER)
-     * @return Buying power validation result
+     * @return Result with buying power validation result or error
      */
-    BuyingPowerValidation validateBuyingPower(Long portfolioId, BigDecimal tradeValue, String tradeType);
-    
+    Result<BuyingPowerValidation, PortfolioError> validateBuyingPower(Long portfolioId, BigDecimal tradeValue, String tradeType);
+
     /**
      * Calculate portfolio leverage
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Current leverage ratio
+     * @return Result with current leverage ratio or error
      */
-    BigDecimal calculateLeverage(Long portfolioId);
-    
+    Result<BigDecimal, PortfolioError> calculateLeverage(Long portfolioId);
+
     /**
      * Check if portfolio exceeds maximum leverage
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return true if leverage exceeds limits
+     * @return Result with boolean if leverage exceeds limits or error
      */
-    boolean isLeverageExceeded(Long portfolioId);
-    
+    Result<Boolean, PortfolioError> isLeverageExceeded(Long portfolioId);
+
     /**
      * Calculate daily trading limits utilization
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Daily limits status
+     * @return Result with daily limits status or error
      */
-    DailyLimitsStatus getDailyLimitsStatus(Long portfolioId);
-    
+    Result<DailyLimitsStatus, PortfolioError> getDailyLimitsStatus(Long portfolioId);
+
     /**
      * Validate position size limits
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param symbol The symbol
      * @param proposedQuantity Proposed position quantity
-     * @return Position size validation result
+     * @return Result with position size validation result or error
      */
-    PositionSizeValidation validatePositionSize(Long portfolioId, String symbol, Integer proposedQuantity);
-    
+    Result<PositionSizeValidation, PortfolioError> validatePositionSize(Long portfolioId, String symbol, Integer proposedQuantity);
+
     /**
      * Calculate sector concentration limits
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Sector concentration analysis
+     * @return Result with sector concentration analysis or error
      */
-    SectorConcentrationAnalysis analyzeSectorConcentration(Long portfolioId);
-    
+    Result<SectorConcentrationAnalysis, PortfolioError> analyzeSectorConcentration(Long portfolioId);
+
     /**
      * Generate risk compliance report
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param fromDate Start date
      * @param toDate End date
-     * @return Risk compliance report
+     * @return CompletableFuture with Result of risk compliance report or error
      */
-    CompletableFuture<RiskComplianceReport> generateComplianceReport(Long portfolioId, Instant fromDate, Instant toDate);
-    
+    CompletableFuture<Result<RiskComplianceReport, PortfolioError>> generateComplianceReport(Long portfolioId, Instant fromDate, Instant toDate);
+
     /**
      * Calculate correlation risk with market indices
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param marketIndices List of market indices to check correlation
-     * @return Correlation risk assessment
+     * @return Result with correlation risk assessment or error
      */
-    CorrelationRiskAssessment calculateCorrelationRisk(Long portfolioId, List<String> marketIndices);
-    
+    Result<CorrelationRiskAssessment, PortfolioError> calculateCorrelationRisk(Long portfolioId, List<String> marketIndices);
+
     /**
      * Monitor overnight position risk
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Overnight risk assessment
+     * @return Result with overnight risk assessment or error
      */
-    OvernightRiskAssessment assessOvernightRisk(Long portfolioId);
-    
+    Result<OvernightRiskAssessment, PortfolioError> assessOvernightRisk(Long portfolioId);
+
     /**
      * Calculate portfolio Greeks (for options positions)
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Portfolio Greeks calculation
+     * @return Result with portfolio Greeks calculation or error
      */
-    PortfolioGreeks calculatePortfolioGreeks(Long portfolioId);
-    
+    Result<PortfolioGreeks, PortfolioError> calculatePortfolioGreeks(Long portfolioId);
+
     /**
      * Validate maximum drawdown limits
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Drawdown validation result
+     * @return Result with drawdown validation result or error
      */
-    DrawdownValidation validateDrawdownLimits(Long portfolioId);
-    
+    Result<DrawdownValidation, PortfolioError> validateDrawdownLimits(Long portfolioId);
+
     /**
      * Calculate liquidity risk for positions
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Liquidity risk assessment
+     * @return Result with liquidity risk assessment or error
      */
-    LiquidityRiskAssessment calculateLiquidityRisk(Long portfolioId);
-    
+    Result<LiquidityRiskAssessment, PortfolioError> calculateLiquidityRisk(Long portfolioId);
+
     /**
      * Generate real-time risk dashboard data
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Risk dashboard data
+     * @return Result with risk dashboard data or error
      */
-    RiskDashboardData generateRiskDashboard(Long portfolioId);
-    
+    Result<RiskDashboardData, PortfolioError> generateRiskDashboard(Long portfolioId);
+
     /**
      * Simulate portfolio risk under stress scenarios
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param stressScenarios List of stress scenarios
-     * @return Stress test risk results
+     * @return CompletableFuture with Result of stress test risk results or error
      */
-    CompletableFuture<StressTestRiskResult> simulateStressScenarios(Long portfolioId, List<StressScenario> stressScenarios);
-    
+    CompletableFuture<Result<StressTestRiskResult, PortfolioError>> simulateStressScenarios(Long portfolioId, List<StressScenario> stressScenarios);
+
     /**
      * Calculate time-weighted risk metrics
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param timeHorizonDays Time horizon in days
-     * @return Time-weighted risk metrics
+     * @return Result with time-weighted risk metrics or error
      */
-    TimeWeightedRiskMetrics calculateTimeWeightedRisk(Long portfolioId, Integer timeHorizonDays);
-    
+    Result<TimeWeightedRiskMetrics, PortfolioError> calculateTimeWeightedRisk(Long portfolioId, Integer timeHorizonDays);
+
     /**
      * Monitor intraday risk limits
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Intraday risk monitoring result
+     * @return Result with intraday risk monitoring result or error
      */
-    IntradayRiskMonitoring monitorIntradayRisk(Long portfolioId);
-    
+    Result<IntradayRiskMonitoring, PortfolioError> monitorIntradayRisk(Long portfolioId);
+
     /**
      * Calculate regulatory capital requirements
-     * 
+     *
      * @param portfolioId The portfolio ID
-     * @return Regulatory capital requirement
+     * @return Result with regulatory capital requirement or error
      */
-    RegulatoryCapitalRequirement calculateRegulatoryCapital(Long portfolioId);
+    Result<RegulatoryCapitalRequirement, PortfolioError> calculateRegulatoryCapital(Long portfolioId);
 }
-
-/**
- * Risk Assessment Result DTO
- */
-record RiskAssessmentResult(
-    boolean approved,
-    String riskLevel,
-    BigDecimal riskScore,
-    List<String> riskFactors,
-    List<String> warnings,
-    List<String> violations,
-    BigDecimal requiredMargin,
-    BigDecimal impactOnPortfolio,
-    Instant assessmentTime
-) {}
 
 /**
  * Portfolio Risk Metrics DTO

@@ -60,10 +60,10 @@ public class PortfolioEventPublisher {
                 Optional.of("standard-portfolio-events")
             );
             
-            publishEventToKafka("standard-portfolio-events", portfolio.getId().toString(), event);
-            
-            log.info("Published PORTFOLIO_CREATED event: portfolioId={}, userId={}", 
-                portfolio.getId(), portfolio.getUserId());
+            publishEventToKafka("standard-portfolio-events", portfolio.getPortfolioId().toString(), event);
+
+            log.info("Published PORTFOLIO_CREATED event: portfolioId={}, userId={}",
+                portfolio.getPortfolioId(), portfolio.getUserId());
                 
         }, virtualThreadExecutor);
     }
@@ -80,10 +80,10 @@ public class PortfolioEventPublisher {
                 Optional.of("standard-portfolio-events")
             );
             
-            publishEventToKafka("standard-portfolio-events", portfolio.getId().toString(), event);
-            
-            log.info("Published PORTFOLIO_UPDATED event: portfolioId={}, userId={}", 
-                portfolio.getId(), portfolio.getUserId());
+            publishEventToKafka("standard-portfolio-events", portfolio.getPortfolioId().toString(), event);
+
+            log.info("Published PORTFOLIO_UPDATED event: portfolioId={}, userId={}",
+                portfolio.getPortfolioId(), portfolio.getUserId());
                 
         }, virtualThreadExecutor);
     }
@@ -107,10 +107,10 @@ public class PortfolioEventPublisher {
                 Optional.of("high-priority-events")
             );
             
-            publishEventToKafka("high-priority-events", portfolio.getId().toString(), event);
-            
-            log.info("Published PORTFOLIO_STATUS_CHANGED event: portfolioId={}, {} -> {}, reason={}", 
-                portfolio.getId(), oldStatus, newStatus, reason);
+            publishEventToKafka("high-priority-events", portfolio.getPortfolioId().toString(), event);
+
+            log.info("Published PORTFOLIO_STATUS_CHANGED event: portfolioId={}, {} -> {}, reason={}",
+                portfolio.getPortfolioId(), oldStatus, newStatus, reason);
                 
         }, virtualThreadExecutor);
     }
@@ -135,10 +135,10 @@ public class PortfolioEventPublisher {
                 Optional.of("high-priority-events")
             );
             
-            publishEventToKafka("high-priority-events", portfolio.getId().toString(), event);
-            
-            log.info("Published CASH_BALANCE_UPDATED event: portfolioId={}, change={}, desc={}", 
-                portfolio.getId(), newBalance.subtract(previousBalance), description);
+            publishEventToKafka("high-priority-events", portfolio.getPortfolioId().toString(), event);
+
+            log.info("Published CASH_BALANCE_UPDATED event: portfolioId={}, change={}, desc={}",
+                portfolio.getPortfolioId(), newBalance.subtract(previousBalance), description);
                 
         }, virtualThreadExecutor);
     }
@@ -161,10 +161,10 @@ public class PortfolioEventPublisher {
                 Optional.of("high-priority-events")
             );
             
-            publishEventToKafka("high-priority-events", portfolio.getId().toString(), event);
-            
-            log.info("Published PNL_REALIZED event: portfolioId={}, realizedPnl={}", 
-                portfolio.getId(), realizedPnl);
+            publishEventToKafka("high-priority-events", portfolio.getPortfolioId().toString(), event);
+
+            log.info("Published PNL_REALIZED event: portfolioId={}, realizedPnl={}",
+                portfolio.getPortfolioId(), realizedPnl);
                 
         }, virtualThreadExecutor);
     }
@@ -175,7 +175,7 @@ public class PortfolioEventPublisher {
     public CompletableFuture<Void> publishPortfolioDeletedEvent(
             Long portfolioId, Long userId, Long adminUserId, String reason) {
         return CompletableFuture.runAsync(() -> {
-            
+
             Map<String, Object> payload = Map.of(
                 "portfolioId", portfolioId,
                 "userId", userId.toString(),
@@ -183,18 +183,46 @@ public class PortfolioEventPublisher {
                 "reason", reason,
                 "deletedAt", Instant.now().toString()
             );
-            
+
             PortfolioDeletedEvent event = new PortfolioDeletedEvent(
                 createEventHeader("PORTFOLIO_DELETED", Priority.STANDARD),
                 payload,
                 Optional.of("standard-portfolio-events")
             );
-            
+
             publishEventToKafka("standard-portfolio-events", portfolioId.toString(), event);
-            
-            log.warn("Published PORTFOLIO_DELETED event: portfolioId={}, adminUser={}, reason={}", 
+
+            log.warn("Published PORTFOLIO_DELETED event: portfolioId={}, adminUser={}, reason={}",
                 portfolioId, adminUserId, reason);
-                
+
+        }, virtualThreadExecutor);
+    }
+
+    /**
+     * ✅ FUNCTIONAL: Publish rebalancing initiated event (STANDARD priority)
+     */
+    public CompletableFuture<Void> publishRebalancingInitiatedEvent(
+            Long portfolioId, String rebalancingId, String strategy) {
+        return CompletableFuture.runAsync(() -> {
+
+            Map<String, Object> payload = Map.of(
+                "portfolioId", portfolioId,
+                "rebalancingId", rebalancingId,
+                "strategy", strategy,
+                "initiatedAt", Instant.now().toString()
+            );
+
+            RebalancingInitiatedEvent event = new RebalancingInitiatedEvent(
+                createEventHeader("REBALANCING_INITIATED", Priority.STANDARD),
+                payload,
+                Optional.of("standard-portfolio-events")
+            );
+
+            publishEventToKafka("standard-portfolio-events", portfolioId.toString(), event);
+
+            log.info("Published REBALANCING_INITIATED event: portfolioId={}, rebalancingId={}, strategy={}",
+                portfolioId, rebalancingId, strategy);
+
         }, virtualThreadExecutor);
     }
     
@@ -222,16 +250,15 @@ public class PortfolioEventPublisher {
      */
     private Map<String, Object> createPortfolioPayload(Portfolio portfolio) {
         return Map.of(
-            "portfolioId", portfolio.getId(),
+            "portfolioId", portfolio.getPortfolioId(),
             "userId", portfolio.getUserId().toString(),
-            "name", portfolio.getName(),
-            "description", portfolio.getDescription() != null ? portfolio.getDescription() : "",
+            "name", portfolio.getPortfolioName(),
             "status", portfolio.getStatus().toString(),
             "cashBalance", portfolio.getCashBalance(),
             "totalValue", portfolio.getTotalValue(),
-            "dayChange", portfolio.getDayChange(),
-            "totalReturn", portfolio.getTotalReturn(),
-            "lastUpdated", portfolio.getLastUpdated().toString()
+            "dayPnl", portfolio.getDayPnl(),
+            "totalReturn", portfolio.getTotalReturnPercent(),
+            "lastUpdated", portfolio.getUpdatedAt().toString()
         );
     }
     
@@ -241,16 +268,17 @@ public class PortfolioEventPublisher {
     private void publishEventToKafka(String topic, String key, Object event) {
         try {
             kafkaTemplate.send(topic, key, event)
-                .whenComplete((result, exception) -> {
-                    if (exception != null) {
-                        log.error("Failed to publish event to Kafka: topic={}, key={}, error={}", 
-                            topic, key, exception.getMessage());
-                    } else {
-                        log.debug("Successfully published event to Kafka: topic={}, key={}", topic, key);
-                    }
-                });
+                .whenComplete((result, exception) ->
+                    // Rule #3: Functional exception handling with Optional
+                    Optional.ofNullable(exception)
+                        .ifPresentOrElse(
+                            ex -> log.error("Failed to publish event to Kafka: topic={}, key={}, error={}",
+                                topic, key, ex.getMessage()),
+                            () -> log.debug("Successfully published event to Kafka: topic={}, key={}", topic, key)
+                        )
+                );
         } catch (Exception e) {
-            log.error("Error publishing event to Kafka: topic={}, key={}, error={}", 
+            log.error("Error publishing event to Kafka: topic={}, key={}, error={}",
                 topic, key, e.getMessage());
         }
     }
@@ -319,6 +347,12 @@ public class PortfolioEventPublisher {
     ) {}
     
     public record PortfolioDeletedEvent(
+        EventHeader header,
+        Map<String, Object> payload,
+        Optional<String> targetTopic
+    ) {}
+
+    public record RebalancingInitiatedEvent(
         EventHeader header,
         Map<String, Object> payload,
         Optional<String> targetTopic

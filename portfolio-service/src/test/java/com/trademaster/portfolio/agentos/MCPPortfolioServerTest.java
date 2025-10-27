@@ -2,13 +2,13 @@ package com.trademaster.portfolio.agentos;
 
 import com.trademaster.portfolio.domain.PerformanceMetrics;
 import com.trademaster.portfolio.domain.PortfolioData;
-import com.trademaster.portfolio.domain.RiskMetrics;
 import com.trademaster.portfolio.functional.PortfolioErrors;
 import com.trademaster.portfolio.functional.Result;
 import com.trademaster.portfolio.service.FunctionalPortfolioService;
 import com.trademaster.portfolio.service.PerformanceAnalyticsService;
 import com.trademaster.portfolio.service.PortfolioAggregationService;
 import com.trademaster.portfolio.service.RiskManagementService;
+import com.trademaster.portfolio.service.RiskManagementService.RiskMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -140,12 +140,13 @@ class MCPPortfolioServerTest {
         Double confidenceLevel = 0.95;
         Map<String, Object> parameters = Map.of("confidenceLevel", confidenceLevel);
         
-        RiskMetrics mockRiskMetrics = RiskMetrics.builder()
-                .valueAtRisk(new BigDecimal("5000.00"))
-                .concentrationRisk(new BigDecimal("15.5"))
-                .volatility(new BigDecimal("12.8"))
-                .riskScore("MODERATE")
-                .build();
+        RiskMetrics mockRiskMetrics = new RiskMetrics(
+                new BigDecimal("0.65"), // riskScore (0.0 to 1.0)
+                new BigDecimal("5000.00"), // valueAtRisk
+                new BigDecimal("15.5"), // concentrationRisk
+                new BigDecimal("12.8"), // volatility
+                java.time.Instant.now() // calculatedAt
+        );
         
         when(riskService.calculatePortfolioRisk(userId, confidenceLevel))
                 .thenReturn(Result.success(mockRiskMetrics));

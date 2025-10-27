@@ -1,8 +1,6 @@
 package com.trademaster.portfolio.service.impl;
 
-import com.trademaster.portfolio.domain.*;
-import com.trademaster.portfolio.dto.PnLBreakdown;
-import com.trademaster.portfolio.dto.TaxLotInfo;
+import com.trademaster.portfolio.dto.*;
 import com.trademaster.portfolio.entity.Portfolio;
 import com.trademaster.portfolio.entity.Position;
 import com.trademaster.portfolio.entity.PortfolioTransaction;
@@ -12,6 +10,9 @@ import com.trademaster.portfolio.repository.PortfolioRepository;
 import com.trademaster.portfolio.repository.PositionRepository;
 import com.trademaster.portfolio.repository.PortfolioTransactionRepository;
 import com.trademaster.portfolio.service.PnLCalculationService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -21,37 +22,30 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.StructuredTaskScope;
-import java.util.function.Function;
-import java.util.function.Predicate;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 /**
  * Comprehensive P&L Calculation Service Implementation
- * 
- * High-performance profit/loss calculation engine using Java 24 Virtual Threads
- * and functional programming patterns. Provides real-time portfolio valuation
- * with multiple cost basis methods and comprehensive tax lot management.
- * 
- * Key Features:
- * - Sub-50ms portfolio valuation using structured concurrency
- * - FIFO/LIFO/Weighted Average cost basis methods
- * - Real-time unrealized P&L with market data integration
- * - Comprehensive tax lot tracking for compliance
- * - Performance attribution and risk-adjusted returns
- * - Bulk calculation optimization for large portfolios
- * 
- * Performance Optimizations:
- * - Virtual Thread-based parallel processing
- * - Redis caching for frequent calculations
- * - Structured concurrency for coordinated operations
- * - Immutable result objects for thread safety
- * 
+ *
+ * High-performance profit/loss calculation engine using Java 24 Virtual Threads.
+ * Provides real-time portfolio valuation with multiple cost basis methods.
+ *
+ * Rule #1: Java 24 Virtual Threads
+ * Rule #3: Functional programming (no if-else)
+ * Rule #5: Cognitive complexity ≤7 per method
+ * Rule #9: Immutable records for DTOs
+ * Rule #11: No try-catch in business logic
+ * Rule #22: Performance targets (<50ms)
+ *
  * @author TradeMaster Development Team
  * @version 2.0.0 (Java 24 + Virtual Threads + Functional Programming)
  */
@@ -60,879 +54,927 @@ import java.util.function.Predicate;
 @RequiredArgsConstructor
 @Slf4j
 public class PnLCalculationServiceImpl implements PnLCalculationService {
-    
+
     private final PortfolioRepository portfolioRepository;
     private final PositionRepository positionRepository;
     private final PortfolioTransactionRepository transactionRepository;
-    
-    // Constants for calculations
+    private final MeterRegistry meterRegistry;
+
+    private static final Executor VIRTUAL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private static final MathContext PRECISION = new MathContext(10, RoundingMode.HALF_UP);
     private static final BigDecimal DAYS_IN_YEAR = BigDecimal.valueOf(365.25);
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
-    
+    private static final BigDecimal ZERO = BigDecimal.ZERO;
+
+    // ==================== PORTFOLIO VALUATION ====================
+
     @Override
     @Cacheable(value = "portfolio-valuation", key = "#portfolioId")
+    @CircuitBreaker(name = "portfolio-valuation", fallbackMethod = "calculatePortfolioValuationFallback")
     public PortfolioValuationResult calculatePortfolioValuation(Long portfolioId) {
-        var startTime = System.currentTimeMillis();
-        
-        return portfolioRepository.findById(portfolioId)
-            .map(this::performPortfolioValuation)
-            .map(result -> enrichWithCalculationTime(result, startTime))
-            .orElseThrow(() -> new PortfolioNotFoundException(portfolioId));
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            return portfolioRepository.findById(portfolioId)
+                .map(this::buildPortfolioValuation)
+                .orElse(emptyValuationResult(portfolioId, sample));
+        } finally {
+            sample.stop(meterRegistry.timer("pnl.portfolio.valuation", "portfolioId", portfolioId.toString()));
+            log.info("Calculated portfolio valuation: portfolioId={}", portfolioId);
+        }
     }
-    
+
     @Override
     public CompletableFuture<PortfolioValuationResult> calculatePortfolioValuationAsync(Long portfolioId) {
-        return CompletableFuture
-            .supplyAsync(() -> calculatePortfolioValuation(portfolioId), 
-                        Thread.ofVirtual().factory())
-            .whenComplete((result, throwable) -> 
-                Optional.ofNullable(throwable)
-                    .ifPresent(t -> log.error("Async portfolio valuation failed for portfolio: {}", portfolioId, t))
-            );
+        return CompletableFuture.supplyAsync(
+            () -> calculatePortfolioValuation(portfolioId),
+            VIRTUAL_EXECUTOR
+        );
     }
-    
+
+    private PortfolioValuationResult buildPortfolioValuation(Portfolio portfolio) {
+        long startTime = System.currentTimeMillis();
+        List<Position> positions = positionRepository.findByPortfolioId(portfolio.getPortfolioId());
+
+        PositionAggregates aggregates = calculatePositionAggregates(positions);
+        BigDecimal totalValue = portfolio.getCashBalance().add(aggregates.positionsValue());
+        BigDecimal totalReturn = calculateTotalReturnPercentage(
+            totalValue,
+            portfolio.getCashBalance().add(portfolio.getRealizedPnl())
+        );
+
+        return new PortfolioValuationResult(
+            portfolio.getPortfolioId(), totalValue, portfolio.getCashBalance(),
+            aggregates.positionsValue(), aggregates.unrealizedPnl(), portfolio.getRealizedPnl(),
+            aggregates.dayPnl(), totalReturn, positions.size(),
+            Instant.now(), System.currentTimeMillis() - startTime
+        );
+    }
+
+    /**
+     * Calculate aggregate values from positions
+     * Rule #5: Extracted method - complexity: 3
+     */
+    private PositionAggregates calculatePositionAggregates(List<Position> positions) {
+        BigDecimal positionsValue = positions.stream()
+            .map(this::calculatePositionMarketValue)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal unrealizedPnl = positions.stream()
+            .map(this::calculatePositionUnrealizedPnL)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal dayPnl = positions.stream()
+            .filter(pos -> pos.getPreviousClosePrice() != null)
+            .map(this::calculatePositionDayPnL)
+            .reduce(ZERO, BigDecimal::add);
+
+        return new PositionAggregates(positionsValue, unrealizedPnl, dayPnl);
+    }
+
+    /**
+     * Record for position aggregates
+     * Rule #9: Immutable record for data transfer
+     */
+    private record PositionAggregates(BigDecimal positionsValue, BigDecimal unrealizedPnl, BigDecimal dayPnl) {}
+
+    private PortfolioValuationResult emptyValuationResult(Long portfolioId, Timer.Sample sample) {
+        sample.stop(meterRegistry.timer("pnl.portfolio.valuation.empty"));
+        log.warn("Portfolio not found for valuation: portfolioId={}", portfolioId);
+        return new PortfolioValuationResult(
+            portfolioId, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, 0, Instant.now(), 0L
+        );
+    }
+
+    private PortfolioValuationResult calculatePortfolioValuationFallback(Long portfolioId, Exception e) {
+        log.error("Circuit breaker activated for portfolio valuation: portfolioId={}, error={}",
+            portfolioId, e.getMessage());
+        return emptyValuationResult(portfolioId, Timer.start(meterRegistry));
+    }
+
+    // ==================== POSITION P&L CALCULATIONS ====================
+
     @Override
     public BigDecimal calculateUnrealizedPnL(Position position, BigDecimal currentPrice) {
         return Optional.ofNullable(position)
             .filter(pos -> pos.getQuantity() != 0)
+            .filter(pos -> currentPrice != null)
             .map(pos -> calculateUnrealizedPnLInternal(pos, currentPrice))
-            .orElse(BigDecimal.ZERO);
+            .orElse(ZERO);
     }
-    
-    @Override
-    @Transactional
-    public RealizedPnLResult calculateRealizedPnL(Long portfolioId, String symbol, 
-                                                 Integer tradeQuantity, BigDecimal tradePrice,
-                                                 CostBasisMethod costBasisMethod) {
-        
-        var taxLots = getTaxLots(portfolioId, symbol, costBasisMethod);
-        var realizationResult = processRealization(taxLots, tradeQuantity, tradePrice, costBasisMethod);
-        
-        return new RealizedPnLResult(
-            realizationResult.realizedPnl(),
-            realizationResult.averageCostBasis(),
-            realizationResult.netProceeds(),
-            Math.abs(tradeQuantity),
-            costBasisMethod,
-            realizationResult.taxLotsUsed(),
-            Instant.now()
-        );
+
+    private BigDecimal calculateUnrealizedPnLInternal(Position position, BigDecimal currentPrice) {
+        BigDecimal marketValue = currentPrice.multiply(new BigDecimal(Math.abs(position.getQuantity())));
+        BigDecimal costValue = position.getAverageCost().multiply(new BigDecimal(Math.abs(position.getQuantity())));
+        return marketValue.subtract(costValue);
     }
-    
+
+    private BigDecimal calculatePositionUnrealizedPnL(Position position) {
+        return Optional.ofNullable(position.getCurrentPrice())
+            .map(price -> calculateUnrealizedPnL(position, price))
+            .orElse(ZERO);
+    }
+
+    private BigDecimal calculatePositionMarketValue(Position position) {
+        return Optional.ofNullable(position.getMarketValue())
+            .orElse(ZERO);
+    }
+
+    private BigDecimal calculatePositionDayPnL(Position position) {
+        return Optional.ofNullable(position.getDayPnl())
+            .orElse(ZERO);
+    }
+
     @Override
     public BigDecimal calculateDayPnL(Position position, BigDecimal currentPrice, BigDecimal previousClosePrice) {
         return Optional.ofNullable(position)
             .filter(pos -> pos.getQuantity() != 0)
+            .filter(pos -> currentPrice != null && previousClosePrice != null)
             .map(pos -> calculateDayPnLInternal(pos, currentPrice, previousClosePrice))
-            .orElse(BigDecimal.ZERO);
+            .orElse(ZERO);
     }
-    
+
+    private BigDecimal calculateDayPnLInternal(Position position, BigDecimal currentPrice, BigDecimal previousClosePrice) {
+        BigDecimal priceDiff = currentPrice.subtract(previousClosePrice);
+        return priceDiff.multiply(new BigDecimal(position.getQuantity()));
+    }
+
+    // ==================== REALIZED P&L CALCULATIONS ====================
+
+    @Override
+    @Transactional
+    @CircuitBreaker(name = "pnl-calculation", fallbackMethod = "calculateRealizedPnLFallback")
+    public RealizedPnLResult calculateRealizedPnL(Long portfolioId, String symbol,
+                                                   Integer tradeQuantity, BigDecimal tradePrice,
+                                                   CostBasisMethod costBasisMethod) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            List<TaxLotInfo> taxLots = getTaxLots(portfolioId, symbol, costBasisMethod);
+
+            BigDecimal avgCostBasis = calculateAverageCostBasis(taxLots, Math.abs(tradeQuantity));
+            BigDecimal netProceeds = tradePrice.multiply(new BigDecimal(Math.abs(tradeQuantity)));
+            BigDecimal realizedPnl = netProceeds.subtract(
+                avgCostBasis.multiply(new BigDecimal(Math.abs(tradeQuantity)))
+            );
+
+            List<TaxLotInfo> usedLots = selectTaxLots(taxLots, Math.abs(tradeQuantity), costBasisMethod);
+
+            return new RealizedPnLResult(
+                realizedPnl,
+                avgCostBasis,
+                netProceeds,
+                Math.abs(tradeQuantity),
+                costBasisMethod,
+                usedLots,
+                Instant.now()
+            );
+        } finally {
+            sample.stop(meterRegistry.timer("pnl.realized", "method", costBasisMethod.name()));
+            log.info("Calculated realized P&L: portfolioId={}, symbol={}, pnl={}",
+                portfolioId, symbol, "calculated");
+        }
+    }
+
+    private BigDecimal calculateAverageCostBasis(List<TaxLotInfo> taxLots, int quantity) {
+        return taxLots.stream()
+            .limit(calculateRequiredLots(taxLots, quantity))
+            .map(TaxLotInfo::costBasisPerShare)
+            .reduce(ZERO, BigDecimal::add)
+            .divide(new BigDecimal(Math.min(quantity, getTotalQuantity(taxLots))), PRECISION);
+    }
+
+    private int getTotalQuantity(List<TaxLotInfo> taxLots) {
+        return taxLots.stream()
+            .mapToInt(TaxLotInfo::remainingQuantity)
+            .sum();
+    }
+
+    private long calculateRequiredLots(List<TaxLotInfo> taxLots, int quantity) {
+        // Rule #3: Functional loop conversion with Stream API and takeWhile
+        record Accumulator(int remaining, long count) {}
+
+        return taxLots.stream()
+            .reduce(
+                new Accumulator(quantity, 0),
+                (acc, lot) -> acc.remaining() > 0
+                    ? new Accumulator(acc.remaining() - lot.remainingQuantity(), acc.count() + 1)
+                    : acc,
+                (acc1, acc2) -> new Accumulator(acc1.remaining() + acc2.remaining(), acc1.count() + acc2.count())
+            )
+            .count();
+    }
+
+    /**
+     * Record for tax lot selection state
+     * Rule #9: Immutable record for accumulation state
+     * Moved outside method for proper type inference in Stream.reduce
+     */
+    private record Selection(List<TaxLotInfo> selected, int remaining) {}
+
+    private List<TaxLotInfo> selectTaxLots(List<TaxLotInfo> taxLots, int quantity, CostBasisMethod method) {
+        // Rule #3: Functional loop conversion with Stream API and reduce
+        // Rule #5: Reduced complexity by extracting accumulator logic
+        return taxLots.stream()
+            .reduce(
+                new Selection(new ArrayList<>(), quantity),
+                (acc, lot) -> acc.remaining() <= 0 ? acc : addLotToSelection(acc, lot),
+                (sel1, sel2) -> combineTaxLotSelections(sel1, sel2)
+            )
+            .selected();
+    }
+
+    /**
+     * Add lot to selection and update remaining
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private Selection addLotToSelection(Selection acc, TaxLotInfo lot) {
+        return Optional.of(acc)
+            .map(a -> {
+                List<TaxLotInfo> newSelected = new ArrayList<>(a.selected());
+                newSelected.add(lot);
+                int useQuantity = Math.min(a.remaining(), lot.remainingQuantity());
+                return new Selection(newSelected, a.remaining() - useQuantity);
+            })
+            .orElse(acc);
+    }
+
+    /**
+     * Combine two tax lot selections
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private Selection combineTaxLotSelections(Selection sel1, Selection sel2) {
+        List<TaxLotInfo> combined = new ArrayList<>(sel1.selected());
+        combined.addAll(sel2.selected());
+        return new Selection(combined, sel1.remaining() + sel2.remaining());
+    }
+
+    private RealizedPnLResult calculateRealizedPnLFallback(Long portfolioId, String symbol,
+                                                            Integer tradeQuantity, BigDecimal tradePrice,
+                                                            CostBasisMethod costBasisMethod, Exception e) {
+        log.error("Circuit breaker activated for realized P&L: portfolioId={}, symbol={}, error={}",
+            portfolioId, symbol, e.getMessage());
+        return new RealizedPnLResult(
+            ZERO, ZERO, ZERO, Math.abs(tradeQuantity), costBasisMethod, List.of(), Instant.now()
+        );
+    }
+
+    // ==================== COST BASIS CALCULATIONS ====================
+
     @Override
     @Cacheable(value = "weighted-average-cost", key = "#portfolioId + '_' + #symbol")
     public BigDecimal calculateWeightedAverageCost(Long portfolioId, String symbol) {
-        return transactionRepository.findByPortfolioIdAndSymbolOrderByExecutionTime(portfolioId, symbol)
-            .stream()
-            .filter(transaction -> transaction.getTransactionType() == TransactionType.BUY)
+        List<PortfolioTransaction> transactions = transactionRepository
+            .findByPortfolioIdAndSymbolOrderByExecutionTime(portfolioId, symbol);
+
+        return calculateWeightedAverageCostFromTransactions(transactions);
+    }
+
+    private BigDecimal calculateWeightedAverageCostFromTransactions(List<PortfolioTransaction> transactions) {
+        // Rule #3: Functional loop conversion with Stream API - filter and reduce
+        record CostAccumulator(BigDecimal totalCost, int totalQuantity) {}
+
+        CostAccumulator result = transactions.stream()
+            .filter(txn -> txn.getTransactionType() == TransactionType.BUY && txn.getQuantity() != null)
             .reduce(
-                new WeightedCostAccumulator(),
-                this::accumulateWeightedCost,
-                WeightedCostAccumulator::combine
-            )
-            .getWeightedAverageCost();
+                new CostAccumulator(ZERO, 0),
+                (acc, txn) -> new CostAccumulator(
+                    acc.totalCost().add(txn.getPrice().multiply(new BigDecimal(txn.getQuantity()))),
+                    acc.totalQuantity() + txn.getQuantity()
+                ),
+                (acc1, acc2) -> new CostAccumulator(
+                    acc1.totalCost().add(acc2.totalCost()),
+                    acc1.totalQuantity() + acc2.totalQuantity()
+                )
+            );
+
+        return result.totalQuantity() > 0
+            ? result.totalCost().divide(new BigDecimal(result.totalQuantity()), PRECISION)
+            : ZERO;
     }
-    
+
     @Override
+    @CircuitBreaker(name = "pnl-calculation", fallbackMethod = "getTaxLotsFallback")
     public List<TaxLotInfo> getTaxLots(Long portfolioId, String symbol, CostBasisMethod costBasisMethod) {
-        var transactions = transactionRepository.findByPortfolioIdAndSymbolOrderByExecutionTime(portfolioId, symbol);
-        
-        return switch (costBasisMethod) {
-            case FIFO -> calculateFifoTaxLots(transactions);
-            case LIFO -> calculateLifoTaxLots(transactions);
-            case WEIGHTED_AVERAGE -> calculateWeightedAverageTaxLots(transactions);
-            default -> throw new UnsupportedOperationException("Cost basis method not supported: " + costBasisMethod);
+        List<PortfolioTransaction> transactions = transactionRepository
+            .findByPortfolioIdAndSymbolOrderByExecutionTime(portfolioId, symbol);
+
+        return buildTaxLotsFromTransactions(transactions, costBasisMethod);
+    }
+
+    private List<TaxLotInfo> buildTaxLotsFromTransactions(List<PortfolioTransaction> transactions,
+                                                            CostBasisMethod method) {
+        // Rule #3: Functional loop conversion with Stream API
+        // Rule #5: Reduced complexity by extracting transaction conversion
+        ArrayList<TaxLotInfo> taxLots = transactions.stream()
+            .filter(this::isBuyTransaction)
+            .reduce(
+                new ArrayList<TaxLotInfo>(),
+                this::accumulateTaxLotFromTransaction,
+                this::combineTaxLotLists
+            );
+
+        return sortTaxLotsByMethod(taxLots, method);
+    }
+
+    /**
+     * Check if transaction is a buy
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private boolean isBuyTransaction(PortfolioTransaction txn) {
+        return txn.getTransactionType() == TransactionType.BUY && txn.getQuantity() != null;
+    }
+
+    /**
+     * Accumulate tax lot from transaction
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private ArrayList<TaxLotInfo> accumulateTaxLotFromTransaction(ArrayList<TaxLotInfo> list, PortfolioTransaction txn) {
+        long lotId = list.size() + 1;
+        TaxLotInfo lot = createTaxLotFromTransaction(lotId, txn);
+        ArrayList<TaxLotInfo> newList = new ArrayList<>(list);
+        newList.add(lot);
+        return newList;
+    }
+
+    /**
+     * Create tax lot from transaction
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private TaxLotInfo createTaxLotFromTransaction(long lotId, PortfolioTransaction txn) {
+        return TaxLotInfo.create(
+            lotId, txn.getSymbol(), txn.getExecutedAt(),
+            txn.getQuantity(), txn.getQuantity(),
+            txn.getPrice(), txn.getPrice().multiply(new BigDecimal(txn.getQuantity())),
+            txn.getPrice(), ZERO
+        );
+    }
+
+    /**
+     * Combine two tax lot lists
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private ArrayList<TaxLotInfo> combineTaxLotLists(ArrayList<TaxLotInfo> list1, ArrayList<TaxLotInfo> list2) {
+        ArrayList<TaxLotInfo> combined = new ArrayList<>(list1);
+        combined.addAll(list2);
+        return combined;
+    }
+
+    /**
+     * Sort tax lots by cost basis method.
+     *
+     * Pattern: Pattern matching with switch expression
+     * Rule #14: Switch expression for type handling
+     *
+     * @param taxLots List of tax lots to sort
+     * @param method Cost basis method
+     * @return Sorted tax lots
+     */
+    private List<TaxLotInfo> sortTaxLotsByMethod(List<TaxLotInfo> taxLots, CostBasisMethod method) {
+        return switch (method) {
+            case FIFO -> taxLots.stream()
+                .sorted(Comparator.comparing(TaxLotInfo::purchaseDate))
+                .toList();
+            case LIFO -> taxLots.stream()
+                .sorted(Comparator.comparing(TaxLotInfo::purchaseDate).reversed())
+                .toList();
+            case SPECIFIC_ID -> taxLots.stream()
+                .sorted(Comparator.comparing(TaxLotInfo::purchaseDate))
+                .toList();
+            case WEIGHTED_AVERAGE -> taxLots;
         };
     }
-    
-    @Override
-    public PnLBreakdown calculatePnLBreakdown(Long portfolioId, Instant fromDate, Instant toDate) {
-        var transactions = transactionRepository.findByPortfolioIdAndExecutionTimeBetween(portfolioId, fromDate, toDate);
-        
-        return transactions.stream()
-            .collect(
-                PnLBreakdown::new,
-                this::accumulatePnLBreakdown,
-                PnLBreakdown::combine
-            );
+
+    private List<TaxLotInfo> getTaxLotsFallback(Long portfolioId, String symbol,
+                                                  CostBasisMethod costBasisMethod, Exception e) {
+        log.error("Circuit breaker activated for tax lots: portfolioId={}, symbol={}, error={}",
+            portfolioId, symbol, e.getMessage());
+        return List.of();
     }
-    
+
     @Override
-    public List<PositionPnLMetrics> calculatePositionPnLMetrics(Long portfolioId) {
-        return positionRepository.findByPortfolioId(portfolioId)
-            .stream()
-            .map(this::calculatePositionMetrics)
-            .filter(Objects::nonNull)
-            .toList();
+    public CostBasisUpdateResult updateCostBasis(Position position, Integer tradeQuantity,
+                                                  BigDecimal tradePrice, CostBasisMethod costBasisMethod) {
+        BigDecimal currentAvgCost = position.getAverageCost();
+        int currentQuantity = position.getQuantity();
+
+        int newQuantity = currentQuantity + tradeQuantity;
+        BigDecimal newTotalCost = calculateNewTotalCost(currentAvgCost, currentQuantity, tradePrice, tradeQuantity);
+        BigDecimal newAvgCost = newQuantity > 0
+            ? newTotalCost.divide(new BigDecimal(newQuantity), PRECISION)
+            : ZERO;
+
+        BigDecimal realizedPnl = tradeQuantity < 0
+            ? calculateRealizedPnLForSale(currentAvgCost, tradePrice, -tradeQuantity)
+            : ZERO;
+
+        return new CostBasisUpdateResult(
+            newAvgCost,
+            newTotalCost,
+            newQuantity,
+            realizedPnl,
+            costBasisMethod,
+            List.of()
+        );
     }
-    
-    @Override
-    public PerformanceAttribution calculatePerformanceAttribution(Long portfolioId, Instant fromDate, Instant toDate) {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-            
-            var totalReturnTask = scope.fork(() -> calculateTotalReturn(portfolioId, fromDate, toDate));
-            var sectorBreakdownTask = scope.fork(() -> calculateSectorBreakdown(portfolioId, fromDate, toDate));
-            var attributionFactorsTask = scope.fork(() -> calculateAttributionFactors(portfolioId, fromDate, toDate));
-            
-            scope.join();
-            scope.throwIfFailed();
-            
-            var attribution = attributionFactorsTask.get();
-            
-            return new PerformanceAttribution(
-                portfolioId,
-                fromDate,
-                toDate,
-                totalReturnTask.get(),
-                attribution.securitySelection(),
-                attribution.assetAllocation(),
-                attribution.timingEffect(),
-                attribution.interactionEffect(),
-                sectorBreakdownTask.get(),
-                Instant.now()
-            );
-            
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CalculationException("Performance attribution calculation interrupted", e);
-        } catch (Exception e) {
-            throw new CalculationException("Performance attribution calculation failed", e);
-        }
+
+    private BigDecimal calculateNewTotalCost(BigDecimal currentAvgCost, int currentQty,
+                                              BigDecimal tradePrice, int tradeQty) {
+        BigDecimal currentTotalCost = currentAvgCost.multiply(new BigDecimal(currentQty));
+        BigDecimal tradeCost = tradePrice.multiply(new BigDecimal(tradeQty));
+        return currentTotalCost.add(tradeCost);
     }
-    
-    @Override
-    public CostBasisUpdateResult updateCostBasis(Position position, Integer tradeQuantity, 
-                                                BigDecimal tradePrice, CostBasisMethod costBasisMethod) {
-        
-        var currentCost = position.getAverageCost();
-        var currentQuantity = position.getQuantity();
-        
-        return switch (costBasisMethod) {
-            case WEIGHTED_AVERAGE -> updateWeightedAverageCost(position, tradeQuantity, tradePrice);
-            case FIFO -> updateFifoCost(position, tradeQuantity, tradePrice);
-            case LIFO -> updateLifoCost(position, tradeQuantity, tradePrice);
-            default -> throw new UnsupportedOperationException("Cost basis method not supported: " + costBasisMethod);
-        };
+
+    private BigDecimal calculateRealizedPnLForSale(BigDecimal avgCost, BigDecimal salePrice, int quantity) {
+        BigDecimal costBasis = avgCost.multiply(new BigDecimal(quantity));
+        BigDecimal proceeds = salePrice.multiply(new BigDecimal(quantity));
+        return proceeds.subtract(costBasis);
     }
-    
+
+    // ==================== RETURN CALCULATIONS ====================
+
     @Override
     public BigDecimal calculateTotalReturn(Position position, BigDecimal currentPrice) {
         return Optional.ofNullable(position)
-            .filter(pos -> pos.getAverageCost().compareTo(BigDecimal.ZERO) > 0)
-            .map(pos -> calculateReturnPercentage(pos.getAverageCost(), currentPrice))
-            .orElse(BigDecimal.ZERO);
+            .filter(pos -> pos.getAverageCost().compareTo(ZERO) > 0)
+            .map(pos -> calculateTotalReturnInternal(pos.getAverageCost(), currentPrice))
+            .orElse(ZERO);
     }
-    
+
+    private BigDecimal calculateTotalReturnInternal(BigDecimal avgCost, BigDecimal currentPrice) {
+        BigDecimal priceChange = currentPrice.subtract(avgCost);
+        return priceChange.divide(avgCost, PRECISION).multiply(HUNDRED);
+    }
+
+    private BigDecimal calculateTotalReturnPercentage(BigDecimal currentValue, BigDecimal initialValue) {
+        return initialValue.compareTo(ZERO) > 0
+            ? currentValue.subtract(initialValue).divide(initialValue, PRECISION).multiply(HUNDRED)
+            : ZERO;
+    }
+
     @Override
     public BigDecimal calculateAnnualizedReturn(Position position, BigDecimal currentPrice) {
-        var totalReturn = calculateTotalReturn(position, currentPrice);
-        var holdingDays = calculateHoldingDays(position);
-        
-        return annualizeReturn(totalReturn, holdingDays);
+        BigDecimal totalReturn = calculateTotalReturn(position, currentPrice);
+        int holdingDays = calculateHoldingDays(position);
+
+        return holdingDays > 0
+            ? annualizeReturn(totalReturn, holdingDays)
+            : ZERO;
     }
-    
+
+    private int calculateHoldingDays(Position position) {
+        return (int) Duration.between(position.getOpenedAt(), Instant.now()).toDays();
+    }
+
+    private BigDecimal annualizeReturn(BigDecimal totalReturn, int holdingDays) {
+        BigDecimal holdingYears = new BigDecimal(holdingDays).divide(DAYS_IN_YEAR, PRECISION);
+        return holdingYears.compareTo(ZERO) > 0
+            ? totalReturn.divide(holdingYears, PRECISION)
+            : ZERO;
+    }
+
+    // ==================== BULK CALCULATIONS ====================
+
     @Override
     public CompletableFuture<BigDecimal> bulkCalculateUnrealizedPnL(Long portfolioId) {
-        return CompletableFuture
-            .supplyAsync(() -> 
-                positionRepository.findByPortfolioId(portfolioId)
-                    .parallelStream()
-                    .map(this::calculatePositionUnrealizedPnL)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add),
-                Thread.ofVirtual().factory()
-            )
-            .whenComplete((result, throwable) -> 
-                Optional.ofNullable(throwable)
-                    .ifPresent(t -> log.error("Bulk unrealized P&L calculation failed for portfolio: {}", portfolioId, t))
-            );
+        return CompletableFuture.supplyAsync(
+            () -> positionRepository.findByPortfolioId(portfolioId)
+                .parallelStream()
+                .map(this::calculatePositionUnrealizedPnL)
+                .reduce(ZERO, BigDecimal::add),
+            VIRTUAL_EXECUTOR
+        );
     }
-    
+
+    // ==================== POSITION METRICS ====================
+
     @Override
-    public PnLImpactAnalysis calculateTradeImpact(Long portfolioId, String symbol, Integer quantity, BigDecimal price) {
-        var currentPosition = positionRepository.findByPortfolioIdAndSymbol(portfolioId, symbol);
-        
-        return currentPosition
-            .map(position -> performTradeImpactAnalysis(position, quantity, price))
-            .orElseGet(() -> PnLImpactAnalysis.forNewPosition(portfolioId, symbol, quantity, price));
-    }
-    
-    @Override
-    @Cacheable(value = "monthly-pnl", key = "#portfolioId + '_' + #year")
-    public List<MonthlyPnLSummary> getMonthlyPnLSummary(Long portfolioId, Integer year) {
-        var startOfYear = LocalDate.of(year, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        var endOfYear = LocalDate.of(year, 12, 31).atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
-        
-        return transactionRepository.findByPortfolioIdAndExecutionTimeBetween(portfolioId, startOfYear, endOfYear)
+    @CircuitBreaker(name = "pnl-calculation", fallbackMethod = "calculatePositionPnLMetricsFallback")
+    public List<PositionPnLMetrics> calculatePositionPnLMetrics(Long portfolioId) {
+        return positionRepository.findByPortfolioId(portfolioId)
             .stream()
-            .collect(
-                TreeMap::new,
-                (map, transaction) -> {
-                    var month = transaction.getExecutedAt().atZone(ZoneOffset.UTC).getMonthValue();
-                    var accumulator = map.getOrDefault(month, new MonthlyPnLAccumulator());
-                    map.put(month, accumulateMonthlyPnL(accumulator, transaction));
-                },
-                (map1, map2) -> {
-                    map2.forEach((month, accumulator) -> 
-                        map1.merge(month, accumulator, MonthlyPnLAccumulator::combine));
-                    return map1;
-                }
-            )
-            .entrySet()
-            .stream()
-            .map(entry -> entry.getValue().toSummary(year, entry.getKey()))
+            .map(this::buildPositionMetrics)
+            .filter(Objects::nonNull)
             .toList();
     }
-    
-    @Override
-    public IncomeCalculationResult calculateIncome(Long portfolioId, Instant fromDate, Instant toDate) {
-        var incomeTransactions = transactionRepository
-            .findByPortfolioIdAndExecutionTimeBetweenAndTransactionTypeIn(
-                portfolioId, fromDate, toDate, 
-                List.of(TransactionType.DIVIDEND, TransactionType.INTEREST)
-            );
-        
-        return processIncomeTransactions(incomeTransactions);
-    }
-    
-    @Override
-    public FeesCalculationResult calculateFees(Long portfolioId, Instant fromDate, Instant toDate) {
-        var allTransactions = transactionRepository.findByPortfolioIdAndExecutionTimeBetween(portfolioId, fromDate, toDate);
-        
-        return allTransactions.stream()
-            .collect(
-                () -> new FeesAccumulator(),
-                (accumulator, transaction) -> accumulateFees(accumulator, transaction),
-                (acc1, acc2) -> FeesAccumulator.combine(acc1, acc2)
-            )
-            .toResult();
-    }
-    
-    @Override
-    public PnLValidationResult validatePnLCalculation(Long portfolioId) {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-            
-            var calculatedPnLTask = scope.fork(() -> calculateTotalPnL(portfolioId));
-            var expectedPnLTask = scope.fork(() -> calculateExpectedPnL(portfolioId));
-            var discrepanciesTask = scope.fork(() -> findPnLDiscrepancies(portfolioId));
-            
-            scope.join();
-            scope.throwIfFailed();
-            
-            var calculatedPnL = calculatedPnLTask.get();
-            var expectedPnL = expectedPnLTask.get();
-            var variance = calculatedPnL.subtract(expectedPnL).abs();
-            var toleranceThreshold = expectedPnL.multiply(BigDecimal.valueOf(0.01)); // 1% tolerance
-            
-            return new PnLValidationResult(
-                variance.compareTo(toleranceThreshold) <= 0,
-                calculatedPnL,
-                expectedPnL,
-                variance,
-                toleranceThreshold,
-                discrepanciesTask.get(),
-                Instant.now()
-            );
-            
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CalculationException("P&L validation interrupted", e);
-        } catch (Exception e) {
-            throw new CalculationException("P&L validation failed", e);
-        }
-    }
-    
-    @Override
-    public PnLTrendAnalysis getPnLTrend(Long portfolioId, Integer periodDays) {
-        var endDate = Instant.now();
-        var startDate = endDate.minus(periodDays, ChronoUnit.DAYS);
-        
-        var dailyPoints = generateDailyPnLPoints(portfolioId, startDate, endDate);
-        
-        return calculateTrendMetrics(portfolioId, periodDays, dailyPoints);
-    }
-    
-    @Override
-    public BigDecimal calculateSharpeRatio(Long portfolioId, BigDecimal riskFreeRate, Integer periodDays) {
-        var returns = getDailyReturns(portfolioId, periodDays);
-        
-        return returns.isEmpty() ? BigDecimal.ZERO : 
-            calculateSharpeFromReturns(returns, riskFreeRate);
-    }
-    
-    @Override
-    public BigDecimal calculateMaxDrawdown(Long portfolioId, Integer periodDays) {
-        var dailyValues = getDailyPortfolioValues(portfolioId, periodDays);
-        
-        return dailyValues.stream()
-            .reduce(new DrawdownCalculator(), DrawdownCalculator::update, DrawdownCalculator::combine)
-            .getMaxDrawdown();
-    }
-    
-    @Override
-    public CompletableFuture<PnLAttributionReport> generatePnLReport(Long portfolioId, Instant fromDate, Instant toDate) {
-        return CompletableFuture
-            .supplyAsync(() -> createComprehensivePnLReport(portfolioId, fromDate, toDate),
-                        Thread.ofVirtual().factory())
-            .whenComplete((result, throwable) -> 
-                Optional.ofNullable(throwable)
-                    .ifPresent(t -> log.error("P&L report generation failed for portfolio: {}", portfolioId, t))
-            );
-    }
-    
-    // Private helper methods implementing functional programming patterns
-    
-    private PortfolioValuationResult performPortfolioValuation(Portfolio portfolio) {
-        var positions = positionRepository.findByPortfolioId(portfolio.getId());
-        
-        var valuationMetrics = positions.stream()
-            .collect(
-                ValuationAccumulator::new,
-                this::accumulateValuation,
-                ValuationAccumulator::combine
-            );
-        
-        return new PortfolioValuationResult(
-            portfolio.getId(),
-            valuationMetrics.totalValue(),
-            portfolio.getCashBalance(),
-            valuationMetrics.positionsValue(),
-            valuationMetrics.unrealizedPnl(),
-            valuationMetrics.realizedPnl(),
-            valuationMetrics.dayPnl(),
-            valuationMetrics.totalReturn(),
-            positions.size(),
-            Instant.now(),
-            0L // Will be enriched with actual calculation time
+
+    private PositionPnLMetrics buildPositionMetrics(Position position) {
+        BigDecimal marketValue = calculatePositionMarketValue(position);
+        BigDecimal costBasis = position.getTotalCost();
+        BigDecimal unrealizedPnl = calculatePositionUnrealizedPnL(position);
+        BigDecimal totalPnl = position.getRealizedPnl().add(unrealizedPnl);
+        BigDecimal totalReturn = calculateTotalReturn(
+            position,
+            Optional.ofNullable(position.getCurrentPrice()).orElse(ZERO)
         );
-    }
-    
-    private PortfolioValuationResult enrichWithCalculationTime(PortfolioValuationResult result, long startTime) {
-        var calculationTime = System.currentTimeMillis() - startTime;
-        
-        return new PortfolioValuationResult(
-            result.portfolioId(),
-            result.totalValue(),
-            result.cashBalance(),
-            result.positionsValue(),
-            result.unrealizedPnl(),
-            result.realizedPnl(),
-            result.dayPnl(),
-            result.totalReturn(),
-            result.positionsCount(),
-            result.valuationTime(),
-            calculationTime
+        BigDecimal dayPnl = calculatePositionDayPnL(position);
+        int holdingDays = calculateHoldingDays(position);
+        BigDecimal annualizedReturn = calculateAnnualizedReturn(
+            position,
+            Optional.ofNullable(position.getCurrentPrice()).orElse(ZERO)
         );
-    }
-    
-    private BigDecimal calculateUnrealizedPnLInternal(Position position, BigDecimal currentPrice) {
-        var marketValue = currentPrice.multiply(BigDecimal.valueOf(position.getQuantity()));
-        var costBasis = position.getAverageCost().multiply(BigDecimal.valueOf(position.getQuantity()));
-        return marketValue.subtract(costBasis);
-    }
-    
-    private BigDecimal calculateDayPnLInternal(Position position, BigDecimal currentPrice, BigDecimal previousClosePrice) {
-        var priceChange = currentPrice.subtract(previousClosePrice);
-        return priceChange.multiply(BigDecimal.valueOf(position.getQuantity()));
-    }
-    
-    private WeightedCostAccumulator accumulateWeightedCost(WeightedCostAccumulator accumulator, 
-                                                          PortfolioTransaction transaction) {
-        return accumulator.add(
-            transaction.getPrice(), 
-            BigDecimal.valueOf(transaction.getQuantity())
-        );
-    }
-    
-    private List<TaxLotInfo> calculateFifoTaxLots(List<PortfolioTransaction> transactions) {
-        var lots = new ArrayList<TaxLotInfo>();
-        var fifoQueue = new ArrayDeque<PortfolioTransaction>();
-        
-        // Functional approach: process transactions using streams
-        transactions.forEach(transaction ->
-            switch (transaction.getTransactionType()) {
-                case BUY -> fifoQueue.offer(transaction);
-                case SELL -> processFifoSale(fifoQueue, transaction, lots);
-            });
-        
-        // Convert remaining buys to tax lots
-        fifoQueue.stream()
-            .map(this::transactionToTaxLot)
-            .forEach(lots::add);
-        
-        return lots;
-    }
-    
-    private List<TaxLotInfo> calculateLifoTaxLots(List<PortfolioTransaction> transactions) {
-        var lots = new ArrayList<TaxLotInfo>();
-        var lifoStack = new ArrayDeque<PortfolioTransaction>();
-        
-        // Functional approach: process transactions using streams
-        transactions.forEach(transaction ->
-            switch (transaction.getTransactionType()) {
-                case BUY -> lifoStack.push(transaction);
-                case SELL -> processLifoSale(lifoStack, transaction, lots);
-            });
-        
-        // Convert remaining buys to tax lots
-        lifoStack.stream()
-            .map(this::transactionToTaxLot)
-            .forEach(lots::add);
-        
-        return lots;
-    }
-    
-    private List<TaxLotInfo> calculateWeightedAverageTaxLots(List<PortfolioTransaction> transactions) {
-        var weightedCost = calculateWeightedAverageFromTransactions(transactions);
-        var totalQuantity = calculateTotalQuantity(transactions);
-        
-        return totalQuantity > 0 ? 
-            List.of(new TaxLotInfo(
-                weightedCost,
-                totalQuantity,
-                transactions.stream().map(PortfolioTransaction::getExecutedAt).min(Instant::compareTo).orElse(Instant.now()),
-                transactions.stream().map(PortfolioTransaction::getExecutedAt).max(Instant::compareTo).orElse(Instant.now())
-            )) : 
-            List.of();
-    }
-    
-    private void accumulatePnLBreakdown(PnLBreakdown breakdown, PortfolioTransaction transaction) {
-        switch (transaction.getTransactionType()) {
-            case BUY, SELL -> breakdown.addTrading(transaction.getPrice(), transaction.getQuantity());
-            case DIVIDEND -> breakdown.addDividend(transaction.getPrice());
-            case INTEREST -> breakdown.addInterest(transaction.getPrice());
-        }
-    }
-    
-    private PositionPnLMetrics calculatePositionMetrics(Position position) {
-        var currentPrice = getCurrentMarketPrice(position.getSymbol());
-        return currentPrice.map(price -> createPositionMetrics(position, price)).orElse(null);
-    }
-    
-    private Optional<BigDecimal> getCurrentMarketPrice(String symbol) {
-        // Market data integration with circuit breaker protection
-        try {
-            // Use functional approach with Optional chain
-            return Optional.of(symbol)
-                .filter(s -> !s.isBlank())
-                .map(this::fetchPriceFromMarketData)
-                .filter(price -> price.compareTo(BigDecimal.ZERO) > 0);
-        } catch (Exception e) {
-            log.warn("Failed to fetch market price for symbol: {}, error: {}", symbol, e.getMessage());
-            return Optional.empty();
-        }
-    }
-    
-    /**
-     * Fetch price from market data service with fallback
-     */
-    private BigDecimal fetchPriceFromMarketData(String symbol) {
-        // In production, this would call actual market data service
-        // For now, simulate realistic market prices based on symbol
-        return switch (symbol.toUpperCase()) {
-            case "RELIANCE" -> new BigDecimal("2450.75");
-            case "TCS" -> new BigDecimal("3890.50");
-            case "INFY" -> new BigDecimal("1756.25");
-            case "HDFCBANK" -> new BigDecimal("1648.90");
-            case "ICICIBANK" -> new BigDecimal("1098.35");
-            case "SBIN" -> new BigDecimal("812.40");
-            case "ITC" -> new BigDecimal("456.80");
-            case "LT" -> new BigDecimal("3567.20");
-            case "ASIANPAINT" -> new BigDecimal("2987.60");
-            case "MARUTI" -> new BigDecimal("10876.45");
-            default -> new BigDecimal("1000.00"); // Default price for unknown symbols
-        };
-    }
-    
-    private PositionPnLMetrics createPositionMetrics(Position position, BigDecimal currentPrice) {
-        var marketValue = currentPrice.multiply(BigDecimal.valueOf(position.getQuantity()));
-        var costBasis = position.getAverageCost().multiply(BigDecimal.valueOf(position.getQuantity()));
-        var unrealizedPnl = marketValue.subtract(costBasis);
-        var totalReturn = calculateReturnPercentage(position.getAverageCost(), currentPrice);
-        var holdingDays = calculateHoldingDays(position);
-        var annualizedReturn = annualizeReturn(totalReturn, holdingDays);
-        
+
         return new PositionPnLMetrics(
             position.getSymbol(),
-            position.getQuantity(),
-            currentPrice,
-            position.getAverageCost(),
             marketValue,
             costBasis,
             unrealizedPnl,
-            totalReturn, // unrealizedPnLPercent
             position.getRealizedPnl(),
-            unrealizedPnl.add(position.getRealizedPnl()), // totalPnL
-            BigDecimal.ZERO, // dayChange - would need previous close
-            BigDecimal.ZERO, // dayChangePercent - would need previous close
-            BigDecimal.ZERO, // beta - would need market data
-            BigDecimal.ZERO, // contribution - would need portfolio context
-            BigDecimal.ZERO, // weightInPortfolio - would need portfolio total value
-            Instant.now() // lastUpdated
+            totalPnl,
+            totalReturn,
+            dayPnl,
+            holdingDays,
+            annualizedReturn
         );
     }
-    
-    private BigDecimal calculateReturnPercentage(BigDecimal costBasis, BigDecimal currentPrice) {
-        return costBasis.compareTo(BigDecimal.ZERO) > 0 ?
-            currentPrice.subtract(costBasis)
-                .divide(costBasis, PRECISION)
-                .multiply(HUNDRED) :
-            BigDecimal.ZERO;
+
+    private List<PositionPnLMetrics> calculatePositionPnLMetricsFallback(Long portfolioId, Exception e) {
+        log.error("Circuit breaker activated for position P&L metrics: portfolioId={}, error={}",
+            portfolioId, e.getMessage());
+        return List.of();
     }
-    
-    private Integer calculateHoldingDays(Position position) {
-        return (int) ChronoUnit.DAYS.between(
-            position.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate(),
-            LocalDate.now()
-        );
+
+    // ==================== P&L BREAKDOWN ====================
+
+    @Override
+    // Rule #5: Reduced cognitive complexity from ~8-9 to 3 by extracting helper methods
+    public PnLBreakdown calculatePnLBreakdown(Long portfolioId, Instant fromDate, Instant toDate) {
+        List<PortfolioTransaction> transactions = transactionRepository
+            .findByPortfolioIdAndExecutionTimeBetween(portfolioId, fromDate, toDate);
+
+        PnLComponents components = calculatePnLComponents(portfolioId, transactions, fromDate, toDate);
+
+        return buildPnLBreakdown(portfolioId, fromDate, toDate, components);
     }
-    
-    private BigDecimal annualizeReturn(BigDecimal totalReturn, Integer holdingDays) {
-        return holdingDays > 0 ?
-            totalReturn.multiply(DAYS_IN_YEAR.divide(BigDecimal.valueOf(holdingDays), PRECISION)) :
-            BigDecimal.ZERO;
+
+    // Rule #5: Extracted method - complexity: 5
+    private PnLComponents calculatePnLComponents(Long portfolioId, List<PortfolioTransaction> transactions,
+                                                  Instant fromDate, Instant toDate) {
+        BigDecimal realizedPnl = calculateRealizedPnl(transactions);
+        BigDecimal unrealizedPnl = bulkCalculateUnrealizedPnL(portfolioId).join();
+        IncomeCalculationResult income = calculateIncome(portfolioId, fromDate, toDate);
+        FeesCalculationResult fees = calculateFees(portfolioId, fromDate, toDate);
+        BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
+        BigDecimal netPnl = totalPnl.subtract(fees.totalFees());
+
+        return new PnLComponents(realizedPnl, unrealizedPnl, income.totalDividends(),
+                                 income.totalInterest(), fees, totalPnl, netPnl);
     }
-    
-    // Helper methods for accumulation operations
-    
-    private MonthlyPnLAccumulator accumulateMonthlyPnL(MonthlyPnLAccumulator accumulator, PortfolioTransaction transaction) {
-        var realizedPnl = transaction.getRealizedPnl() != null ? transaction.getRealizedPnl() : BigDecimal.ZERO;
-        var volume = transaction.getAmount() != null ? transaction.getAmount() : BigDecimal.ZERO;
-        var fees = calculateTransactionFees(transaction);
-        
-        return accumulator.add(
-            realizedPnl,
-            BigDecimal.ZERO, // unrealized PnL not available from transaction
-            volume,
-            fees,
-            transaction.getExecutedAt()
-        );
-    }
-    
-    private FeesAccumulator accumulateFees(FeesAccumulator accumulator, PortfolioTransaction transaction) {
-        return accumulator.add(
-            transaction.getCommission() != null ? transaction.getCommission() : BigDecimal.ZERO,
-            transaction.getTax() != null ? transaction.getTax() : BigDecimal.ZERO,
-            BigDecimal.ZERO, // brokerageFee - not in current schema
-            BigDecimal.ZERO, // exchangeFee - not in current schema
-            transaction.getOtherFees() != null ? transaction.getOtherFees() : BigDecimal.ZERO
-        );
-    }
-    
-    private BigDecimal calculateTransactionFees(PortfolioTransaction transaction) {
-        var commission = transaction.getCommission() != null ? transaction.getCommission() : BigDecimal.ZERO;
-        var tax = transaction.getTax() != null ? transaction.getTax() : BigDecimal.ZERO;
-        var otherFees = transaction.getOtherFees() != null ? transaction.getOtherFees() : BigDecimal.ZERO;
-        return commission.add(tax).add(otherFees);
-    }
-    
-    private PnLImpactAnalysis performTradeImpactAnalysis(Position position, Integer quantity, BigDecimal price) {
-        return PnLImpactAnalysis.forNewPosition(
-            position.getPortfolioId(),
-            position.getSymbol(),
-            quantity,
-            price
-        );
-    }
-    
-    private IncomeCalculationResult processIncomeTransactions(List<PortfolioTransaction> transactions) {
-        var totalDividends = transactions.stream()
-            .filter(t -> t.getTransactionType() == TransactionType.DIVIDEND)
-            .map(PortfolioTransaction::getAmount)
-            .filter(Objects::nonNull)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-            
-        var totalInterest = transactions.stream()
-            .filter(t -> t.getTransactionType() == TransactionType.INTEREST)
-            .map(PortfolioTransaction::getAmount)
-            .filter(Objects::nonNull)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-            
-        return new IncomeCalculationResult(
-            totalDividends.add(totalInterest),
-            totalDividends,
-            totalInterest,
-            transactions.size()
-        );
-    }
-    
-    // Additional helper classes for functional programming patterns
-    
-    private record WeightedCostAccumulator(BigDecimal totalCost, BigDecimal totalQuantity) {
-        
-        WeightedCostAccumulator() {
-            this(BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-        
-        WeightedCostAccumulator add(BigDecimal price, BigDecimal quantity) {
-            return new WeightedCostAccumulator(
-                totalCost.add(price.multiply(quantity)),
-                totalQuantity.add(quantity)
-            );
-        }
-        
-        static WeightedCostAccumulator combine(WeightedCostAccumulator a, WeightedCostAccumulator b) {
-            return new WeightedCostAccumulator(
-                a.totalCost.add(b.totalCost),
-                a.totalQuantity.add(b.totalQuantity)
-            );
-        }
-        
-        BigDecimal getWeightedAverageCost() {
-            return totalQuantity.compareTo(BigDecimal.ZERO) > 0 ?
-                totalCost.divide(totalQuantity, PRECISION) :
-                BigDecimal.ZERO;
-        }
-    }
-    
-    private record ValuationAccumulator(
-        BigDecimal totalValue,
-        BigDecimal positionsValue,
-        BigDecimal unrealizedPnl,
-        BigDecimal realizedPnl,
-        BigDecimal dayPnl,
-        BigDecimal totalReturn
-    ) {
-        
-        ValuationAccumulator() {
-            this(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        }
-        
-        static ValuationAccumulator combine(ValuationAccumulator a, ValuationAccumulator b) {
-            return new ValuationAccumulator(
-                a.totalValue.add(b.totalValue),
-                a.positionsValue.add(b.positionsValue),
-                a.unrealizedPnl.add(b.unrealizedPnl),
-                a.realizedPnl.add(b.realizedPnl),
-                a.dayPnl.add(b.dayPnl),
-                a.totalReturn.add(b.totalReturn)
-            );
-        }
-    }
-    
-    // Exception classes
-    static class PortfolioNotFoundException extends RuntimeException {
-        PortfolioNotFoundException(Long portfolioId) {
-            super("Portfolio not found: " + portfolioId);
-        }
-    }
-    
-    static class CalculationException extends RuntimeException {
-        CalculationException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-    
-    /**
-     * Accumulate valuation metrics from position data
-     */
-    private ValuationAccumulator accumulateValuation(ValuationAccumulator accumulator, Position position) {
-        return getCurrentMarketPrice(position.getSymbol())
-            .map(currentPrice -> {
-                var quantity = BigDecimal.valueOf(position.getQuantity());
-                var marketValue = currentPrice.multiply(quantity);
-                var costBasis = position.getAverageCost().multiply(quantity);
-                var unrealizedPnl = marketValue.subtract(costBasis);
-                var totalReturn = calculateReturnPercentage(position.getAverageCost(), currentPrice);
-                
-                log.debug("Accumulated position {}: market={}, cost={}, pnl={}", 
-                    position.getSymbol(), marketValue, costBasis, unrealizedPnl);
-                    
-                return new ValuationAccumulator(
-                    accumulator.totalValue().add(marketValue),
-                    accumulator.positionsValue().add(marketValue),
-                    accumulator.unrealizedPnl().add(unrealizedPnl),
-                    accumulator.realizedPnl().add(position.getRealizedPnl()),
-                    accumulator.dayPnl(), // dayPnl would need previous close price
-                    accumulator.totalReturn().add(totalReturn)
-                );
-            })
-            .orElseGet(() -> {
-                log.warn("Skipping position {} due to missing market price", position.getSymbol());
-                return accumulator;
-            });
-    }
-    
-    private record RealizationResult(
-        BigDecimal realizedPnl,
-        BigDecimal averageCostBasis,
-        BigDecimal netProceeds,
-        List<TaxLotInfo> taxLotsUsed
-    ) {}
-    
-    private RealizationResult processRealization(List<TaxLotInfo> taxLots, Integer quantity, 
-                                               BigDecimal price, CostBasisMethod method) {
-        // Implementation needed
-        return new RealizationResult(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
-    }
-    
-    private void processFifoSale(Deque<PortfolioTransaction> queue, PortfolioTransaction sale, List<TaxLotInfo> lots) {
-        // Implementation needed
-    }
-    
-    private void processLifoSale(Deque<PortfolioTransaction> stack, PortfolioTransaction sale, List<TaxLotInfo> lots) {
-        // Implementation needed
-    }
-    
-    private TaxLotInfo transactionToTaxLot(PortfolioTransaction transaction) {
-        return new TaxLotInfo(
-            transaction.getPrice(),
-            transaction.getQuantity(),
-            transaction.getExecutedAt(),
-            transaction.getExecutedAt()
-        );
-    }
-    
-    // Additional helper methods implemented for completeness
-    
-    private BigDecimal calculateWeightedAverageFromTransactions(List<PortfolioTransaction> transactions) {
-        var totalCost = transactions.stream()
-            .filter(t -> t.getTransactionType() == TransactionType.BUY)
-            .map(t -> t.getPrice().multiply(BigDecimal.valueOf(t.getQuantity())))
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-            
-        var totalQuantity = transactions.stream()
-            .filter(t -> t.getTransactionType() == TransactionType.BUY)
-            .mapToInt(PortfolioTransaction::getQuantity)
-            .sum();
-            
-        return totalQuantity > 0 ? 
-            totalCost.divide(BigDecimal.valueOf(totalQuantity), PRECISION) :
-            BigDecimal.ZERO;
-    }
-    
-    private Integer calculateTotalQuantity(List<PortfolioTransaction> transactions) {
+
+    // Rule #5: Extracted method - complexity: 2
+    private BigDecimal calculateRealizedPnl(List<PortfolioTransaction> transactions) {
         return transactions.stream()
-            .mapToInt(t -> t.getTransactionType() == TransactionType.BUY ? 
-                t.getQuantity() : -t.getQuantity())
-            .sum();
+            .filter(txn -> txn.getRealizedPnl() != null)
+            .map(PortfolioTransaction::getRealizedPnl)
+            .reduce(ZERO, BigDecimal::add);
     }
-    
-    private BigDecimal calculatePositionUnrealizedPnL(Position position) {
-        return getCurrentMarketPrice(position.getSymbol())
-            .map(price -> calculateUnrealizedPnLInternal(position, price))
-            .orElse(BigDecimal.ZERO);
-    }
-    
-    // Stub implementations for interface methods that would be fully implemented
-    
-    private BigDecimal calculateTotalReturn(Long portfolioId, Instant fromDate, Instant toDate) {
-        return BigDecimal.ZERO; // Implementation would calculate actual total return
-    }
-    
-    private Map<String, BigDecimal> calculateSectorBreakdown(Long portfolioId, Instant fromDate, Instant toDate) {
-        return Map.of(); // Implementation would calculate sector breakdown
-    }
-    
-    private AttributionFactors calculateAttributionFactors(Long portfolioId, Instant fromDate, Instant toDate) {
-        return new AttributionFactors(
-            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
+
+    // Rule #5: Extracted method - complexity: 3
+    private PnLBreakdown buildPnLBreakdown(Long portfolioId, Instant fromDate, Instant toDate,
+                                            PnLComponents components) {
+        return new PnLBreakdown(
+            portfolioId,
+            fromDate,
+            toDate,
+            components.totalPnl(),
+            components.realizedPnl(),
+            components.unrealizedPnl(),
+            components.dividendIncome(),
+            components.interestIncome(),
+            components.fees().totalFees(),
+            components.fees().totalCommissions(),
+            components.fees().totalTaxes(),
+            components.netPnl(),
+            List.of(),  // securityBreakdown - empty for now
+            List.of(),  // sectorBreakdown - empty for now
+            Instant.now()
         );
     }
-    
-    private CostBasisUpdateResult updateWeightedAverageCost(Position position, Integer tradeQuantity, BigDecimal tradePrice) {
-        return new CostBasisUpdateResult(position.getAverageCost(), tradePrice);
+
+    // Rule #9: Immutable record for P&L component aggregation
+    private record PnLComponents(
+        BigDecimal realizedPnl,
+        BigDecimal unrealizedPnl,
+        BigDecimal dividendIncome,
+        BigDecimal interestIncome,
+        FeesCalculationResult fees,
+        BigDecimal totalPnl,
+        BigDecimal netPnl
+    ) {}
+
+    private BigDecimal calculateTransactionFees(PortfolioTransaction txn) {
+        return Optional.ofNullable(txn.getCommission()).orElse(ZERO)
+            .add(Optional.ofNullable(txn.getTax()).orElse(ZERO))
+            .add(Optional.ofNullable(txn.getOtherFees()).orElse(ZERO));
     }
-    
-    private CostBasisUpdateResult updateFifoCost(Position position, Integer tradeQuantity, BigDecimal tradePrice) {
-        return new CostBasisUpdateResult(position.getAverageCost(), tradePrice);
+
+    // ==================== PERFORMANCE ATTRIBUTION ====================
+
+    @Override
+    public PerformanceAttribution calculatePerformanceAttribution(Long portfolioId, Instant fromDate, Instant toDate) {
+        // Simplified implementation - full attribution requires benchmark data
+        BigDecimal totalReturn = calculatePortfolioReturn(portfolioId, fromDate, toDate);
+
+        return new PerformanceAttribution(
+            portfolioId,
+            fromDate,
+            toDate,
+            totalReturn,
+            ZERO,
+            ZERO,
+            ZERO,
+            ZERO,
+            List.of(),
+            Instant.now()
+        );
     }
-    
-    private CostBasisUpdateResult updateLifoCost(Position position, Integer tradeQuantity, BigDecimal tradePrice) {
-        return new CostBasisUpdateResult(position.getAverageCost(), tradePrice);
+
+    private BigDecimal calculatePortfolioReturn(Long portfolioId, Instant fromDate, Instant toDate) {
+        return portfolioRepository.findById(portfolioId)
+            .map(portfolio -> calculateTotalReturnPercentage(
+                portfolio.getTotalValue(),
+                portfolio.getCashBalance()
+            ))
+            .orElse(ZERO);
     }
-    
-    private List<BigDecimal> getDailyReturns(Long portfolioId, Integer periodDays) {
-        return List.of(); // Implementation would get actual daily returns
+
+    // ==================== TRADE IMPACT ANALYSIS ====================
+
+    @Override
+    public PnLImpactAnalysis calculateTradeImpact(Long portfolioId, String symbol, Integer quantity, BigDecimal price) {
+        return positionRepository.findByPortfolioIdAndSymbol(portfolioId, symbol)
+            .map(position -> buildTradeImpactAnalysis(position, quantity, price))
+            .orElse(buildNewPositionImpactAnalysis(quantity, price));
     }
-    
-    private BigDecimal calculateSharpeFromReturns(List<BigDecimal> returns, BigDecimal riskFreeRate) {
-        return BigDecimal.ZERO; // Implementation would calculate Sharpe ratio
+
+    private PnLImpactAnalysis buildTradeImpactAnalysis(Position position, Integer quantity, BigDecimal price) {
+        BigDecimal currentUnrealizedPnl = calculatePositionUnrealizedPnL(position);
+        BigDecimal projectedRealizedPnl = quantity < 0
+            ? calculateRealizedPnLForSale(position.getAverageCost(), price, -quantity)
+            : ZERO;
+
+        return new PnLImpactAnalysis(
+            currentUnrealizedPnl,
+            projectedRealizedPnl,
+            ZERO,
+            projectedRealizedPnl,
+            ZERO,
+            position.getAverageCost(),
+            "NORMAL"
+        );
     }
-    
-    private List<BigDecimal> getDailyPortfolioValues(Long portfolioId, Integer periodDays) {
-        return List.of(); // Implementation would get daily values
+
+    private PnLImpactAnalysis buildNewPositionImpactAnalysis(Integer quantity, BigDecimal price) {
+        return new PnLImpactAnalysis(
+            ZERO, ZERO, ZERO, ZERO, ZERO, price, "NEW_POSITION"
+        );
     }
-    
-    private List<DailyPnLPoint> generateDailyPnLPoints(Long portfolioId, Instant startDate, Instant endDate) {
-        return List.of(); // Implementation would generate daily P&L points
+
+    // ==================== MONTHLY P&L SUMMARY ====================
+
+    @Override
+    @Cacheable(value = "monthly-pnl", key = "#portfolioId + '_' + #year")
+    public List<MonthlyPnLSummary> getMonthlyPnLSummary(Long portfolioId, Integer year) {
+        Instant startOfYear = LocalDate.of(year, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant endOfYear = LocalDate.of(year, 12, 31).atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
+
+        List<PortfolioTransaction> transactions = transactionRepository
+            .findByPortfolioIdAndExecutionTimeBetween(portfolioId, startOfYear, endOfYear);
+
+        return buildMonthlyPnLSummaries(transactions, year);
     }
-    
-    private PnLTrendAnalysis calculateTrendMetrics(Long portfolioId, Integer periodDays, List<DailyPnLPoint> dailyPoints) {
-        return new PnLTrendAnalysis(portfolioId, periodDays, dailyPoints, BigDecimal.ZERO, "STABLE");
+
+    private List<MonthlyPnLSummary> buildMonthlyPnLSummaries(List<PortfolioTransaction> transactions, Integer year) {
+        Map<Integer, List<PortfolioTransaction>> byMonth = transactions.stream()
+            .collect(Collectors.groupingBy(txn ->
+                txn.getExecutedAt().atZone(ZoneOffset.UTC).getMonthValue()
+            ));
+
+        return byMonth.entrySet().stream()
+            .map(entry -> buildMonthlySummary(year, entry.getKey(), entry.getValue()))
+            .sorted(Comparator.comparing(MonthlyPnLSummary::month))
+            .toList();
     }
-    
+
+    private MonthlyPnLSummary buildMonthlySummary(Integer year, Integer month, List<PortfolioTransaction> transactions) {
+        BigDecimal realizedPnl = transactions.stream()
+            .filter(txn -> txn.getRealizedPnl() != null)
+            .map(PortfolioTransaction::getRealizedPnl)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal fees = transactions.stream()
+            .map(this::calculateTransactionFees)
+            .reduce(ZERO, BigDecimal::add);
+
+        return new MonthlyPnLSummary(
+            year,
+            month,
+            realizedPnl,
+            transactions.size(),
+            fees
+        );
+    }
+
+    // ==================== INCOME CALCULATIONS ====================
+
+    @Override
+    public IncomeCalculationResult calculateIncome(Long portfolioId, Instant fromDate, Instant toDate) {
+        List<PortfolioTransaction> incomeTransactions = transactionRepository
+            .findByPortfolioIdAndExecutionTimeBetweenAndTransactionTypeIn(
+                portfolioId, fromDate, toDate,
+                List.of(TransactionType.DIVIDEND, TransactionType.INTEREST)
+            );
+
+        return buildIncomeCalculationResult(incomeTransactions);
+    }
+
+    private IncomeCalculationResult buildIncomeCalculationResult(List<PortfolioTransaction> transactions) {
+        BigDecimal dividends = transactions.stream()
+            .filter(txn -> txn.getTransactionType() == TransactionType.DIVIDEND)
+            .map(PortfolioTransaction::getAmount)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal interest = transactions.stream()
+            .filter(txn -> txn.getTransactionType() == TransactionType.INTEREST)
+            .map(PortfolioTransaction::getAmount)
+            .reduce(ZERO, BigDecimal::add);
+
+        int dividendPayments = (int) transactions.stream()
+            .filter(txn -> txn.getTransactionType() == TransactionType.DIVIDEND)
+            .count();
+
+        int interestPayments = (int) transactions.stream()
+            .filter(txn -> txn.getTransactionType() == TransactionType.INTEREST)
+            .count();
+
+        return new IncomeCalculationResult(
+            dividends,
+            interest,
+            dividends.add(interest),
+            dividendPayments,
+            interestPayments,
+            List.of()
+        );
+    }
+
+    // ==================== FEES CALCULATIONS ====================
+
+    @Override
+    public FeesCalculationResult calculateFees(Long portfolioId, Instant fromDate, Instant toDate) {
+        List<PortfolioTransaction> transactions = transactionRepository
+            .findByPortfolioIdAndExecutionTimeBetween(portfolioId, fromDate, toDate);
+
+        return buildFeesCalculationResult(transactions);
+    }
+
+    private FeesCalculationResult buildFeesCalculationResult(List<PortfolioTransaction> transactions) {
+        BigDecimal commissions = transactions.stream()
+            .map(txn -> Optional.ofNullable(txn.getCommission()).orElse(ZERO))
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal taxes = transactions.stream()
+            .map(txn -> Optional.ofNullable(txn.getTax()).orElse(ZERO))
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal otherFees = transactions.stream()
+            .map(txn -> Optional.ofNullable(txn.getOtherFees()).orElse(ZERO))
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal totalFees = commissions.add(taxes).add(otherFees);
+        BigDecimal avgFeePerTrade = transactions.size() > 0
+            ? totalFees.divide(new BigDecimal(transactions.size()), PRECISION)
+            : ZERO;
+
+        return new FeesCalculationResult(
+            commissions,
+            taxes,
+            otherFees,
+            totalFees,
+            transactions.size(),
+            avgFeePerTrade,
+            ZERO
+        );
+    }
+
+    // ==================== P&L VALIDATION ====================
+
+    @Override
+    public PnLValidationResult validatePnLCalculation(Long portfolioId) {
+        BigDecimal calculatedPnl = calculateTotalPnL(portfolioId);
+        BigDecimal expectedPnl = calculateExpectedPnL(portfolioId);
+        BigDecimal variance = calculatedPnl.subtract(expectedPnl).abs();
+        BigDecimal threshold = expectedPnl.multiply(BigDecimal.valueOf(0.01)); // 1% tolerance
+
+        return new PnLValidationResult(
+            variance.compareTo(threshold) <= 0,
+            calculatedPnl,
+            expectedPnl,
+            variance,
+            threshold,
+            List.of(),
+            Instant.now()
+        );
+    }
+
     private BigDecimal calculateTotalPnL(Long portfolioId) {
-        return BigDecimal.ZERO; // Implementation would calculate total P&L
+        return positionRepository.findByPortfolioId(portfolioId)
+            .stream()
+            .map(Position::getTotalPnl)
+            .reduce(ZERO, BigDecimal::add);
     }
-    
+
     private BigDecimal calculateExpectedPnL(Long portfolioId) {
-        return BigDecimal.ZERO; // Implementation would calculate expected P&L
+        return portfolioRepository.findById(portfolioId)
+            .map(portfolio -> portfolio.getRealizedPnl().add(portfolio.getUnrealizedPnl()))
+            .orElse(ZERO);
     }
-    
-    private List<String> findPnLDiscrepancies(Long portfolioId) {
-        return List.of(); // Implementation would find discrepancies
+
+    // ==================== P&L TREND ANALYSIS ====================
+
+    @Override
+    public PnLTrendAnalysis getPnLTrend(Long portfolioId, Integer periodDays) {
+        Instant endDate = Instant.now();
+        Instant startDate = endDate.minus(periodDays, ChronoUnit.DAYS);
+
+        List<DailyPnLPoint> dailyPoints = generateDailyPnLPoints(portfolioId, startDate, endDate);
+
+        return buildPnLTrendAnalysis(portfolioId, periodDays, dailyPoints);
     }
-    
-    private PnLAttributionReport createComprehensivePnLReport(Long portfolioId, Instant fromDate, Instant toDate) {
-        return new PnLAttributionReport(portfolioId, fromDate, toDate, Map.of(), Map.of(), Instant.now());
+
+    private List<DailyPnLPoint> generateDailyPnLPoints(Long portfolioId, Instant startDate, Instant endDate) {
+        // Simplified - would need historical data for accurate daily points
+        return List.of();
     }
-    
-    // Helper records for missing types
-    private record AttributionFactors(
-        BigDecimal securitySelection,
-        BigDecimal assetAllocation,
-        BigDecimal timingEffect,
-        BigDecimal interactionEffect
-    ) {}
-    
-    private record CostBasisUpdateResult(
-        BigDecimal oldCostBasis,
-        BigDecimal newCostBasis
-    ) {}
-    
-    private record DrawdownCalculator(BigDecimal maxDrawdown) {
-        DrawdownCalculator() { this(BigDecimal.ZERO); }
-        
-        static DrawdownCalculator update(DrawdownCalculator acc, BigDecimal value) {
-            return acc; // Implementation would update drawdown calculation
-        }
-        
-        static DrawdownCalculator combine(DrawdownCalculator a, DrawdownCalculator b) {
-            return a; // Implementation would combine calculations
-        }
-        
-        BigDecimal getMaxDrawdown() { return maxDrawdown; }
+
+    private PnLTrendAnalysis buildPnLTrendAnalysis(Long portfolioId, Integer periodDays, List<DailyPnLPoint> dailyPoints) {
+        return new PnLTrendAnalysis(
+            portfolioId,
+            periodDays,
+            ZERO,
+            ZERO,
+            ZERO,
+            ZERO,
+            ZERO,
+            0,
+            0,
+            dailyPoints
+        );
     }
-    
-    private record DailyPnLPoint(
-        Instant date,
-        BigDecimal pnl,
-        BigDecimal cumulativePnl
-    ) {}
-    
-    private record PnLTrendAnalysis(
-        Long portfolioId,
-        Integer periodDays,
-        List<DailyPnLPoint> dailyPoints,
-        BigDecimal trendSlope,
-        String trendDirection
-    ) {}
-    
-    private record PnLAttributionReport(
-        Long portfolioId,
-        Instant fromDate,
-        Instant toDate,
-        Map<String, BigDecimal> sectorAttribution,
-        Map<String, BigDecimal> securityAttribution,
-        Instant generatedAt
-    ) {}
+
+    // ==================== RISK METRICS ====================
+
+    @Override
+    public BigDecimal calculateSharpeRatio(Long portfolioId, BigDecimal riskFreeRate, Integer periodDays) {
+        // Simplified - requires historical returns data
+        return ZERO;
+    }
+
+    @Override
+    public BigDecimal calculateMaxDrawdown(Long portfolioId, Integer periodDays) {
+        // Simplified - requires historical value data
+        return ZERO;
+    }
+
+    // ==================== P&L REPORT ====================
+
+    @Override
+    public CompletableFuture<PnLAttributionReport> generatePnLReport(Long portfolioId, Instant fromDate, Instant toDate) {
+        return CompletableFuture.supplyAsync(
+            () -> buildPnLReport(portfolioId, fromDate, toDate),
+            VIRTUAL_EXECUTOR
+        );
+    }
+
+    private PnLAttributionReport buildPnLReport(Long portfolioId, Instant fromDate, Instant toDate) {
+        List<PositionPnLMetrics> positionBreakdown = calculatePositionPnLMetrics(portfolioId);
+        PerformanceAttribution attribution = calculatePerformanceAttribution(portfolioId, fromDate, toDate);
+
+        BigDecimal totalPnl = positionBreakdown.stream()
+            .map(PositionPnLMetrics::totalPnl)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal realizedPnl = positionBreakdown.stream()
+            .map(PositionPnLMetrics::realizedPnl)
+            .reduce(ZERO, BigDecimal::add);
+
+        BigDecimal unrealizedPnl = positionBreakdown.stream()
+            .map(PositionPnLMetrics::unrealizedPnl)
+            .reduce(ZERO, BigDecimal::add);
+
+        IncomeCalculationResult income = calculateIncome(portfolioId, fromDate, toDate);
+        FeesCalculationResult fees = calculateFees(portfolioId, fromDate, toDate);
+
+        return new PnLAttributionReport(
+            portfolioId,
+            fromDate,
+            toDate,
+            totalPnl,
+            realizedPnl,
+            unrealizedPnl,
+            income.totalIncome(),
+            fees.totalFees(),
+            positionBreakdown,
+            List.of(),
+            attribution,
+            Instant.now()
+        );
+    }
 }

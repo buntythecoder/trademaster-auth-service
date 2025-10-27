@@ -217,4 +217,31 @@ public class Portfolio {
     public void resetDayTradesCount() {
         this.dayTradesCount = 0;
     }
+
+    /**
+     * Convenience alias for getPortfolioId() for backward compatibility
+     *
+     * Rule #18: Provide getId() alias for common usage patterns
+     */
+    public Long getId() {
+        return portfolioId;
+    }
+
+    /**
+     * Get total return (absolute P&L amount)
+     *
+     * Rule #18: Meaningful method name for total return amount
+     */
+    public BigDecimal getTotalReturn() {
+        return getTotalPnl();
+    }
+
+    /**
+     * Convenience alias for getMarginBalance() for backward compatibility
+     *
+     * Rule #18: Provide getMarginUsed() alias for common usage patterns
+     */
+    public BigDecimal getMarginUsed() {
+        return marginBalance;
+    }
 }

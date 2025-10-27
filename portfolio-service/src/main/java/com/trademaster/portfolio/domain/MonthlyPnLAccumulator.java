@@ -74,20 +74,37 @@ public record MonthlyPnLAccumulator(
     }
     
     /**
-     * Convert to summary record
+     * Convert to summary record.
+     *
+     * Pattern: Record construction with functional defaults
+     * Rule #9: Immutable record construction
+     *
+     * @param portfolioId Portfolio identifier
+     * @param year Year for the summary
+     * @param month Month for the summary
+     * @return Complete monthly PnL summary
      */
-    public MonthlyPnLSummary toSummary(Integer year, Integer month) {
+    public MonthlyPnLSummary toSummary(Long portfolioId, Integer year, Integer month) {
         return new MonthlyPnLSummary(
-            year,
-            month,
+            portfolioId,
+            java.time.YearMonth.of(year, month),
+            BigDecimal.ZERO,  // openingValue - not tracked by accumulator
+            BigDecimal.ZERO,  // closingValue - not tracked by accumulator
+            BigDecimal.ZERO,  // monthlyReturn - not tracked by accumulator
             this.realizedPnl,
             this.unrealizedPnl,
             this.realizedPnl.add(this.unrealizedPnl),
-            this.tradingVolume,
-            this.fees,
-            this.transactionCount,
-            this.firstTransaction,
-            this.lastTransaction
+            BigDecimal.ZERO,  // netDeposits - not tracked by accumulator
+            0,  // tradingDays - not tracked by accumulator
+            BigDecimal.ZERO,  // averageDailyPnL - not tracked by accumulator
+            null,  // bestDay - not tracked by accumulator
+            null,  // worstDay - not tracked by accumulator
+            0,  // winningDays - not tracked by accumulator
+            0,  // losingDays - not tracked by accumulator
+            java.util.List.of(),  // topPerformers - not tracked by accumulator
+            java.util.List.of(),  // topLosers - not tracked by accumulator
+            BigDecimal.ZERO,  // monthlyBeta - not tracked by accumulator
+            BigDecimal.ZERO   // sharpeRatio - not tracked by accumulator
         );
     }
 }

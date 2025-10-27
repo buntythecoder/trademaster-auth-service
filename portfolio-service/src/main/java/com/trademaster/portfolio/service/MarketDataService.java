@@ -67,7 +67,17 @@ public interface MarketDataService {
      * Unsubscribe from price updates
      */
     CompletableFuture<Result<Void, MarketDataError>> unsubscribeFromPriceUpdates(String subscriptionId);
-    
+
+    /**
+     * Calculate return percentage for a symbol between two dates
+     *
+     * @param symbol Stock symbol
+     * @param fromDate Start date
+     * @param toDate End date
+     * @return Return percentage as BigDecimal
+     */
+    BigDecimal calculateReturn(String symbol, java.time.Instant fromDate, java.time.Instant toDate);
+
     /**
      * Price data record for historical analysis
      */

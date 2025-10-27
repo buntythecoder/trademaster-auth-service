@@ -1,6 +1,12 @@
 package com.trademaster.portfolio.service;
 
+import com.trademaster.portfolio.dto.AssetAllocation;
+import com.trademaster.portfolio.dto.ExchangeDistribution;
+import com.trademaster.portfolio.dto.HoldingPeriod;
 import com.trademaster.portfolio.dto.MarketDataUpdate;
+import com.trademaster.portfolio.dto.PositionConcentration;
+import com.trademaster.portfolio.dto.PositionMetrics;
+import com.trademaster.portfolio.dto.PositionStatistics;
 import com.trademaster.portfolio.dto.PositionUpdateRequest;
 import com.trademaster.portfolio.dto.TradeExecutionRequest;
 import com.trademaster.portfolio.entity.Position;
@@ -274,80 +280,3 @@ public interface PositionService {
      */
     Long countPositionsBySymbol(String symbol);
 }
-
-/**
- * Position Concentration DTO
- */
-record PositionConcentration(
-    String symbol,
-    BigDecimal marketValue,
-    BigDecimal concentrationPercent,
-    String riskLevel,
-    boolean exceedsThreshold
-) {}
-
-/**
- * Position Metrics DTO
- */
-record PositionMetrics(
-    Long portfolioId,
-    Integer totalPositions,
-    Integer profitablePositions,
-    Integer losingPositions,
-    BigDecimal totalMarketValue,
-    BigDecimal totalUnrealizedPnl,
-    BigDecimal averageUnrealizedPnl,
-    BigDecimal bestPerformer,
-    BigDecimal worstPerformer,
-    BigDecimal concentrationRisk,
-    Instant calculatedAt
-) {}
-
-/**
- * Asset Allocation DTO
- */
-record AssetAllocation(
-    String instrumentType,
-    Integer positionCount,
-    BigDecimal totalValue,
-    BigDecimal totalUnrealizedPnl,
-    BigDecimal averageUnrealizedPnl,
-    BigDecimal allocationPercent
-) {}
-
-/**
- * Exchange Distribution DTO
- */
-record ExchangeDistribution(
-    String exchange,
-    Integer positionCount,
-    BigDecimal totalValue,
-    BigDecimal averageReturnPercent,
-    BigDecimal allocationPercent
-) {}
-
-/**
- * Holding Period DTO
- */
-record HoldingPeriod(
-    String symbol,
-    Integer averageHoldingDays,
-    BigDecimal totalReturn,
-    String holdingCategory
-) {}
-
-/**
- * Position Statistics DTO
- */
-record PositionStatistics(
-    Integer totalPositions,
-    Integer profitablePositions,
-    Integer losingPositions,
-    BigDecimal totalMarketValue,
-    BigDecimal totalUnrealizedPnl,
-    BigDecimal averagePositionSize,
-    BigDecimal largestPosition,
-    BigDecimal smallestPosition,
-    Double winRate,
-    Instant calculatedAt
-) {}

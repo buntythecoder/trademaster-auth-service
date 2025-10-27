@@ -55,7 +55,30 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
      */
     @Query("SELECT p FROM Portfolio p WHERE p.userId = :userId ORDER BY p.createdAt DESC")
     List<Portfolio> findAllByUserId(@Param("userId") Long userId);
-    
+
+    /**
+     * Find portfolios for user with pagination support
+     * Rule #3: Functional query with pagination
+     * Rule #22: Performance optimized with indexed userId
+     */
+    @Query("SELECT p FROM Portfolio p WHERE p.userId = :userId ORDER BY p.updatedAt DESC")
+    org.springframework.data.domain.Page<Portfolio> findAllByUserIdPageable(
+        @Param("userId") Long userId,
+        org.springframework.data.domain.Pageable pageable
+    );
+
+    /**
+     * Find portfolios for user by status with pagination support
+     * Rule #3: Functional query with filtering and pagination
+     * Rule #22: Performance optimized with composite index
+     */
+    @Query("SELECT p FROM Portfolio p WHERE p.userId = :userId AND p.status = :status ORDER BY p.updatedAt DESC")
+    org.springframework.data.domain.Page<Portfolio> findByUserIdAndStatusPageable(
+        @Param("userId") Long userId,
+        @Param("status") PortfolioStatus status,
+        org.springframework.data.domain.Pageable pageable
+    );
+
     /**
      * Find portfolios by status with pagination support
      */
@@ -99,7 +122,7 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     /**
      * Update portfolio valuation - optimized for high frequency updates
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Portfolio p 
         SET p.totalValue = :totalValue, 
@@ -117,7 +140,7 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     /**
      * Update cash balance - atomic operation
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Portfolio p 
         SET p.cashBalance = p.cashBalance + :amount 
@@ -131,7 +154,7 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     /**
      * Add realized P&L - atomic operation
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Portfolio p 
         SET p.realizedPnl = p.realizedPnl + :pnl,
@@ -147,7 +170,7 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     /**
      * Update day trades count - for PDT compliance
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE Portfolio p 
         SET p.dayTradesCount = p.dayTradesCount + 1 
@@ -156,11 +179,34 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     int incrementDayTradesCount(@Param("portfolioId") Long portfolioId);
     
     /**
-     * Reset day trades count - scheduled daily
+     * Reset day trades count for active portfolios - scheduled daily
+     * Rule #3: Functional query with proper filtering
+     * Rule #16: Configurable reset based on status
+     *
+     * @return Number of portfolios updated
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Portfolio p SET p.dayTradesCount = 0 WHERE p.status = 'ACTIVE'")
+    int resetDayTradesCount();
+
+    /**
+     * Reset all day trades count - administrative operation
+     * Rule #3: Functional query without conditionals
+     */
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE Portfolio p SET p.dayTradesCount = 0")
     int resetAllDayTradesCount();
+
+    /**
+     * Find portfolios exceeding day trade count threshold
+     * Rule #3: Functional query with stream-friendly result
+     * Rule #13: Optimized for Stream API processing
+     *
+     * @param count Minimum day trade count threshold
+     * @return List of portfolios exceeding the threshold
+     */
+    @Query("SELECT p FROM Portfolio p WHERE p.dayTradesCount > :count AND p.status = 'ACTIVE' ORDER BY p.dayTradesCount DESC")
+    List<Portfolio> findByDayTradesCountGreaterThan(@Param("count") int count);
     
     /**
      * Find portfolios approaching risk limits
@@ -213,7 +259,7 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     /**
      * Bulk update portfolio statuses - administrative operation
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE Portfolio p SET p.status = :newStatus WHERE p.status = :currentStatus")
     int bulkUpdateStatus(
         @Param("currentStatus") PortfolioStatus currentStatus,
@@ -264,10 +310,39 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     Long countActivePortfolios();
     
     /**
-     * Get total AUM (Assets Under Management)
+     * Calculate total AUM (Assets Under Management) - Rule #3 Functional
+     * Used by PortfolioServiceImpl for metrics tracking
+     *
+     * @return Total assets under management across all active portfolios
+     */
+    @Query("SELECT COALESCE(SUM(p.cashBalance + p.totalValue), 0) FROM Portfolio p WHERE p.status = 'ACTIVE'")
+    BigDecimal calculateTotalAUM();
+
+    /**
+     * Get total AUM (Assets Under Management) - Alternative method
      */
     @Query("SELECT COALESCE(SUM(p.totalValue), 0) FROM Portfolio p WHERE p.status = 'ACTIVE'")
     BigDecimal getTotalAssetsUnderManagement();
+
+    /**
+     * Calculate AUM for specific user - Rule #3 Functional
+     * Rule #13: Stream-friendly single result
+     *
+     * @param userId User identifier
+     * @return Total AUM for user's active portfolios
+     */
+    @Query("SELECT COALESCE(SUM(p.cashBalance + p.totalValue), 0) FROM Portfolio p WHERE p.userId = :userId AND p.status = 'ACTIVE'")
+    BigDecimal calculateAUMByUserId(@Param("userId") Long userId);
+
+    /**
+     * Find top portfolios by AUM - Rule #3 Functional, Rule #22 Performance
+     * Optimized query with LIMIT for performance
+     *
+     * @param pageable Pagination parameters with limit
+     * @return Top N portfolios sorted by total value
+     */
+    @Query("SELECT p FROM Portfolio p WHERE p.status = 'ACTIVE' ORDER BY (p.cashBalance + p.totalValue) DESC")
+    List<Portfolio> findTopPortfoliosByAUM(org.springframework.data.domain.Pageable pageable);
     
     /**
      * Find portfolios by currency
@@ -279,14 +354,86 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
      * Get portfolio creation statistics
      */
     @Query(value = """
-        SELECT 
+        SELECT
             DATE(created_at) as creation_date,
             COUNT(*) as portfolios_created,
             AVG(total_value) as avg_initial_value
-        FROM portfolios 
+        FROM portfolios
         WHERE created_at >= :fromDate
         GROUP BY DATE(created_at)
         ORDER BY creation_date DESC
         """, nativeQuery = true)
     List<Object[]> getPortfolioCreationStatistics(@Param("fromDate") Instant fromDate);
+
+    // ==================== TASK 1.3: PERFORMANCE QUERY METHODS ====================
+    // Rule #3: Functional Programming - No if-else, pure queries
+    // Rule #13: Stream API Mastery - Optimized for stream processing
+    // Rule #22: Performance Standards - Indexed queries <50ms
+
+    /**
+     * Find portfolios with return greater than threshold
+     * Rule #3: Functional query for high-performance filtering
+     * Rule #22: Optimized with ORDER BY for top performers
+     *
+     * @param minReturn Minimum total return percentage threshold
+     * @return Portfolios exceeding return threshold, sorted by performance
+     */
+    @Query("""
+        SELECT p FROM Portfolio p
+        WHERE ((p.realizedPnl + p.unrealizedPnl) / NULLIF(p.totalCost, 0) * 100) > :minReturn
+        AND p.status = 'ACTIVE'
+        AND p.totalCost > 0
+        ORDER BY ((p.realizedPnl + p.unrealizedPnl) / p.totalCost) DESC
+        """)
+    List<Portfolio> findByReturnGreaterThan(@Param("minReturn") BigDecimal minReturn);
+
+    /**
+     * Calculate average return across all active portfolios
+     * Rule #3: Functional aggregation with null safety
+     * Rule #9: Returns immutable BigDecimal result
+     *
+     * @return Average portfolio return percentage
+     */
+    @Query("""
+        SELECT COALESCE(AVG((p.realizedPnl + p.unrealizedPnl) / NULLIF(p.totalCost, 0) * 100), 0)
+        FROM Portfolio p
+        WHERE p.status = 'ACTIVE' AND p.totalCost > 0
+        """)
+    BigDecimal calculateAverageReturn();
+
+    /**
+     * Find portfolios with negative returns (losses)
+     * Rule #3: Functional query with natural filtering
+     * Rule #13: Stream-optimized for further processing
+     *
+     * @return Portfolios with losses, sorted by severity
+     */
+    @Query("""
+        SELECT p FROM Portfolio p
+        WHERE (p.realizedPnl + p.unrealizedPnl) < 0
+        AND p.status = 'ACTIVE'
+        ORDER BY (p.realizedPnl + p.unrealizedPnl) ASC
+        """)
+    List<Portfolio> findPortfoliosWithLoss();
+
+    /**
+     * Find portfolios by total return range
+     * Rule #3: Functional range query
+     * Rule #22: Performance optimized with calculated field
+     *
+     * @param minReturn Minimum return percentage
+     * @param maxReturn Maximum return percentage
+     * @return Portfolios within return range
+     */
+    @Query("""
+        SELECT p FROM Portfolio p
+        WHERE ((p.realizedPnl + p.unrealizedPnl) / NULLIF(p.totalCost, 0) * 100) BETWEEN :minReturn AND :maxReturn
+        AND p.status = 'ACTIVE'
+        AND p.totalCost > 0
+        ORDER BY ((p.realizedPnl + p.unrealizedPnl) / p.totalCost) DESC
+        """)
+    List<Portfolio> findByReturnRange(
+        @Param("minReturn") BigDecimal minReturn,
+        @Param("maxReturn") BigDecimal maxReturn
+    );
 }

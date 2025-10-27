@@ -2,6 +2,7 @@ package com.trademaster.portfolio.service;
 
 import com.trademaster.portfolio.dto.CreatePortfolioRequest;
 import com.trademaster.portfolio.dto.PortfolioSummary;
+import com.trademaster.portfolio.dto.RebalancingResult;
 import com.trademaster.portfolio.dto.UpdatePortfolioRequest;
 import com.trademaster.portfolio.entity.Portfolio;
 import com.trademaster.portfolio.entity.Position;
@@ -276,17 +277,102 @@ public interface PortfolioService {
     
     /**
      * Initiate portfolio rebalancing
-     * 
+     *
      * @param portfolioId The portfolio ID
      * @param strategy Rebalancing strategy
      * @return Rebalancing result
      */
-    CompletableFuture<Object> initiateRebalancing(Long portfolioId, String strategy);
+    CompletableFuture<RebalancingResult> initiateRebalancing(Long portfolioId, String strategy);
     
     /**
      * Delete portfolio (simple version for controller)
-     * 
+     *
      * @param portfolioId The portfolio ID
      */
     void deletePortfolio(Long portfolioId);
+
+    /**
+     * Get count of active portfolios
+     *
+     * Used for health checks and monitoring to track the number of
+     * portfolios in ACTIVE status across the system.
+     *
+     * @return Count of active portfolios
+     */
+    long getActivePortfoliosCount();
+
+    /**
+     * Update portfolio valuation with explicit values
+     *
+     * @param portfolioId The portfolio ID
+     * @param newValue New total portfolio value
+     * @param newUnrealizedPnl New unrealized P&L
+     * @return Updated portfolio
+     */
+    Portfolio updateValuation(Long portfolioId, BigDecimal newValue, BigDecimal newUnrealizedPnl);
+
+    /**
+     * Update portfolio cash balance (simple version)
+     *
+     * @param portfolioId The portfolio ID
+     * @param amount Transaction amount
+     * @return Updated portfolio
+     */
+    Portfolio updateCashBalance(Long portfolioId, BigDecimal amount);
+
+    /**
+     * Increment day trades count for portfolio
+     *
+     * @param portfolioId The portfolio ID
+     * @return New day trades count
+     */
+    int incrementDayTradesCount(Long portfolioId);
+
+    /**
+     * Check if portfolio is approaching day trade limit
+     *
+     * @param portfolioId The portfolio ID
+     * @return true if approaching limit (3 or more day trades)
+     */
+    boolean isApproachingDayTradeLimit(Long portfolioId);
+
+    /**
+     * Activate a suspended or closed portfolio
+     *
+     * @param portfolioId The portfolio ID
+     * @return Activated portfolio
+     */
+    Portfolio activatePortfolio(Long portfolioId);
+
+    /**
+     * Close a portfolio
+     *
+     * @param portfolioId The portfolio ID
+     * @return Closed portfolio
+     */
+    Portfolio closePortfolio(Long portfolioId);
+
+    /**
+     * Suspend a portfolio
+     *
+     * @param portfolioId The portfolio ID
+     * @return Suspended portfolio
+     */
+    Portfolio suspendPortfolio(Long portfolioId);
+
+    /**
+     * Check if portfolio has minimum cash balance
+     *
+     * @param portfolio The portfolio
+     * @return true if has minimum balance
+     */
+    boolean hasMinimumCashBalance(Portfolio portfolio);
+
+    /**
+     * Check if portfolio can trade
+     *
+     * @param portfolio The portfolio
+     * @return true if can trade
+     */
+    boolean canTrade(Portfolio portfolio);
 }

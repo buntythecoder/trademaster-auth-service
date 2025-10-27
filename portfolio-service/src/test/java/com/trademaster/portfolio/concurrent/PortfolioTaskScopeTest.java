@@ -48,7 +48,7 @@ class PortfolioTaskScopeTest {
         
         // Then
         assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getValue()).isEqualTo(expectedResult);
+        assertThat(result.getSuccess().orElseThrow()).isEqualTo(expectedResult);
     }
     
     @Test
@@ -73,10 +73,10 @@ class PortfolioTaskScopeTest {
         
         // Then
         assertThat(result.isFailure()).isTrue();
-        assertThat(result.getError()).isInstanceOf(PortfolioConcurrencyError.TaskTimeout.class);
-        
-        PortfolioConcurrencyError.TaskTimeout timeout = 
-            (PortfolioConcurrencyError.TaskTimeout) result.getError();
+        assertThat(result.getFailure().orElseThrow()).isInstanceOf(PortfolioConcurrencyError.TaskTimeout.class);
+
+        PortfolioConcurrencyError.TaskTimeout timeout =
+            (PortfolioConcurrencyError.TaskTimeout) result.getFailure().orElseThrow();
         assertThat(timeout.operationId()).isEqualTo(operationId);
         assertThat(timeout.timeout()).isEqualTo(shortTimeout);
     }
@@ -88,19 +88,19 @@ class PortfolioTaskScopeTest {
         // Given
         String operationId = "test-failure";
         RuntimeException expectedException = new RuntimeException("Portfolio calculation failed");
-        
+
         // When
-        Result<String, PortfolioConcurrencyError> result = 
+        Result<String, PortfolioConcurrencyError> result =
             PortfolioTaskScope.executeCoordinated(operationId, () -> {
                 throw expectedException;
             });
-        
+
         // Then
         assertThat(result.isFailure()).isTrue();
-        assertThat(result.getError()).isInstanceOf(PortfolioConcurrencyError.TaskFailed.class);
-        
-        PortfolioConcurrencyError.TaskFailed failure = 
-            (PortfolioConcurrencyError.TaskFailed) result.getError();
+        assertThat(result.getFailure().orElseThrow()).isInstanceOf(PortfolioConcurrencyError.TaskFailed.class);
+
+        PortfolioConcurrencyError.TaskFailed failure =
+            (PortfolioConcurrencyError.TaskFailed) result.getFailure().orElseThrow();
         assertThat(failure.operationId()).isEqualTo(operationId);
         assertThat(failure.cause()).isEqualTo(expectedException);
     }
@@ -132,7 +132,7 @@ class PortfolioTaskScopeTest {
         
         // Then
         assertThat(result.isSuccess()).isTrue();
-        CoordinatedResult<String, Integer> coordinated = result.getValue();
+        CoordinatedResult<String, Integer> coordinated = result.getSuccess().orElseThrow();
         assertThat(coordinated.result1()).isEqualTo(expectedResult1);
         assertThat(coordinated.result2()).isEqualTo(expectedResult2);
     }
@@ -144,9 +144,9 @@ class PortfolioTaskScopeTest {
         // Given
         String operationId = "test-parallel-failure";
         RuntimeException expectedException = new RuntimeException("Risk calculation failed");
-        
+
         // When
-        Result<CoordinatedResult<String, Integer>, PortfolioConcurrencyError> result = 
+        Result<CoordinatedResult<String, Integer>, PortfolioConcurrencyError> result =
             PortfolioTaskScope.executeParallel(
                 operationId,
                 () -> {
@@ -158,13 +158,13 @@ class PortfolioTaskScopeTest {
                     throw expectedException;
                 }
             );
-        
+
         // Then
         assertThat(result.isFailure()).isTrue();
-        assertThat(result.getError()).isInstanceOf(PortfolioConcurrencyError.TaskFailed.class);
-        
-        PortfolioConcurrencyError.TaskFailed failure = 
-            (PortfolioConcurrencyError.TaskFailed) result.getError();
+        assertThat(result.getFailure().orElseThrow()).isInstanceOf(PortfolioConcurrencyError.TaskFailed.class);
+
+        PortfolioConcurrencyError.TaskFailed failure =
+            (PortfolioConcurrencyError.TaskFailed) result.getFailure().orElseThrow();
         assertThat(failure.operationId()).contains("task2");
         assertThat(failure.cause()).isEqualTo(expectedException);
     }
@@ -195,7 +195,7 @@ class PortfolioTaskScopeTest {
         
         // Then
         assertThat(result.isFailure()).isTrue();
-        assertThat(result.getError()).isInstanceOf(PortfolioConcurrencyError.TaskTimeout.class);
+        assertThat(result.getFailure().orElseThrow()).isInstanceOf(PortfolioConcurrencyError.TaskTimeout.class);
     }
     
     @Test
@@ -215,7 +215,7 @@ class PortfolioTaskScopeTest {
         
         // Then
         assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getValue()).isEqualTo("Virtual thread confirmed");
+        assertThat(result.getSuccess().orElseThrow()).isEqualTo("Virtual thread confirmed");
     }
     
     @Test
@@ -226,9 +226,10 @@ class PortfolioTaskScopeTest {
         int numberOfOperations = 100;
         
         // When - Execute multiple portfolio operations concurrently using functional approach
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
         CompletableFuture<?>[] futures = java.util.stream.IntStream.range(0, numberOfOperations)
-            .mapToObj(operationIndex -> 
-                CompletableFuture.supplyAsync(() -> 
+            .mapToObj(operationIndex ->
+                CompletableFuture.supplyAsync(() ->
                     PortfolioTaskScope.executeCoordinated(
                         "concurrent-test-" + operationIndex,
                         () -> {
@@ -236,7 +237,7 @@ class PortfolioTaskScopeTest {
                             simulateWork(ThreadLocalRandom.current().nextInt(10, 50));
                             return "Operation " + operationIndex + " completed";
                         }
-                    ), Thread.ofVirtual().factory()
+                    ), executor
                 )
             )
             .toArray(CompletableFuture[]::new);
@@ -251,7 +252,7 @@ class PortfolioTaskScopeTest {
                 Result<String, PortfolioConcurrencyError> result = 
                     (Result<String, PortfolioConcurrencyError>) future.join();
                 assertThat(result.isSuccess()).isTrue();
-                assertThat(result.getValue()).contains("completed");
+                assertThat(result.getSuccess().orElseThrow()).contains("completed");
             });
     }
     
@@ -261,11 +262,11 @@ class PortfolioTaskScopeTest {
     void shouldHandleInterruptionGracefully() {
         // Given
         String operationId = "test-interruption";
-        Thread testThread = Thread.currentThread();
-        
+
         // Start operation in separate thread and interrupt it
-        CompletableFuture<Result<String, PortfolioConcurrencyError>> futureResult = 
-            CompletableFuture.supplyAsync(() -> 
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+        CompletableFuture<Result<String, PortfolioConcurrencyError>> futureResult =
+            CompletableFuture.supplyAsync(() ->
                 PortfolioTaskScope.executeCoordinated(operationId, () -> {
                     try {
                         // Simulate long-running operation
@@ -275,21 +276,33 @@ class PortfolioTaskScopeTest {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted", e);
                     }
-                }), Thread.ofVirtual().factory()
+                }), executor
             );
-        
-        // When - Interrupt after short delay
-        CompletableFuture.runAsync(() -> {
+
+        // When - Cancel the future after short delay
+        CompletableFuture<Void> canceller = CompletableFuture.runAsync(() -> {
             try {
                 Thread.sleep(100);
                 futureResult.cancel(true);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        }, Thread.ofVirtual().factory());
-        
-        // Then - Operation should be cancelled
-        assertThat(futureResult).succeedsWithin(Duration.ofSeconds(3));
+        }, executor);
+
+        // Wait for canceller to complete
+        canceller.join();
+
+        // Then - Operation should be cancelled or completed with failure
+        try {
+            Thread.sleep(500); // Give time for cancellation to propagate
+            assertThat(futureResult).isCompletedExceptionally()
+                .withFailMessage("Future should be cancelled or completed exceptionally");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Test interrupted", e);
+        } finally {
+            executor.shutdown();
+        }
     }
     
     /**
