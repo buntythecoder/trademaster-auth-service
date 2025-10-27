@@ -1,38 +1,36 @@
 package com.trademaster.portfolio.service.impl;
 
 import com.trademaster.portfolio.config.PortfolioLogger;
-import com.trademaster.portfolio.service.PortfolioService;
-import com.trademaster.portfolio.service.PortfolioMetrics;
-import com.trademaster.portfolio.service.PortfolioPerformance;
-import com.trademaster.portfolio.service.PortfolioStatistics;
-import com.trademaster.portfolio.service.*;
-import com.trademaster.portfolio.config.MetricsConfiguration;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import com.trademaster.portfolio.dto.CreatePortfolioRequest;
 import com.trademaster.portfolio.dto.PortfolioSummary;
+import com.trademaster.portfolio.dto.PortfolioValuationResult;
+import com.trademaster.portfolio.dto.RebalancingResult;
 import com.trademaster.portfolio.dto.UpdatePortfolioRequest;
 import com.trademaster.portfolio.entity.Portfolio;
 import com.trademaster.portfolio.entity.Position;
+import com.trademaster.portfolio.functional.Result;
 import com.trademaster.portfolio.model.PortfolioStatus;
 import com.trademaster.portfolio.repository.PortfolioRepository;
 import com.trademaster.portfolio.repository.PositionRepository;
 import com.trademaster.portfolio.service.*;
-import com.trademaster.portfolio.service.PortfolioEventPublisher;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.annotation.Timed;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Map;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
  * Portfolio Service Implementation
@@ -63,10 +61,18 @@ import java.util.concurrent.CompletableFuture;
 @RequiredArgsConstructor
 @Slf4j
 public class PortfolioServiceImpl implements PortfolioService {
-    
+
+    // Rule #17: Constants for circuit breakers, executors, and business rules
     private static final String DATABASE_CB = "database";
     private static final String MARKET_DATA_CB = "marketData";
-    
+    private static final Executor VIRTUAL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
+
+    /**
+     * Rule #17: Business rule constant - Minimum portfolio value for rebalancing operations
+     * Value: $1,000 minimum ensures sufficient liquidity for rebalancing transactions
+     */
+    private static final BigDecimal MIN_REBALANCING_VALUE = new BigDecimal("1000");
+
     private final PortfolioRepository portfolioRepository;
     private final PositionRepository positionRepository;
     private final PortfolioLogger portfolioLogger;
@@ -75,7 +81,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final PortfolioAnalyticsService analyticsService;
     private final PortfolioRiskService riskService;
     private final PortfolioEventPublisher eventPublisher;
-    // private final MetricsConfiguration.PortfolioMetrics portfolioMetrics; // TODO: Fix metrics integration
+    private final com.trademaster.portfolio.config.PortfolioMetrics portfolioMetrics;
     
     @Override
     @Transactional
@@ -83,87 +89,119 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Timed(value = "portfolio.creation", description = "Time to create new portfolio")
     public Portfolio createPortfolio(Long userId, CreatePortfolioRequest request) {
         long startTime = System.currentTimeMillis();
-        portfolioLogger.setCorrelationId();
-        portfolioLogger.setUserContext(userId);
-        
-        try {
-            log.info("Creating new portfolio for user: {}", userId);
-            
-            // Validate user doesn't already have active portfolio
-            if (portfolioRepository.existsByUserIdAndStatus(userId, PortfolioStatus.ACTIVE)) {
-                throw new IllegalStateException("User already has an active portfolio");
-            }
-            
-            // Create new portfolio with initial values
-            Portfolio portfolio = Portfolio.builder()
-                .userId(userId)
-                .portfolioName(request.portfolioName())
-                .status(PortfolioStatus.ACTIVE)
-                .cashBalance(request.initialCashBalance())
-                .totalValue(request.initialCashBalance())
-                .totalCost(request.initialCashBalance())
-                .realizedPnl(BigDecimal.ZERO)
-                .unrealizedPnl(BigDecimal.ZERO)
-                .dayPnl(BigDecimal.ZERO)
-                .dayTradesCount(0)
-                .riskLevel(request.riskLevel())
-                .currency(request.currency())
-                .accountType(request.accountType())
-                .marginEnabled(request.marginEnabled())
-                .createdAt(Instant.now())
-                .lastValuationAt(Instant.now())
-                .build();
-            
-            // Save portfolio to database
-            Portfolio savedPortfolio = portfolioRepository.save(portfolio);
-            
-            // Update metrics
-            long duration = System.currentTimeMillis() - startTime;
-            // TODO: Fix metrics integration
-            // portfolioMetrics.incrementPortfolioCreations();
-            // portfolioMetrics.recordPortfolioCreationTime(duration);
-            // portfolioMetrics.updateTotalAUM(request.initialCashBalance());
-            
-            // Log successful creation
-            portfolioLogger.logPortfolioCreated(
-                userId, 
-                savedPortfolio.getPortfolioId(), 
-                request.portfolioName(),
-                request.initialCashBalance(), 
-                duration
-            );
-            
-            // Publish PORTFOLIO_CREATED event to Event Bus (async, STANDARD priority)
-            eventPublisher.publishPortfolioCreatedEvent(savedPortfolio);
-            
-            log.info("Portfolio created successfully with ID: {}", savedPortfolio.getPortfolioId());
-            return savedPortfolio;
-            
-        } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
-            portfolioMetrics.incrementPortfolioCreationErrors();
-            portfolioLogger.logError("portfolio_creation", "creation_failed", e.getMessage(), null, null, e);
-            throw new RuntimeException("Failed to create portfolio for user: " + userId, e);
-        } finally {
-            portfolioLogger.clearContext();
-        }
+        Timer.Sample metricsTimer = portfolioMetrics.startCreationTimer();
+
+        // Rule #11: Functional error handling with Result type - eliminates try-catch
+        return Result.safely(() -> {
+                portfolioLogger.setCorrelationId();
+                portfolioLogger.setUserContext(userId);
+                return executePortfolioCreation(userId, request, startTime, metricsTimer);
+            })
+            .onFailure(e -> handlePortfolioCreationError(userId, startTime, e))
+            .mapError(e -> new RuntimeException("Failed to create portfolio for user: " + userId, e))
+            .onSuccess(portfolio -> portfolioLogger.clearContext())
+            .onFailure(e -> portfolioLogger.clearContext())
+            .getOrThrow();
+    }
+
+    /**
+     * Execute portfolio creation with validation and persistence
+     * Rule #5: Extracted method - complexity: 6 (orchestration)
+     * Rule #11: Layered extraction pattern
+     */
+    private Portfolio executePortfolioCreation(Long userId, CreatePortfolioRequest request,
+                                               long startTime, Timer.Sample metricsTimer) {
+        log.info("Creating new portfolio for user: {}", userId);
+
+        validateUserHasNoActivePortfolio(userId);
+        Portfolio portfolio = buildNewPortfolio(userId, request);
+        Portfolio savedPortfolio = portfolioRepository.save(portfolio);
+
+        recordCreationSuccessMetrics(userId, request, savedPortfolio, startTime, metricsTimer);
+
+        log.info("Portfolio created successfully with ID: {}", savedPortfolio.getPortfolioId());
+        return savedPortfolio;
+    }
+
+    /**
+     * Validate user has no active portfolio
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #3: Functional validation
+     */
+    private void validateUserHasNoActivePortfolio(Long userId) {
+        Optional.of(portfolioRepository.existsByUserIdAndStatus(userId, PortfolioStatus.ACTIVE))
+            .filter(hasActive -> !hasActive)
+            .orElseThrow(() -> new IllegalStateException("User already has an active portfolio"));
+    }
+
+    /**
+     * Build new portfolio with initial values
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private Portfolio buildNewPortfolio(Long userId, CreatePortfolioRequest request) {
+        return Portfolio.builder()
+            .userId(userId)
+            .portfolioName(request.portfolioName())
+            .status(PortfolioStatus.ACTIVE)
+            .cashBalance(request.initialCashBalance())
+            .totalValue(request.initialCashBalance())
+            .totalCost(request.initialCashBalance())
+            .realizedPnl(BigDecimal.ZERO)
+            .unrealizedPnl(BigDecimal.ZERO)
+            .dayPnl(BigDecimal.ZERO)
+            .dayTradesCount(0)
+            .riskLevel(request.riskLevel())
+            .currency(request.currency())
+            .createdAt(Instant.now())
+            .lastValuationAt(Instant.now())
+            .build();
+    }
+
+    /**
+     * Record creation success metrics and publish event
+     * Rule #5: Extracted method - complexity: 3
+     */
+    private void recordCreationSuccessMetrics(Long userId, CreatePortfolioRequest request,
+                                             Portfolio savedPortfolio, long startTime,
+                                             Timer.Sample metricsTimer) {
+        long duration = System.currentTimeMillis() - startTime;
+
+        portfolioMetrics.recordCreationTime(metricsTimer);
+        portfolioMetrics.incrementPortfoliosCreated();
+        portfolioMetrics.updateTotalAUM(request.initialCashBalance());
+
+        portfolioLogger.logPortfolioCreated(
+            userId, savedPortfolio.getPortfolioId(), request.portfolioName(),
+            request.initialCashBalance(), duration
+        );
+
+        eventPublisher.publishPortfolioCreatedEvent(savedPortfolio);
+    }
+
+    /**
+     * Handle portfolio creation error with metrics and logging
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void handlePortfolioCreationError(Long userId, long startTime, Exception e) {
+        long duration = System.currentTimeMillis() - startTime;
+        portfolioMetrics.incrementPortfolioCreationErrors();
+        portfolioLogger.logError("portfolio_creation", "creation_failed",
+            e.getMessage(), null, null, e);
     }
     
     @Override
     @Timed(value = "portfolio.lookup.user", description = "Time to find portfolio by user ID")
     public Portfolio getPortfolioByUserId(Long userId) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample lookupTimer = portfolioMetrics.startLookupTimer();
         portfolioLogger.setUserContext(userId);
-        
+
         try {
             Portfolio portfolio = portfolioRepository.findByUserIdAndStatus(userId, PortfolioStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("No active portfolio found for user: " + userId));
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordPortfolioLookupTime method doesn't exist
-            // TODO: Add lookup timing method to PortfolioMetrics class
-            log.debug("Portfolio lookup completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordLookupTime(lookupTimer);
+            log.debug("Portfolio lookup completed for user: {}", userId);
+
             return portfolio;
         } finally {
             portfolioLogger.clearContext();
@@ -173,18 +211,16 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.lookup.id", description = "Time to find portfolio by ID")
     public Portfolio getPortfolioById(Long portfolioId) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample lookupTimer = portfolioMetrics.startLookupTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = portfolioRepository.findById(portfolioId)
                 .orElseThrow(() -> new RuntimeException("Portfolio not found: " + portfolioId));
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordPortfolioLookupTime method doesn't exist
-            // TODO: Add lookup timing method to PortfolioMetrics class
-            log.debug("Portfolio lookup completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordLookupTime(lookupTimer);
+            log.debug("Portfolio lookup completed for ID: {}", portfolioId);
+
             return portfolio;
         } finally {
             portfolioLogger.clearContext();
@@ -200,15 +236,13 @@ public class PortfolioServiceImpl implements PortfolioService {
         
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
-            
-            // Update modifiable fields
-            if (request.portfolioName() != null) {
-                portfolio.setPortfolioName(request.portfolioName());
-            }
-            if (request.riskLevel() != null) {
-                portfolio.setRiskLevel(request.riskLevel());
-            }
-            
+
+            // Rule #3: Functional updates with Optional
+            Optional.ofNullable(request.portfolioName())
+                .ifPresent(portfolio::setPortfolioName);
+            Optional.ofNullable(request.riskLevel())
+                .ifPresent(portfolio::setRiskLevel);
+
             portfolio.setUpdatedAt(Instant.now());
             Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
             
@@ -280,17 +314,15 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.positions.get", description = "Time to retrieve portfolio positions")
     public List<Position> getPortfolioPositions(Long portfolioId) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample retrievalTimer = portfolioMetrics.startPositionRetrievalTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             List<Position> positions = positionRepository.findByPortfolioId(portfolioId);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordPositionRetrievalTime method doesn't exist
-            // TODO: Add position retrieval timing method to PortfolioMetrics class
-            log.debug("Position retrieval completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordPositionRetrievalTime(retrievalTimer);
+            log.debug("Retrieved {} positions for portfolio: {}", positions.size(), portfolioId);
+
             return positions;
         } finally {
             portfolioLogger.clearContext();
@@ -300,17 +332,15 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.positions.open", description = "Time to retrieve open positions")
     public List<Position> getOpenPositions(Long portfolioId) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample retrievalTimer = portfolioMetrics.startPositionRetrievalTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             List<Position> openPositions = positionRepository.findOpenPositionsByPortfolioId(portfolioId);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordPositionRetrievalTime method doesn't exist
-            // TODO: Add position retrieval timing method to PortfolioMetrics class
-            log.debug("Position retrieval completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordPositionRetrievalTime(retrievalTimer);
+            log.debug("Retrieved {} open positions for portfolio: {}", openPositions.size(), portfolioId);
+
             return openPositions;
         } finally {
             portfolioLogger.clearContext();
@@ -320,18 +350,16 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.position.get", description = "Time to retrieve specific position")
     public Position getPosition(Long portfolioId, String symbol) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample retrievalTimer = portfolioMetrics.startPositionRetrievalTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Position position = positionRepository.findByPortfolioIdAndSymbol(portfolioId, symbol)
                 .orElseThrow(() -> new RuntimeException("Position not found for symbol: " + symbol));
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordPositionRetrievalTime method doesn't exist
-            // TODO: Add position retrieval timing method to PortfolioMetrics class
-            log.debug("Position retrieval completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordPositionRetrievalTime(retrievalTimer);
+            log.debug("Retrieved position for symbol: {} in portfolio: {}", symbol, portfolioId);
+
             return position;
         } finally {
             portfolioLogger.clearContext();
@@ -343,42 +371,63 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Timed(value = "portfolio.valuation.update", description = "Time to update portfolio valuation")
     public Portfolio updatePortfolioValuation(Long portfolioId) {
         long startTime = System.currentTimeMillis();
+        Timer.Sample valuationTimer = portfolioMetrics.startValuationTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
-            Portfolio portfolio = getPortfolioById(portfolioId);
-            BigDecimal oldValue = portfolio.getTotalValue();
-            
-            // Calculate new portfolio value using PnL service
-            var valuationResult = pnlCalculationService.calculatePortfolioValuation(portfolioId);
-            
-            // Update portfolio with new values
-            portfolio.setTotalValue(valuationResult.totalValue());
-            portfolio.setUnrealizedPnl(valuationResult.unrealizedPnl());
-            portfolio.setLastValuationAt(Instant.now());
-            portfolio.setUpdatedAt(Instant.now());
-            
-            Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            var timerSample = portfolioMetrics.startValuationTimer();
-            portfolioMetrics.recordValuationTime(timerSample);
-            portfolioMetrics.updateTotalAUM(valuationResult.totalValue());
-            
-            // Log valuation update
-            portfolioLogger.logPortfolioValuation(
-                portfolioId, 
-                oldValue, 
-                valuationResult.totalValue(),
-                valuationResult.unrealizedPnl(), 
-                duration
-            );
-            
+            Portfolio updatedPortfolio = executePortfolioValuation(portfolioId, startTime, valuationTimer);
             return updatedPortfolio;
-            
         } finally {
             portfolioLogger.clearContext();
         }
+    }
+
+    /**
+     * Execute portfolio valuation with calculation and persistence
+     * Rule #5: Extracted method - complexity: 5 (orchestration)
+     * Rule #11: Layered extraction pattern
+     */
+    private Portfolio executePortfolioValuation(Long portfolioId, long startTime, Timer.Sample valuationTimer) {
+        Portfolio portfolio = getPortfolioById(portfolioId);
+        BigDecimal oldValue = portfolio.getTotalValue();
+
+        var valuationResult = pnlCalculationService.calculatePortfolioValuation(portfolioId);
+        Portfolio updatedPortfolio = applyValuationAndSave(portfolio, valuationResult);
+
+        recordValuationMetrics(portfolioId, oldValue, valuationResult, startTime, valuationTimer);
+
+        return updatedPortfolio;
+    }
+
+    /**
+     * Apply valuation results to portfolio and persist
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private Portfolio applyValuationAndSave(Portfolio portfolio, PortfolioValuationResult valuationResult) {
+        portfolio.setTotalValue(valuationResult.totalValue());
+        portfolio.setUnrealizedPnl(valuationResult.unrealizedPnl());
+        portfolio.setLastValuationAt(Instant.now());
+        portfolio.setUpdatedAt(Instant.now());
+
+        return portfolioRepository.save(portfolio);
+    }
+
+    /**
+     * Record valuation metrics and logging
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void recordValuationMetrics(Long portfolioId, BigDecimal oldValue,
+                                       PortfolioValuationResult valuationResult, long startTime,
+                                       Timer.Sample valuationTimer) {
+        long duration = System.currentTimeMillis() - startTime;
+
+        portfolioMetrics.recordValuationTime(valuationTimer);
+        portfolioMetrics.updateTotalAUM(valuationResult.totalValue());
+
+        portfolioLogger.logPortfolioValuation(
+            portfolioId, oldValue, valuationResult.totalValue(),
+            valuationResult.unrealizedPnl(), duration
+        );
     }
     
     @Override
@@ -386,47 +435,63 @@ public class PortfolioServiceImpl implements PortfolioService {
     public CompletableFuture<Portfolio> updatePortfolioValuationAsync(Long portfolioId) {
         return CompletableFuture.supplyAsync(() -> {
             return updatePortfolioValuation(portfolioId);
-        }, Thread.ofVirtual().factory());
+        }, VIRTUAL_EXECUTOR);
     }
     
     @Override
     @Timed(value = "portfolio.valuation.bulk", description = "Time for bulk portfolio valuations")
     public CompletableFuture<Integer> bulkUpdateValuations(List<Long> portfolioIds) {
-        return CompletableFuture.supplyAsync(() -> {
-            long startTime = System.currentTimeMillis();
-            
-            try {
-                // Process portfolios in parallel using Virtual Threads
-                List<CompletableFuture<Void>> futures = portfolioIds.stream()
-                    .map(portfolioId -> CompletableFuture.runAsync(() -> {
-                        try {
-                            updatePortfolioValuation(portfolioId);
-                        } catch (Exception e) {
-                            log.error("Failed to update valuation for portfolio: {}", portfolioId, e);
-                        }
-                    }, Thread.ofVirtual().factory()))
-                    .toList();
-                
-                // Wait for all valuations to complete
+        return CompletableFuture.supplyAsync(() ->
+            executeBulkValuations(portfolioIds), VIRTUAL_EXECUTOR);
+    }
+
+    /**
+     * Execute bulk portfolio valuations
+     * Rule #5: Extracted method - complexity: 5
+     * Rule #11: Functional error handling with Result type
+     */
+    private Integer executeBulkValuations(List<Long> portfolioIds) {
+        Timer.Sample bulkTimer = portfolioMetrics.startBulkValuationTimer();
+
+        // Rule #11: Functional error handling - eliminates try-catch
+        return Result.safely(() -> {
+                List<CompletableFuture<Void>> futures = createValuationFutures(portfolioIds);
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                
-                long duration = System.currentTimeMillis() - startTime;
-                // Note: recordBulkValuationTime method doesn't exist
-            // TODO: Add bulk valuation timing method to PortfolioMetrics class
-            log.debug("Bulk valuation completed in {}ms", duration);
-                
-                log.info("Bulk valuation completed for {} portfolios in {}ms", 
-                    portfolioIds.size(), duration);
-                
                 return portfolioIds.size();
-                
-            } catch (Exception e) {
-                // Note: incrementBulkValuationErrors method doesn't exist
-                // TODO: Add error metrics method to PortfolioMetrics class
-                log.error("Bulk valuation failed");
-                throw new RuntimeException("Bulk valuation failed", e);
-            }
-        }, Thread.ofVirtual().factory());
+            })
+            .onSuccess(count -> {
+                portfolioMetrics.recordBulkValuationTime(bulkTimer);
+                log.info("Bulk valuation completed for {} portfolios", count);
+            })
+            .onFailure(e -> {
+                portfolioMetrics.incrementBulkValuationErrors();
+                log.error("Bulk valuation failed", e);
+            })
+            .mapError(e -> new RuntimeException("Bulk valuation failed", e))
+            .getOrThrow();
+    }
+
+    /**
+     * Create valuation futures for parallel processing
+     * Rule #5: Extracted method - complexity: 3
+     */
+    private List<CompletableFuture<Void>> createValuationFutures(List<Long> portfolioIds) {
+        return portfolioIds.stream()
+            .map(portfolioId -> CompletableFuture.runAsync(() ->
+                updatePortfolioValuationSafely(portfolioId), VIRTUAL_EXECUTOR))
+            .toList();
+    }
+
+    /**
+     * Safely update portfolio valuation with error handling
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void updatePortfolioValuationSafely(Long portfolioId) {
+        try {
+            updatePortfolioValuation(portfolioId);
+        } catch (Exception e) {
+            log.error("Failed to update valuation for portfolio: {}", portfolioId, e);
+        }
     }
     
     @Override
@@ -434,29 +499,29 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Timed(value = "portfolio.cash.update", description = "Time to update cash balance")
     public Portfolio updateCashBalance(Long portfolioId, BigDecimal amount, String description) {
         long startTime = System.currentTimeMillis();
+        Timer.Sample cashUpdateTimer = portfolioMetrics.startCashUpdateTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
             BigDecimal oldBalance = portfolio.getCashBalance();
             BigDecimal newBalance = oldBalance.add(amount);
-            
-            // Validate sufficient funds for withdrawals
-            if (amount.compareTo(BigDecimal.ZERO) < 0 && newBalance.compareTo(BigDecimal.ZERO) < 0) {
-                throw new IllegalArgumentException("Insufficient cash balance for withdrawal");
-            }
-            
+
+            // Rule #3: Functional validation - sufficient funds check
+            Optional.of(amount.compareTo(BigDecimal.ZERO) < 0 && newBalance.compareTo(BigDecimal.ZERO) < 0)
+                .filter(insufficientFunds -> !insufficientFunds)
+                .orElseThrow(() -> new IllegalArgumentException("Insufficient cash balance for withdrawal"));
+
             // Update cash balance and total value
             portfolio.setCashBalance(newBalance);
             portfolio.setTotalValue(portfolio.getTotalValue().add(amount));
             portfolio.setUpdatedAt(Instant.now());
-            
+
             Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-            
+
             long duration = System.currentTimeMillis() - startTime;
-            // Note: recordCashUpdateTime method doesn't exist
-            // TODO: Add cash update timing method to PortfolioMetrics class
-            log.debug("Cash update completed in {}ms", duration);
+            portfolioMetrics.recordCashUpdateTime(cashUpdateTimer);
+            log.debug("Cash update completed for portfolio: {}", portfolioId);
             
             // Log cash transaction
             portfolioLogger.logTransactionCreated(
@@ -486,24 +551,22 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Transactional
     @Timed(value = "portfolio.realized.pnl.add", description = "Time to add realized P&L")
     public Portfolio addRealizedPnl(Long portfolioId, BigDecimal realizedPnl) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample pnlTimer = portfolioMetrics.startPnlUpdateTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
             BigDecimal oldRealizedPnl = portfolio.getRealizedPnl();
-            
+
             // Add realized P&L and update cash balance
             portfolio.setRealizedPnl(oldRealizedPnl.add(realizedPnl));
             portfolio.setCashBalance(portfolio.getCashBalance().add(realizedPnl));
             portfolio.setUpdatedAt(Instant.now());
-            
+
             Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordRealizedPnlUpdate method doesn't exist
-            // TODO: Add P&L update timing method to PortfolioMetrics class
-            log.debug("Realized P&L update completed in {}ms", duration);
+
+            portfolioMetrics.recordPnlUpdateTime(pnlTimer);
+            log.debug("Realized P&L updated for portfolio: {}", portfolioId);
             
             // Publish PNL_REALIZED event to Event Bus (async, HIGH priority)
             eventPublisher.publishPnlRealizedEvent(updatedPortfolio, realizedPnl, updatedPortfolio.getRealizedPnl());
@@ -519,25 +582,25 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.summary.get", description = "Time to generate portfolio summary")
     public PortfolioSummary getPortfolioSummary(Long portfolioId) {
-        long startTime = System.currentTimeMillis();
+        Timer.Sample summaryTimer = portfolioMetrics.startSummaryGenerationTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
             List<Position> positions = getOpenPositions(portfolioId);
-            
+
             // Calculate summary metrics
             int totalPositions = positions.size();
             int profitablePositions = (int) positions.stream()
                 .filter(p -> p.getUnrealizedPnl().compareTo(BigDecimal.ZERO) > 0)
                 .count();
             int losingPositions = totalPositions - profitablePositions;
-            
+
             BigDecimal largestPosition = positions.stream()
                 .map(Position::getMarketValue)
                 .max(BigDecimal::compareTo)
                 .orElse(BigDecimal.ZERO);
-            
+
             PortfolioSummary summary = new PortfolioSummary(
                 portfolio.getPortfolioId(),
                 portfolio.getPortfolioName(),
@@ -554,11 +617,9 @@ public class PortfolioServiceImpl implements PortfolioService {
                 portfolio.getLastValuationAt(),
                 Instant.now()
             );
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordSummaryGenerationTime method doesn't exist
-            // TODO: Add summary generation timing method to PortfolioMetrics class
-            log.debug("Summary generation completed in {}ms", duration);
+
+            portfolioMetrics.recordSummaryGenerationTime(summaryTimer);
+            log.debug("Summary generated for portfolio: {}", portfolioId);
             
             return summary;
             
@@ -570,15 +631,13 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.requiring.valuation", description = "Time to find portfolios requiring valuation")
     public List<Portfolio> getPortfoliosRequiringValuation(Instant cutoffTime) {
-        long startTime = System.currentTimeMillis();
-        
+        Timer.Sample lookupTimer = portfolioMetrics.startValuationLookupTimer();
+
         try {
             List<Portfolio> portfolios = portfolioRepository.findPortfoliosRequiringValuation(cutoffTime);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordRequiringValuationTime method doesn't exist
-            // TODO: Add valuation lookup timing method to PortfolioMetrics class
-            log.debug("Requiring valuation lookup completed in {}ms", duration);
+
+            portfolioMetrics.recordValuationLookupTime(lookupTimer);
+            log.debug("Found {} portfolios requiring valuation", portfolios.size());
             
             return portfolios;
         } finally {
@@ -596,7 +655,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     public CompletableFuture<PortfolioMetrics> calculatePortfolioMetrics(Long portfolioId) {
         return CompletableFuture.supplyAsync(() -> {
             return analyticsService.calculatePortfolioMetrics(portfolioId);
-        }, Thread.ofVirtual().factory());
+        }, VIRTUAL_EXECUTOR);
     }
     
     @Override
@@ -607,35 +666,37 @@ public class PortfolioServiceImpl implements PortfolioService {
     
     @Override
     public List<Portfolio> getTopPerformingPortfolios(int limit) {
-        return portfolioRepository.findTopPerformingPortfolios(limit);
+        return portfolioRepository.findTopPerformingPortfolios()
+            .stream()
+            .limit(limit)
+            .toList();
     }
-    
+
     @Override
     public List<Portfolio> getUnderperformingPortfolios(int limit) {
-        return portfolioRepository.findUnderperformingPortfolios(limit);
+        return portfolioRepository.findUnderperformingPortfolios()
+            .stream()
+            .limit(limit)
+            .toList();
     }
     
     @Override
     @Transactional
     @Timed(value = "portfolio.reset.day.trades", description = "Time to reset day trades count")
     public int resetDayTradesCount() {
-        long startTime = System.currentTimeMillis();
-        
+        Timer.Sample resetTimer = portfolioMetrics.startDayTradesResetTimer();
+
         try {
             int updatedCount = portfolioRepository.resetDayTradesCount();
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordDayTradesResetTime method doesn't exist
-            // TODO: Add day trades reset timing method to PortfolioMetrics class
-            log.debug("Day trades reset completed in {}ms", duration);
-            
+
+            portfolioMetrics.recordDayTradesResetTime(resetTimer);
             log.info("Day trades count reset for {} portfolios", updatedCount);
+
             return updatedCount;
-            
+
         } catch (Exception e) {
-            // Note: incrementDayTradesResetErrors method doesn't exist
-            // TODO: Add error metrics method to PortfolioMetrics class
-            log.error("Day trades reset failed");
+            portfolioMetrics.incrementDayTradesResetErrors();
+            log.error("Day trades reset failed", e);
             throw new RuntimeException("Failed to reset day trades count", e);
         }
     }
@@ -643,22 +704,19 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Timed(value = "portfolio.total.aum", description = "Time to calculate total AUM")
     public BigDecimal getTotalAssetsUnderManagement() {
-        long startTime = System.currentTimeMillis();
-        
+        Timer.Sample aumTimer = portfolioMetrics.startAumCalculationTimer();
+
         try {
             BigDecimal totalAUM = portfolioRepository.calculateTotalAUM();
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Note: recordAUMCalculationTime method doesn't exist
-            // TODO: Add AUM calculation timing method to PortfolioMetrics class
-            log.debug("AUM calculation completed in {}ms", duration);
+
+            portfolioMetrics.recordAumCalculationTime(aumTimer);
             portfolioMetrics.updateTotalAUM(totalAUM);
-            
+            log.debug("Total AUM calculated: {}", totalAUM);
+
             return totalAUM;
         } catch (Exception e) {
-            // Note: incrementAUMCalculationErrors method doesn't exist
-            // TODO: Add error metrics method to PortfolioMetrics class
-            log.error("AUM calculation failed");
+            portfolioMetrics.incrementAumCalculationErrors();
+            log.error("AUM calculation failed", e);
             throw new RuntimeException("Failed to calculate total AUM", e);
         }
     }
@@ -671,7 +729,16 @@ public class PortfolioServiceImpl implements PortfolioService {
     
     @Override
     public boolean validatePortfolioOperation(Long portfolioId, String operation) {
-        return riskService.validatePortfolioOperation(portfolioId, operation);
+        // Rule #3: Ternary operator instead of if-else
+        var result = riskService.validatePortfolioOperation(portfolioId, operation);
+        return result.isSuccess()
+            ? result.getOrThrow()
+            : Optional.of(false)
+                .map(val -> {
+                    log.warn("Portfolio operation validation failed: portfolioId={}, operation={}", portfolioId, operation);
+                    return val;
+                })
+                .orElse(false);
     }
     
     @Override
@@ -693,94 +760,237 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Timed(value = "portfolio.delete", description = "Time to delete portfolio")
     public void deletePortfolio(Long portfolioId, Long adminUserId, String reason) {
         long startTime = System.currentTimeMillis();
+        Timer.Sample deletionTimer = portfolioMetrics.startDeletionTimer();
         portfolioLogger.setPortfolioContext(portfolioId);
         portfolioLogger.setUserContext(adminUserId);
-        
+
         try {
-            Portfolio portfolio = getPortfolioById(portfolioId);
-            
-            // Validate portfolio can be deleted (must be closed and have no open positions)
-            if (portfolio.getStatus() != PortfolioStatus.CLOSED) {
-                throw new IllegalStateException("Portfolio must be closed before deletion");
-            }
-            
-            List<Position> openPositions = getOpenPositions(portfolioId);
-            if (!openPositions.isEmpty()) {
-                throw new IllegalStateException("Portfolio has open positions and cannot be deleted");
-            }
-            
-            // Publish PORTFOLIO_DELETED event before deletion (async, STANDARD priority)
-            eventPublisher.publishPortfolioDeletedEvent(portfolioId, portfolio.getUserId(), adminUserId, reason);
-            
-            // Delete portfolio
-            portfolioRepository.delete(portfolio);
-            
+            Portfolio portfolio = executePortfolioDeletion(portfolioId, adminUserId, reason);
             long duration = System.currentTimeMillis() - startTime;
-            // Note: incrementPortfolioDeletions method doesn't exist
-            // TODO: Add deletion metrics method to PortfolioMetrics class
-            log.info("Portfolio deletion metrics updated");
-            
-            // Log audit event for compliance
-            portfolioLogger.logAuditEvent(
-                "portfolio_deletion",
-                adminUserId,
-                portfolioId,
-                "delete",
-                "portfolio",
-                "success",
-                Map.of(
-                    "reason", reason,
-                    "duration_ms", duration,
-                    "user_id", portfolio.getUserId()
-                )
-            );
-            
-            log.info("Portfolio {} deleted by admin {} - Reason: {}", portfolioId, adminUserId, reason);
-            
+
+            portfolioMetrics.recordDeletionTime(deletionTimer);
+            logPortfolioDeletionSuccess(portfolioId, adminUserId, reason, duration, portfolio.getUserId());
+
         } finally {
             portfolioLogger.clearContext();
         }
     }
-    
-    @Override
-    public Page<PortfolioSummary> getPortfoliosForUser(Long userId, String status, Pageable pageable) {
-        // TODO: Implement proper pagination and filtering
-        log.info("Getting portfolios for user: {} with status: {}", userId, status);
-        
-        // For now, return a simple implementation
-        List<Portfolio> portfolios = switch (status) {
-            case null -> List.of(getPortfolioByUserId(userId));
-            case "ACTIVE" -> portfolioRepository.findByUserIdAndStatus(userId, PortfolioStatus.ACTIVE)
-                .map(List::of).orElse(List.of());
-            default -> List.of();
-        };
-        
-        List<PortfolioSummary> summaries = portfolios.stream()
-            .map(p -> getPortfolioSummary(p.getPortfolioId()))
-            .toList();
-        
-        return new org.springframework.data.domain.PageImpl<>(
-            summaries, pageable, summaries.size());
+
+    /**
+     * Execute portfolio deletion with validation
+     * Rule #5: Extracted method - complexity: 4
+     */
+    private Portfolio executePortfolioDeletion(Long portfolioId, Long adminUserId, String reason) {
+        Portfolio portfolio = getPortfolioById(portfolioId);
+        validatePortfolioDeletion(portfolio, portfolioId);
+
+        eventPublisher.publishPortfolioDeletedEvent(portfolioId, portfolio.getUserId(), adminUserId, reason);
+        portfolioRepository.delete(portfolio);
+
+        return portfolio;
+    }
+
+    /**
+     * Validate portfolio can be deleted
+     * Rule #5: Extracted method - complexity: 4
+     */
+    private void validatePortfolioDeletion(Portfolio portfolio, Long portfolioId) {
+        Optional.of(portfolio.getStatus())
+            .filter(status -> status == PortfolioStatus.CLOSED)
+            .orElseThrow(() -> new IllegalStateException("Portfolio must be closed before deletion"));
+
+        List<Position> openPositions = getOpenPositions(portfolioId);
+        Optional.of(openPositions)
+            .filter(List::isEmpty)
+            .orElseThrow(() -> new IllegalStateException("Portfolio has open positions and cannot be deleted"));
+    }
+
+    /**
+     * Log portfolio deletion success
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void logPortfolioDeletionSuccess(Long portfolioId, Long adminUserId, String reason, long duration, Long userId) {
+        log.info("Portfolio deletion completed for portfolio: {}", portfolioId);
+
+        portfolioLogger.logAuditEvent(
+            "portfolio_deletion",
+            adminUserId,
+            portfolioId,
+            "delete",
+            "portfolio",
+            "success",
+            Map.of(
+                "reason", reason,
+                "duration_ms", duration,
+                "user_id", userId
+            )
+        );
+
+        log.info("Portfolio {} deleted by admin {} - Reason: {}", portfolioId, adminUserId, reason);
     }
     
     @Override
-    public CompletableFuture<Object> initiateRebalancing(Long portfolioId, String strategy) {
-        return CompletableFuture.supplyAsync(() -> {
-            log.info("Initiating rebalancing for portfolio: {} with strategy: {}", portfolioId, strategy);
-            
-            // TODO: Implement actual rebalancing logic
-            return Map.of(
-                "portfolioId", portfolioId,
-                "strategy", strategy,
-                "status", "INITIATED",
-                "totalValue", getPortfolioById(portfolioId).getTotalValue(),
-                "ordersCreated", 0, // ordersCreated
-                "estimatedCosts", BigDecimal.ZERO, // estimatedCosts
-                "initiatedAt", Instant.now(),
-                "rebalancingId", "RB-" + portfolioId + "-" + System.currentTimeMillis()
-            );
-            // TODO: Implement proper RebalancingResult when record import issues are resolved
-        }, Thread.ofVirtual().factory());
+    public Page<PortfolioSummary> getPortfoliosForUser(Long userId, String status, Pageable pageable) {
+        log.info("Getting portfolios for user: {} with status: {} (page: {}, size: {})",
+            userId, status, pageable.getPageNumber(), pageable.getPageSize());
+
+        // Use functional pattern matching for status-based repository selection
+        Page<Portfolio> portfolioPage = Optional.ofNullable(status)
+            .flatMap(s -> parsePortfolioStatus(s)
+                .map(portfolioStatus -> portfolioRepository.findByUserIdAndStatusPageable(userId, portfolioStatus, pageable)))
+            .orElseGet(() -> portfolioRepository.findAllByUserIdPageable(userId, pageable));
+
+        // Transform portfolios to summaries using functional stream processing
+        List<PortfolioSummary> summaries = portfolioPage.getContent().stream()
+            .map(p -> getPortfolioSummary(p.getPortfolioId()))
+            .toList();
+
+        log.debug("Retrieved {} portfolios for user: {} with status: {}",
+            summaries.size(), userId, status);
+
+        return new org.springframework.data.domain.PageImpl<>(
+            summaries,
+            pageable,
+            portfolioPage.getTotalElements()
+        );
+    }
+
+    /**
+     * Parse status string to PortfolioStatus enum
+     *
+     * Rule #3: Functional parsing with Optional for error handling
+     * Rule #11: No exceptions for control flow
+     */
+    private Optional<PortfolioStatus> parsePortfolioStatus(String status) {
+        return Optional.ofNullable(status)
+            .flatMap(s -> {
+                try {
+                    return Optional.of(PortfolioStatus.valueOf(s.toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    log.warn("Invalid portfolio status: {}", status);
+                    return Optional.empty();
+                }
+            });
+    }
+    
+    @Override
+    public CompletableFuture<RebalancingResult> initiateRebalancing(Long portfolioId, String strategy) {
+        // Rule #11: Functional error handling with Result type inside CompletableFuture
+        return CompletableFuture.supplyAsync(() ->
+            Result.safely(() -> executeRebalancingInitiation(portfolioId, strategy))
+                .onSuccess(result -> portfolioLogger.clearContext())
+                .onFailure(error -> {
+                    portfolioLogger.clearContext();
+                    log.error("Rebalancing initiation failed for portfolio: {}", portfolioId, error);
+                })
+                .mapError(error -> new RuntimeException(
+                    "Failed to initiate rebalancing: " + error.getMessage(), error))
+                .getOrThrow(),
+            VIRTUAL_EXECUTOR
+        );
+    }
+
+    /**
+     * Execute rebalancing initiation with functional error handling
+     * Rule #5: Extracted method - complexity: 6 (orchestration)
+     * Rule #11: Functional error handling with Optional
+     */
+    private RebalancingResult executeRebalancingInitiation(Long portfolioId, String strategy) {
+        portfolioLogger.setPortfolioContext(portfolioId);
+        log.info("Initiating rebalancing for portfolio: {} with strategy: {}", portfolioId, strategy);
+
+        String rebalancingId = generateRebalancingId(portfolioId);
+        Portfolio portfolio = getPortfolioById(portfolioId);
+        validateRebalancingEligibility(portfolio);
+
+        RebalancingResult result = buildInitiatedResult(rebalancingId, portfolioId, strategy, portfolio);
+        publishRebalancingEvent(portfolioId, rebalancingId, strategy);
+
+        log.info("Rebalancing initiated: {} for portfolio: {}", rebalancingId, portfolioId);
+        return result;
+    }
+
+    /**
+     * Generate unique rebalancing ID
+     * Rule #5: Extracted method - complexity: 1
+     * Rule #17: Uses constant prefix
+     */
+    private String generateRebalancingId(Long portfolioId) {
+        return "RB-" + portfolioId + "-" + System.currentTimeMillis();
+    }
+
+    /**
+     * Build initiated rebalancing result
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private RebalancingResult buildInitiatedResult(
+            String rebalancingId, Long portfolioId, String strategy, Portfolio portfolio) {
+        return RebalancingResult.initiated(
+            rebalancingId,
+            portfolioId,
+            strategy,
+            portfolio.getTotalValue()
+        );
+    }
+
+    /**
+     * Publish rebalancing initiated event
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void publishRebalancingEvent(Long portfolioId, String rebalancingId, String strategy) {
+        eventPublisher.publishRebalancingInitiatedEvent(portfolioId, rebalancingId, strategy);
+    }
+
+    /**
+     * Validate portfolio is eligible for rebalancing
+     *
+     * Rule #3: Functional validation with guard clauses
+     * Rule #5: Reduced complexity by extracting validation methods
+     * Rule #11: Either pattern for error handling
+     */
+    private void validateRebalancingEligibility(Portfolio portfolio) {
+        validatePortfolioIsActive(portfolio);
+        validatePortfolioHasPositions(portfolio.getPortfolioId());
+        validatePortfolioMinimumValue(portfolio);
+    }
+
+    /**
+     * Validate portfolio status is ACTIVE
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void validatePortfolioIsActive(Portfolio portfolio) {
+        Optional.of(portfolio.getStatus())
+            .filter(status -> status == PortfolioStatus.ACTIVE)
+            .orElseThrow(() -> new IllegalStateException(
+                "Portfolio must be ACTIVE for rebalancing, current status: " + portfolio.getStatus()
+            ));
+    }
+
+    /**
+     * Validate portfolio has positions to rebalance
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void validatePortfolioHasPositions(Long portfolioId) {
+        List<Position> positions = getOpenPositions(portfolioId);
+        Optional.of(positions)
+            .filter(list -> !list.isEmpty())
+            .orElseThrow(() -> new IllegalStateException(
+                "Portfolio has no positions to rebalance"
+            ));
+    }
+
+    /**
+     * Validate portfolio has minimum value for rebalancing
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #17: Uses MIN_REBALANCING_VALUE constant
+     */
+    private void validatePortfolioMinimumValue(Portfolio portfolio) {
+        Optional.of(portfolio.getTotalValue())
+            .filter(value -> value.compareTo(MIN_REBALANCING_VALUE) >= 0)
+            .orElseThrow(() -> new IllegalStateException(
+                "Portfolio value must be at least $" + MIN_REBALANCING_VALUE + " for rebalancing, current value: $" +
+                portfolio.getTotalValue()
+            ));
     }
     
     @Override
@@ -788,15 +998,141 @@ public class PortfolioServiceImpl implements PortfolioService {
         // Simple delete without admin tracking
         deletePortfolio(portfolioId, 0L, "User requested deletion");
     }
-    
+
+    @Override
+    public long getActivePortfoliosCount() {
+        log.debug("Retrieving count of active portfolios");
+        return portfolioRepository.countActivePortfolios();
+    }
+
+    @Override
+    @Transactional
+    @Timed(value = "portfolio.valuation.manual.update", description = "Time to manually update portfolio valuation")
+    public Portfolio updateValuation(Long portfolioId, BigDecimal newValue, BigDecimal newUnrealizedPnl) {
+        Timer.Sample valuationTimer = portfolioMetrics.startValuationTimer();
+        portfolioLogger.setPortfolioContext(portfolioId);
+
+        try {
+            Portfolio portfolio = getPortfolioById(portfolioId);
+            BigDecimal oldValue = portfolio.getTotalValue();
+
+            // Update valuation fields
+            portfolio.setTotalValue(newValue);
+            portfolio.setUnrealizedPnl(newUnrealizedPnl);
+            portfolio.setLastValuationAt(Instant.now());
+            portfolio.setUpdatedAt(Instant.now());
+
+            Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
+
+            portfolioMetrics.recordValuationTime(valuationTimer);
+            portfolioMetrics.updateTotalAUM(newValue);
+
+            log.info("Manual valuation update for portfolio {}: {} -> {}",
+                portfolioId, oldValue, newValue);
+
+            return updatedPortfolio;
+
+        } finally {
+            portfolioLogger.clearContext();
+        }
+    }
+
+    @Override
+    @Transactional
+    public Portfolio updateCashBalance(Long portfolioId, BigDecimal amount) {
+        return updateCashBalance(portfolioId, amount, "Cash balance update");
+    }
+
+    @Override
+    @Transactional
+    @Timed(value = "portfolio.day.trades.increment", description = "Time to increment day trades count")
+    public int incrementDayTradesCount(Long portfolioId) {
+        portfolioLogger.setPortfolioContext(portfolioId);
+
+        try {
+            int updatedCount = portfolioRepository.incrementDayTradesCount(portfolioId);
+
+            log.info("Day trades count incremented for portfolio {}: {}", portfolioId, updatedCount);
+
+            return updatedCount;
+
+        } finally {
+            portfolioLogger.clearContext();
+        }
+    }
+
+    @Override
+    public boolean isApproachingDayTradeLimit(Long portfolioId) {
+        portfolioLogger.setPortfolioContext(portfolioId);
+
+        try {
+            Portfolio portfolio = getPortfolioById(portfolioId);
+            boolean approaching = portfolio.getDayTradesCount() >= 3;
+
+            log.debug("Day trade limit check for portfolio {}: {} trades (approaching: {})",
+                portfolioId, portfolio.getDayTradesCount(), approaching);
+
+            return approaching;
+
+        } finally {
+            portfolioLogger.clearContext();
+        }
+    }
+
+    @Override
+    @Transactional
+    @Timed(value = "portfolio.activate", description = "Time to activate portfolio")
+    public Portfolio activatePortfolio(Long portfolioId) {
+        return updatePortfolioStatus(portfolioId, PortfolioStatus.ACTIVE, "Portfolio activated");
+    }
+
+    @Override
+    @Transactional
+    @Timed(value = "portfolio.close", description = "Time to close portfolio")
+    public Portfolio closePortfolio(Long portfolioId) {
+        return updatePortfolioStatus(portfolioId, PortfolioStatus.CLOSED, "Portfolio closed");
+    }
+
+    @Override
+    @Transactional
+    @Timed(value = "portfolio.suspend", description = "Time to suspend portfolio")
+    public Portfolio suspendPortfolio(Long portfolioId) {
+        return updatePortfolioStatus(portfolioId, PortfolioStatus.SUSPENDED, "Portfolio suspended");
+    }
+
+    @Override
+    public boolean hasMinimumCashBalance(Portfolio portfolio) {
+        // Rule #17: Minimum cash balance constant (1000)
+        BigDecimal minimumBalance = new BigDecimal("1000");
+        boolean hasMinimum = portfolio.getCashBalance().compareTo(minimumBalance) >= 0;
+
+        log.debug("Minimum cash balance check for portfolio {}: {} (required: {}, has: {})",
+            portfolio.getPortfolioId(), hasMinimum, minimumBalance, portfolio.getCashBalance());
+
+        return hasMinimum;
+    }
+
+    @Override
+    public boolean canTrade(Portfolio portfolio) {
+        // Rule #3: Functional composition for multiple checks
+        boolean isActive = portfolio.getStatus() == PortfolioStatus.ACTIVE;
+        boolean hasMinimumCash = hasMinimumCashBalance(portfolio);
+        boolean notAtDayTradeLimit = portfolio.getDayTradesCount() < 4;
+
+        boolean canTrade = isActive && hasMinimumCash && notAtDayTradeLimit;
+
+        log.debug("Trade eligibility check for portfolio {}: {} (active: {}, cash: {}, day trades: {}/4)",
+            portfolio.getPortfolioId(), canTrade, isActive, hasMinimumCash, portfolio.getDayTradesCount());
+
+        return canTrade;
+    }
+
     /**
      * Fallback method for database circuit breaker failures during portfolio creation
      */
     public Portfolio createPortfolioFallback(Long userId, CreatePortfolioRequest request, Exception ex) {
         log.error("Database circuit breaker activated for portfolio creation - user: {}", userId, ex);
-        // Note: incrementErrorCount method doesn't exist
-        // TODO: Add error count method to PortfolioMetrics class
-        log.error("Database circuit breaker activated");
+        portfolioMetrics.incrementPortfolioCreationErrors();
         throw new RuntimeException("Portfolio service temporarily unavailable - database connection issues", ex);
     }
 }
