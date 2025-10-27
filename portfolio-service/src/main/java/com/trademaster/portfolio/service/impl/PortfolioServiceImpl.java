@@ -231,35 +231,48 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Transactional
     @Timed(value = "portfolio.update", description = "Time to update portfolio details")
     public Portfolio updatePortfolio(Long portfolioId, UpdatePortfolioRequest request) {
-        long startTime = System.currentTimeMillis();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
-
-            // Rule #3: Functional updates with Optional
-            Optional.ofNullable(request.portfolioName())
-                .ifPresent(portfolio::setPortfolioName);
-            Optional.ofNullable(request.riskLevel())
-                .ifPresent(portfolio::setRiskLevel);
-
-            portfolio.setUpdatedAt(Instant.now());
+            applyPortfolioUpdates(portfolio, request);
             Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-            
-            long duration = System.currentTimeMillis() - startTime;
-            // Use Timer.Sample for proper timing
-            var timerSample = portfolioMetrics.startUpdateTimer();
-            portfolioMetrics.recordUpdateTime(timerSample);
-            
-            // Publish PORTFOLIO_UPDATED event to Event Bus (async, STANDARD priority)
-            eventPublisher.publishPortfolioUpdatedEvent(updatedPortfolio);
-            
-            log.info("Portfolio {} updated successfully", portfolioId);
+            recordPortfolioUpdateMetrics();
+            publishPortfolioUpdateEvent(updatedPortfolio, portfolioId);
+
             return updatedPortfolio;
-            
         } finally {
             portfolioLogger.clearContext();
         }
+    }
+
+    /**
+     * Apply portfolio updates from request
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #3: Functional updates with Optional
+     */
+    private void applyPortfolioUpdates(Portfolio portfolio, UpdatePortfolioRequest request) {
+        Optional.ofNullable(request.portfolioName()).ifPresent(portfolio::setPortfolioName);
+        Optional.ofNullable(request.riskLevel()).ifPresent(portfolio::setRiskLevel);
+        portfolio.setUpdatedAt(Instant.now());
+    }
+
+    /**
+     * Record portfolio update metrics
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void recordPortfolioUpdateMetrics() {
+        var timerSample = portfolioMetrics.startUpdateTimer();
+        portfolioMetrics.recordUpdateTime(timerSample);
+    }
+
+    /**
+     * Publish portfolio update event and log
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void publishPortfolioUpdateEvent(Portfolio updatedPortfolio, Long portfolioId) {
+        eventPublisher.publishPortfolioUpdatedEvent(updatedPortfolio);
+        log.info("Portfolio {} updated successfully", portfolioId);
     }
     
     @Override
@@ -268,47 +281,66 @@ public class PortfolioServiceImpl implements PortfolioService {
     public Portfolio updatePortfolioStatus(Long portfolioId, PortfolioStatus newStatus, String reason) {
         long startTime = System.currentTimeMillis();
         portfolioLogger.setPortfolioContext(portfolioId);
-        
+
         try {
             Portfolio portfolio = getPortfolioById(portfolioId);
             PortfolioStatus oldStatus = portfolio.getStatus();
-            
-            portfolio.setStatus(newStatus);
-            portfolio.setUpdatedAt(Instant.now());
-            
-            Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-            
-            // Update metrics based on status change
-            portfolioMetrics.incrementStatusChanges(oldStatus.name(), newStatus.name());
-            
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("Portfolio {} status changed from {} to {} - Reason: {}", 
-                portfolioId, oldStatus, newStatus, reason);
-            
-            // Log audit event for compliance
-            portfolioLogger.logAuditEvent(
-                "portfolio_status_change",
-                portfolio.getUserId(),
-                portfolioId,
-                "status_update",
-                "portfolio",
-                "success",
-                Map.of(
-                    "old_status", oldStatus.toString(),
-                    "new_status", newStatus.toString(),
-                    "reason", reason,
-                    "duration_ms", duration
-                )
-            );
-            
-            // Publish PORTFOLIO_STATUS_CHANGED event to Event Bus (async, HIGH priority)
-            eventPublisher.publishPortfolioStatusChangedEvent(updatedPortfolio, oldStatus, newStatus, reason);
-            
+
+            Portfolio updatedPortfolio = updatePortfolioStatusAndSave(portfolio, newStatus);
+            long duration = recordStatusChangeMetrics(portfolioId, oldStatus, newStatus, reason, startTime);
+            logStatusChangeAudit(portfolio, portfolioId, oldStatus, newStatus, reason, duration);
+            publishStatusChangeEvent(updatedPortfolio, oldStatus, newStatus, reason);
+
             return updatedPortfolio;
-            
         } finally {
             portfolioLogger.clearContext();
         }
+    }
+
+    /**
+     * Update portfolio status and save
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private Portfolio updatePortfolioStatusAndSave(Portfolio portfolio, PortfolioStatus newStatus) {
+        portfolio.setStatus(newStatus);
+        portfolio.setUpdatedAt(Instant.now());
+        return portfolioRepository.save(portfolio);
+    }
+
+    /**
+     * Record status change metrics and log
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private long recordStatusChangeMetrics(Long portfolioId, PortfolioStatus oldStatus,
+                                          PortfolioStatus newStatus, String reason, long startTime) {
+        portfolioMetrics.incrementStatusChanges(oldStatus.name(), newStatus.name());
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("Portfolio {} status changed from {} to {} - Reason: {}",
+            portfolioId, oldStatus, newStatus, reason);
+        return duration;
+    }
+
+    /**
+     * Log audit event for status change compliance
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void logStatusChangeAudit(Portfolio portfolio, Long portfolioId, PortfolioStatus oldStatus,
+                                     PortfolioStatus newStatus, String reason, long duration) {
+        portfolioLogger.logAuditEvent(
+            "portfolio_status_change", portfolio.getUserId(), portfolioId,
+            "status_update", "portfolio", "success",
+            Map.of("old_status", oldStatus.toString(), "new_status", newStatus.toString(),
+                   "reason", reason, "duration_ms", duration)
+        );
+    }
+
+    /**
+     * Publish portfolio status changed event
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void publishStatusChangeEvent(Portfolio updatedPortfolio, PortfolioStatus oldStatus,
+                                         PortfolioStatus newStatus, String reason) {
+        eventPublisher.publishPortfolioStatusChangedEvent(updatedPortfolio, oldStatus, newStatus, reason);
     }
     
     @Override
@@ -507,44 +539,63 @@ public class PortfolioServiceImpl implements PortfolioService {
             BigDecimal oldBalance = portfolio.getCashBalance();
             BigDecimal newBalance = oldBalance.add(amount);
 
-            // Rule #3: Functional validation - sufficient funds check
-            Optional.of(amount.compareTo(BigDecimal.ZERO) < 0 && newBalance.compareTo(BigDecimal.ZERO) < 0)
-                .filter(insufficientFunds -> !insufficientFunds)
-                .orElseThrow(() -> new IllegalArgumentException("Insufficient cash balance for withdrawal"));
+            validateSufficientFunds(amount, newBalance);
+            Portfolio updatedPortfolio = updatePortfolioCashBalance(portfolio, amount, newBalance);
+            recordCashUpdateMetrics(portfolioId, amount, startTime, cashUpdateTimer);
+            publishCashUpdateEvents(updatedPortfolio, oldBalance, newBalance, description, portfolioId);
 
-            // Update cash balance and total value
-            portfolio.setCashBalance(newBalance);
-            portfolio.setTotalValue(portfolio.getTotalValue().add(amount));
-            portfolio.setUpdatedAt(Instant.now());
-
-            Portfolio updatedPortfolio = portfolioRepository.save(portfolio);
-
-            long duration = System.currentTimeMillis() - startTime;
-            portfolioMetrics.recordCashUpdateTime(cashUpdateTimer);
-            log.debug("Cash update completed for portfolio: {}", portfolioId);
-            
-            // Log cash transaction
-            portfolioLogger.logTransactionCreated(
-                portfolioId,
-                amount.compareTo(BigDecimal.ZERO) > 0 ? "DEPOSIT" : "WITHDRAWAL",
-                null,
-                null,
-                amount,
-                null,
-                duration
-            );
-            
-            // Publish CASH_BALANCE_UPDATED event to Event Bus (async, HIGH priority)
-            eventPublisher.publishCashBalanceUpdatedEvent(updatedPortfolio, oldBalance, newBalance, description);
-            
-            log.info("Cash balance updated for portfolio {}: {} -> {}", 
-                portfolioId, oldBalance, newBalance);
-            
             return updatedPortfolio;
-            
         } finally {
             portfolioLogger.clearContext();
         }
+    }
+
+    /**
+     * Validate sufficient funds for withdrawal
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #3: Functional validation with Optional
+     */
+    private void validateSufficientFunds(BigDecimal amount, BigDecimal newBalance) {
+        Optional.of(amount.compareTo(BigDecimal.ZERO) < 0 && newBalance.compareTo(BigDecimal.ZERO) < 0)
+            .filter(insufficientFunds -> !insufficientFunds)
+            .orElseThrow(() -> new IllegalArgumentException("Insufficient cash balance for withdrawal"));
+    }
+
+    /**
+     * Update portfolio cash balance and total value
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private Portfolio updatePortfolioCashBalance(Portfolio portfolio, BigDecimal amount, BigDecimal newBalance) {
+        portfolio.setCashBalance(newBalance);
+        portfolio.setTotalValue(portfolio.getTotalValue().add(amount));
+        portfolio.setUpdatedAt(Instant.now());
+        return portfolioRepository.save(portfolio);
+    }
+
+    /**
+     * Record cash update metrics and log transaction
+     * Rule #5: Extracted method - complexity: 3
+     */
+    private void recordCashUpdateMetrics(Long portfolioId, BigDecimal amount, long startTime, Timer.Sample cashUpdateTimer) {
+        long duration = System.currentTimeMillis() - startTime;
+        portfolioMetrics.recordCashUpdateTime(cashUpdateTimer);
+        log.debug("Cash update completed for portfolio: {}", portfolioId);
+
+        portfolioLogger.logTransactionCreated(
+            portfolioId,
+            amount.compareTo(BigDecimal.ZERO) > 0 ? "DEPOSIT" : "WITHDRAWAL",
+            null, null, amount, null, duration
+        );
+    }
+
+    /**
+     * Publish cash update events and log final message
+     * Rule #5: Extracted method - complexity: 2
+     */
+    private void publishCashUpdateEvents(Portfolio updatedPortfolio, BigDecimal oldBalance,
+                                        BigDecimal newBalance, String description, Long portfolioId) {
+        eventPublisher.publishCashBalanceUpdatedEvent(updatedPortfolio, oldBalance, newBalance, description);
+        log.info("Cash balance updated for portfolio {}: {} -> {}", portfolioId, oldBalance, newBalance);
     }
     
     @Override
@@ -589,43 +640,67 @@ public class PortfolioServiceImpl implements PortfolioService {
             Portfolio portfolio = getPortfolioById(portfolioId);
             List<Position> positions = getOpenPositions(portfolioId);
 
-            // Calculate summary metrics
-            int totalPositions = positions.size();
-            int profitablePositions = (int) positions.stream()
-                .filter(p -> p.getUnrealizedPnl().compareTo(BigDecimal.ZERO) > 0)
-                .count();
-            int losingPositions = totalPositions - profitablePositions;
+            var metrics = calculatePositionMetrics(positions);
+            BigDecimal largestPosition = findLargestPosition(positions);
+            PortfolioSummary summary = buildPortfolioSummary(portfolio, metrics, largestPosition);
+            recordSummaryMetrics(summaryTimer, portfolioId);
 
-            BigDecimal largestPosition = positions.stream()
-                .map(Position::getMarketValue)
-                .max(BigDecimal::compareTo)
-                .orElse(BigDecimal.ZERO);
-
-            PortfolioSummary summary = new PortfolioSummary(
-                portfolio.getPortfolioId(),
-                portfolio.getPortfolioName(),
-                portfolio.getStatus(),
-                portfolio.getTotalValue(),
-                portfolio.getCashBalance(),
-                portfolio.getRealizedPnl(),
-                portfolio.getUnrealizedPnl(),
-                portfolio.getDayPnl(),
-                totalPositions,
-                profitablePositions,
-                losingPositions,
-                largestPosition,
-                portfolio.getLastValuationAt(),
-                Instant.now()
-            );
-
-            portfolioMetrics.recordSummaryGenerationTime(summaryTimer);
-            log.debug("Summary generated for portfolio: {}", portfolioId);
-            
             return summary;
-            
         } finally {
             portfolioLogger.clearContext();
         }
+    }
+
+    /**
+     * Calculate position metrics (total, profitable, losing)
+     * Rule #5: Extracted method - complexity: 3
+     * Rule #3: Functional stream processing
+     */
+    private record PositionMetrics(int total, int profitable, int losing) {}
+
+    private PositionMetrics calculatePositionMetrics(List<Position> positions) {
+        int totalPositions = positions.size();
+        int profitablePositions = (int) positions.stream()
+            .filter(p -> p.getUnrealizedPnl().compareTo(BigDecimal.ZERO) > 0)
+            .count();
+        int losingPositions = totalPositions - profitablePositions;
+        return new PositionMetrics(totalPositions, profitablePositions, losingPositions);
+    }
+
+    /**
+     * Find largest position by market value
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #3: Functional stream processing with Optional
+     */
+    private BigDecimal findLargestPosition(List<Position> positions) {
+        return positions.stream()
+            .map(Position::getMarketValue)
+            .max(BigDecimal::compareTo)
+            .orElse(BigDecimal.ZERO);
+    }
+
+    /**
+     * Build portfolio summary object
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private PortfolioSummary buildPortfolioSummary(Portfolio portfolio, PositionMetrics metrics,
+                                                   BigDecimal largestPosition) {
+        return new PortfolioSummary(
+            portfolio.getPortfolioId(), portfolio.getPortfolioName(), portfolio.getStatus(),
+            portfolio.getTotalValue(), portfolio.getCashBalance(), portfolio.getRealizedPnl(),
+            portfolio.getUnrealizedPnl(), portfolio.getDayPnl(), metrics.total(),
+            metrics.profitable(), metrics.losing(), largestPosition,
+            portfolio.getLastValuationAt(), Instant.now()
+        );
+    }
+
+    /**
+     * Record summary generation metrics and log
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void recordSummaryMetrics(Timer.Sample summaryTimer, Long portfolioId) {
+        portfolioMetrics.recordSummaryGenerationTime(summaryTimer);
+        log.debug("Summary generated for portfolio: {}", portfolioId);
     }
     
     @Override
@@ -834,25 +909,51 @@ public class PortfolioServiceImpl implements PortfolioService {
         log.info("Getting portfolios for user: {} with status: {} (page: {}, size: {})",
             userId, status, pageable.getPageNumber(), pageable.getPageSize());
 
-        // Use functional pattern matching for status-based repository selection
-        Page<Portfolio> portfolioPage = Optional.ofNullable(status)
+        Page<Portfolio> portfolioPage = queryPortfoliosPage(userId, status, pageable);
+        List<PortfolioSummary> summaries = transformToSummaries(portfolioPage);
+        logRetrievalResults(summaries.size(), userId, status);
+
+        return buildPageResult(summaries, pageable, portfolioPage.getTotalElements());
+    }
+
+    /**
+     * Query portfolios page with optional status filter
+     * Rule #5: Extracted method - complexity: 3
+     * Rule #3: Functional pattern matching for status-based repository selection
+     */
+    private Page<Portfolio> queryPortfoliosPage(Long userId, String status, Pageable pageable) {
+        return Optional.ofNullable(status)
             .flatMap(s -> parsePortfolioStatus(s)
                 .map(portfolioStatus -> portfolioRepository.findByUserIdAndStatusPageable(userId, portfolioStatus, pageable)))
             .orElseGet(() -> portfolioRepository.findAllByUserIdPageable(userId, pageable));
+    }
 
-        // Transform portfolios to summaries using functional stream processing
-        List<PortfolioSummary> summaries = portfolioPage.getContent().stream()
+    /**
+     * Transform portfolios to summaries
+     * Rule #5: Extracted method - complexity: 2
+     * Rule #3: Functional stream processing
+     */
+    private List<PortfolioSummary> transformToSummaries(Page<Portfolio> portfolioPage) {
+        return portfolioPage.getContent().stream()
             .map(p -> getPortfolioSummary(p.getPortfolioId()))
             .toList();
+    }
 
-        log.debug("Retrieved {} portfolios for user: {} with status: {}",
-            summaries.size(), userId, status);
+    /**
+     * Log portfolio retrieval results
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private void logRetrievalResults(int count, Long userId, String status) {
+        log.debug("Retrieved {} portfolios for user: {} with status: {}", count, userId, status);
+    }
 
-        return new org.springframework.data.domain.PageImpl<>(
-            summaries,
-            pageable,
-            portfolioPage.getTotalElements()
-        );
+    /**
+     * Build paged result for portfolio summaries
+     * Rule #5: Extracted method - complexity: 1
+     */
+    private Page<PortfolioSummary> buildPageResult(List<PortfolioSummary> summaries,
+                                                   Pageable pageable, long totalElements) {
+        return new org.springframework.data.domain.PageImpl<>(summaries, pageable, totalElements);
     }
 
     /**
