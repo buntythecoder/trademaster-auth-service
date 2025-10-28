@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,6 +44,7 @@ import java.util.stream.Stream;
 public class SecurityAuditService {
 
     private final SecurityAuditLogRepository securityAuditLogRepository;
+    private final CircuitBreakerService circuitBreakerService;
 
     // Geo IP lookup strategies - replaces conditional logic
     private final Map<String, Function<String, String>> geoIpStrategies = Map.of(
@@ -129,47 +131,43 @@ public class SecurityAuditService {
      * Geo location enrichment using strategy pattern - replaces conditional geo lookup
      */
     private Result<EnrichedSecurityEvent, String> enrichWithGeoLocation(SecurityEventRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             String geoStrategy = determineGeoStrategy(request.ipAddress());
             String location = Optional.ofNullable(geoIpStrategies.get(geoStrategy))
                 .map(strategy -> strategy.apply(request.ipAddress()))
                 .orElse("Unknown Location");
-            
-            return Result.success(new EnrichedSecurityEvent(request, location));
-        } catch (Exception e) {
-            return Result.failure("Failed to enrich with geo location: " + e.getMessage());
-        }
+
+            return new EnrichedSecurityEvent(request, location);
+        });
     }
 
     /**
      * Risk calculation using functional strategies - replaces complex if-else chains
      */
     private Result<RiskAssessedEvent, String> calculateRiskScore(EnrichedSecurityEvent enrichedEvent) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             SecurityContext securityContext = new SecurityContext(
                 enrichedEvent.request(),
                 enrichedEvent.location(),
                 LocalDateTime.now()
             );
-            
+
             Integer riskScore = Optional.ofNullable(riskCalculators.get(enrichedEvent.request().eventType().toUpperCase()))
                 .orElse(riskCalculators.get("DEFAULT"))
                 .apply(securityContext);
-                
-            return Result.success(new RiskAssessedEvent(enrichedEvent, riskScore));
-        } catch (Exception e) {
-            return Result.failure("Failed to calculate risk score: " + e.getMessage());
-        }
+
+            return new RiskAssessedEvent(enrichedEvent, riskScore);
+        });
     }
 
     /**
      * Security audit log creation using builder pattern
      */
     private Result<SecurityAuditLog, String> createSecurityAuditLog(RiskAssessedEvent assessedEvent) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             SecurityEventRequest request = assessedEvent.enrichedEvent().request();
-            
-            return Result.success(SecurityAuditLog.builder()
+
+            return SecurityAuditLog.builder()
                 .userId(request.userId())
                 .eventType(request.eventType())
                 .severity(request.severity())
@@ -179,10 +177,8 @@ public class SecurityAuditService {
                 .riskScore(assessedEvent.riskScore())
                 .eventDetails(Optional.ofNullable(request.eventDetails()).map(Object::toString).orElse(""))
                 .timestamp(LocalDateTime.now())
-                .build());
-        } catch (Exception e) {
-            return Result.failure("Failed to create security audit log: " + e.getMessage());
-        }
+                .build();
+        });
     }
 
     /**
@@ -196,19 +192,17 @@ public class SecurityAuditService {
      * High risk event processing using functional strategies - replaces conditional processing
      */
     private Result<SecurityAuditLog, String> processHighRiskEvents(SecurityAuditLog auditLog) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             Optional.of(auditLog.getRiskScore())
                 .filter(score -> score >= 80) // High risk threshold
                 .ifPresent(score -> handleHighRiskEvent(auditLog));
-            
+
             Optional.of(auditLog.getRiskScore())
                 .filter(score -> score >= 95) // Critical risk threshold
                 .ifPresent(score -> handleCriticalRiskEvent(auditLog));
-                
-            return Result.success(auditLog);
-        } catch (Exception e) {
-            return Result.failure("Failed to process high risk events: " + e.getMessage());
-        }
+
+            return auditLog;
+        });
     }
 
     /**
@@ -251,18 +245,16 @@ public class SecurityAuditService {
      * CSV export generation using Stream mapping
      */
     private Result<String, String> generateCsvExport(AuditQueryResult queryResult) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             String headers = "Timestamp,User ID,Event Type,Severity,IP Address,Location,Risk Score,Details\n";
-            
+
             String csvData = queryResult.auditLogs()
                 .stream()
                 .map(this::convertLogToCsvRow)
                 .reduce("", (csv, row) -> csv + row + "\n");
-                
-            return Result.success(headers + csvData);
-        } catch (Exception e) {
-            return Result.failure("Failed to generate CSV export: " + e.getMessage());
-        }
+
+            return headers + csvData;
+        });
     }
 
     /**
@@ -305,40 +297,68 @@ public class SecurityAuditService {
             .orElse("FALLBACK");
     }
 
+    /**
+     * Perform external geo IP lookup with circuit breaker protection
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3 (no try-catch)
+     * MANDATORY: Virtual Threads - Rule #12
+     */
     private String performExternalGeoIpLookup(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
-            okhttp3.Request request = new okhttp3.Request.Builder()
-                .url(String.format("http://ip-api.com/json/%s?fields=country,regionName,city,isp", ipAddress))
-                .build();
-                
-            return SafeOperations.safely(() -> {
-                try (okhttp3.Response response = client.newCall(request).execute()) {
-                    return Optional.ofNullable(response.body())
+        okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(5))
+            .readTimeout(java.time.Duration.ofSeconds(10))
+            .build();
+
+        return circuitBreakerService.executeExternalApiOperation(
+            "externalGeoIpLookup",
+            () -> SafeOperations.safelyToResult(() -> {
+                try {
+                    okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(String.format("http://ip-api.com/json/%s?fields=country,regionName,city,isp", ipAddress))
+                        .build();
+
+                    okhttp3.Response response = client.newCall(request).execute();
+                    String responseBody = Optional.ofNullable(response.body())
                         .map(body -> {
                             try {
                                 return body.string();
-                            } catch (IOException e) {
-                                return "Error: " + e.getMessage();
+                            } catch (Exception e) {
+                                throw new RuntimeException("Failed to read response body: " + e.getMessage(), e);
                             }
                         })
-                        .filter(ip -> !ip.trim().isEmpty())
+                        .orElse("");
+                    response.close();
+
+                    return Optional.of(responseBody)
+                        .filter(body -> !body.trim().isEmpty())
                         .map(this::parseGeoIpResponse)
                         .orElse("External IP: " + ipAddress);
-                } catch (IOException e) {
-                    return "External IP: " + ipAddress + " (connection failed)";
+                } catch (Exception e) {
+                    throw new RuntimeException("Geo IP lookup failed: " + e.getMessage(), e);
                 }
-            }).orElse("External IP: " + ipAddress + " (lookup failed)");
-        }).orElse("External IP: " + ipAddress + " (lookup failed)");
+            }).orElseThrow(error -> new RuntimeException("Geo IP lookup HTTP call failed: " + error))
+        )
+        .thenApply(result -> result
+            .map(geoInfo -> geoInfo)
+            .mapError(error -> {
+                log.warn("External geo IP lookup failed (circuit breaker): {}", error);
+                return "External IP: " + ipAddress + " (lookup failed)";
+            })
+            .orElse("External IP: " + ipAddress)
+        )
+        .join(); // Block to maintain synchronous API (safe with virtual threads)
     }
     
     // Helper method to validate IP address string
     private String parseIpAddressString(String ipAddress) {
-        if (ipAddress == null || ipAddress.trim().isEmpty()) {
-            log.warn("Invalid IP address: {}", ipAddress);
-            return "127.0.0.1";
-        }
-        return ipAddress.trim();
+        return Optional.ofNullable(ipAddress)
+            .map(String::trim)
+            .filter(ip -> !ip.isEmpty())
+            .orElseGet(() -> {
+                log.warn("Invalid IP address: {}", ipAddress);
+                return "127.0.0.1";
+            });
     }
 
     private String performInternalGeoIpLookup(String ipAddress) {
@@ -385,13 +405,13 @@ public class SecurityAuditService {
     // Utility methods using functional approaches
 
     private String parseIpAddress(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return "127.0.0.1";
-            }
-            return ipAddress.trim();
-        })
-            .orElse(ipAddress != null ? ipAddress : "127.0.0.1");
+        return SafeOperations.safely(() ->
+            Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElse("127.0.0.1")
+        )
+            .orElse(Optional.ofNullable(ipAddress).orElse("127.0.0.1"));
     }
 
     private String parseGeoIpResponse(String jsonResponse) {
@@ -436,27 +456,16 @@ public class SecurityAuditService {
     }
 
     private boolean isValidPublicIp(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return false;
-            }
-            // Basic IP address pattern validation
-            String[] parts = ipAddress.trim().split("\\.");
-            if (parts.length != 4) {
-                return false;
-            }
-            for (String part : parts) {
-                try {
-                    int num = Integer.parseInt(part);
-                    if (num < 0 || num > 255) {
-                        return false;
-                    }
-                } catch (NumberFormatException e) {
-                    return false;
-                }
-            }
-            return true;
-        })
+        return Optional.ofNullable(ipAddress)
+            .map(String::trim)
+            .filter(ip -> !ip.isEmpty())
+            .map(ip -> ip.split("\\."))
+            .filter(parts -> parts.length == 4)
+            .map(parts -> Arrays.stream(parts)
+                .allMatch(part ->
+                    SafeOperations.safely(() -> Integer.parseInt(part))
+                        .map(num -> num >= 0 && num <= 255)
+                        .orElse(false)))
             .orElse(false);
     }
 

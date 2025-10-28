@@ -12,6 +12,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.ToString;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -57,6 +58,7 @@ import java.util.stream.Collectors;
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(exclude = {"mfaConfigurations", "roleAssignments", "userDevices", "userProfile"})  // ✅ Prevent circular references and lazy loading issues
 public class User implements UserDetails {
 
     @Id
@@ -163,17 +165,21 @@ public class User implements UserDetails {
 
     // Relationships
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore  // ✅ Prevent Jackson serialization and lazy loading issues
     private UserProfile userProfile;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore  // ✅ Prevent Jackson serialization and lazy loading issues
     @Builder.Default
     private Set<UserRoleAssignment> roleAssignments = new HashSet<>();
 
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.EAGER)  // ✅ EAGER to fix lazy loading StackOverflowError
+    @JsonIgnore  // ✅ Prevent Jackson serialization and lazy loading issues
     @Builder.Default
     private Set<MfaConfiguration> mfaConfigurations = new HashSet<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore  // ✅ Prevent Jackson serialization and lazy loading issues
     @Builder.Default
     private Set<UserDevice> userDevices = new HashSet<>();
 

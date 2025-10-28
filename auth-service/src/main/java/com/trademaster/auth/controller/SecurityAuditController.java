@@ -106,8 +106,8 @@ public class SecurityAuditController {
         
         String userIdString = userDetails.getUsername();
         Long userId = Long.valueOf(userIdString);
-        
-        try {
+
+        return com.trademaster.auth.pattern.SafeOperations.safelyToResult(() -> {
             // Parse date strings to LocalDateTime using functional approach
             LocalDateTime startDateTime = Optional.ofNullable(startDate)
                     .map(date -> LocalDateTime.parse(date + AuthConstants.TIME_START_SUFFIX))
@@ -115,26 +115,29 @@ public class SecurityAuditController {
             LocalDateTime endDateTime = Optional.ofNullable(endDate)
                     .map(date -> LocalDateTime.parse(date + AuthConstants.TIME_END_SUFFIX))
                     .orElse(LocalDateTime.now());
-            
+
             // Service method returns CompletableFuture, so we need to handle it
             var futureResult = securityAuditService.exportSecurityEvents(
                 startDateTime, endDateTime, eventType, userId);
-            
+
             var result = futureResult.join(); // Block for simplicity (should use async handling in production)
-            
+
             return Optional.of(result)
                     .filter(res -> res.isSuccess())
                     .map(this::createSuccessfulExportResponse)
                     .map(responseData -> populateExportParameters(responseData, startDate, endDate, eventType, userId))
                     .orElse(ResponseEntity.badRequest()
                             .body(Map.of("error", "Failed to export security events", "details", result.getError())));
-        } catch (Exception e) {
-            log.error("Failed to export security events", 
-                StructuredArguments.kv("userId", userId),
-                StructuredArguments.kv("error", e.getMessage()));
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Export failed", "message", e.getMessage()));
-        }
+        }).fold(
+            error -> {
+                log.error("Failed to export security events",
+                    StructuredArguments.kv("userId", userId),
+                    StructuredArguments.kv("error", error));
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(Map.of("error", "Export failed", "message", error));
+            },
+            response -> response
+        );
     }
 
     @GetMapping("/security-dashboard")

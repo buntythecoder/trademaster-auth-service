@@ -7,6 +7,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.ToString;
 import org.hibernate.annotations.Type;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -15,6 +16,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -34,6 +36,7 @@ import java.util.Set;
 @AllArgsConstructor
 @Builder
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(exclude = "assignments")  // ✅ Prevent circular reference with UserRoleAssignment entity
 public class UserRole {
 
     @Id
@@ -71,39 +74,46 @@ public class UserRole {
 
     // Business logic methods
     public boolean hasPermission(String domain, String action) {
-        if (permissions == null || permissions.isEmpty()) {
-            return false;
-        }
-
-        // Simple string-based permission check
-        String permissionKey = domain + ":" + action;
-        return permissions.contains(permissionKey) || permissions.contains(domain + ":*");
+        return Optional.ofNullable(permissions)
+            .filter(perms -> !perms.isEmpty())
+            .map(perms -> {
+                // Simple string-based permission check
+                String permissionKey = domain + ":" + action;
+                return perms.contains(permissionKey) || perms.contains(domain + ":*");
+            })
+            .orElse(false);
     }
 
     public void addPermission(String domain, String action) {
-        if (permissions == null) {
-            permissions = "";
-        }
+        permissions = Optional.ofNullable(permissions)
+            .orElse("");
 
         String permissionKey = domain + ":" + action;
-        if (!permissions.contains(permissionKey)) {
-            permissions = permissions.isEmpty() ? permissionKey : permissions + ";" + permissionKey;
-        }
+        permissions = Optional.of(permissions)
+            .filter(perms -> !perms.contains(permissionKey))
+            .map(perms -> perms.isEmpty() ? permissionKey : perms + ";" + permissionKey)
+            .orElse(permissions);
     }
 
     public void removePermission(String domain, String action) {
-        if (permissions == null || permissions.isEmpty()) {
-            return;
-        }
-
-        String permissionKey = domain + ":" + action;
-        permissions = permissions.replace(permissionKey, "").replace(";;", ";").trim();
-        if (permissions.startsWith(";")) {
-            permissions = permissions.substring(1);
-        }
-        if (permissions.endsWith(";")) {
-            permissions = permissions.substring(0, permissions.length() - 1);
-        }
+        permissions = Optional.ofNullable(permissions)
+            .filter(perms -> !perms.isEmpty())
+            .map(perms -> {
+                String permissionKey = domain + ":" + action;
+                String cleaned = perms.replace(permissionKey, "").replace(";;", ";").trim();
+                // Remove leading semicolon
+                cleaned = Optional.of(cleaned)
+                    .filter(s -> s.startsWith(";"))
+                    .map(s -> s.substring(1))
+                    .orElse(cleaned);
+                // Remove trailing semicolon
+                cleaned = Optional.of(cleaned)
+                    .filter(s -> s.endsWith(";"))
+                    .map(s -> s.substring(0, s.length() - 1))
+                    .orElse(cleaned);
+                return cleaned;
+            })
+            .orElse(permissions);
     }
 
     // Helper method for audit logging

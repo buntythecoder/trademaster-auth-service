@@ -7,10 +7,12 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.ToString;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 /**
  * User Role Assignment entity for mapping users to roles
@@ -39,6 +41,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(exclude = {"user", "role"})  // ✅ Prevent circular references with User and UserRole entities
 public class UserRoleAssignment {
 
     @Id
@@ -91,18 +94,16 @@ public class UserRoleAssignment {
     }
 
     public void extend(int days) {
-        if (expiresAt != null) {
-            this.expiresAt = expiresAt.plusDays(days);
-        } else {
-            this.expiresAt = LocalDateTime.now().plusDays(days);
-        }
+        this.expiresAt = Optional.ofNullable(expiresAt)
+            .map(expiry -> expiry.plusDays(days))
+            .orElse(LocalDateTime.now().plusDays(days));
     }
 
     // Helper method for audit logging
     public String toAuditString() {
-        return String.format("UserRoleAssignment{id=%d, userId=%d, roleId=%d, roleName='%s', isActive=%s, expiresAt=%s}", 
-                           id, userId, roleId, 
-                           role != null ? role.getRoleName() : "unknown", 
+        return String.format("UserRoleAssignment{id=%d, userId=%d, roleId=%d, roleName='%s', isActive=%s, expiresAt=%s}",
+                           id, userId, roleId,
+                           Optional.ofNullable(role).map(UserRole::getRoleName).orElse("unknown"),
                            isActive, expiresAt);
     }
 }

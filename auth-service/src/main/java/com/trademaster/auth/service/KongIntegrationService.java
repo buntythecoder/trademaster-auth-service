@@ -224,7 +224,7 @@ public class KongIntegrationService implements HealthIndicator {
         ).whenComplete((result, throwable) ->
                 Optional.ofNullable(throwable)
                         .ifPresentOrElse(
-                                error -> log.warn("Scheduled Kong health report failed: {}", error.getMessage()),
+                                error -> log.warn("Scheduled Kong health report failed: {}", error),
                                 () -> log.debug("Scheduled Kong health report completed")
                         )
         );

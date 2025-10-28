@@ -10,6 +10,8 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Optional;
 
 @Entity
 @Table(name = "user_sessions")
@@ -89,40 +91,34 @@ public class UserSession {
     }
 
     public long getMinutesUntilExpiry() {
-        if (expiresAt == null) {
-            return 0;
-        }
-        return java.time.Duration.between(LocalDateTime.now(), expiresAt).toMinutes();
+        return Optional.ofNullable(expiresAt)
+            .map(expiry -> java.time.Duration.between(LocalDateTime.now(), expiry).toMinutes())
+            .orElse(0L);
     }
 
     public long getMinutesSinceLastActivity() {
-        if (lastActivity == null) {
-            return Long.MAX_VALUE;
-        }
-        return java.time.Duration.between(lastActivity, LocalDateTime.now()).toMinutes();
+        return Optional.ofNullable(lastActivity)
+            .map(activity -> java.time.Duration.between(activity, LocalDateTime.now()).toMinutes())
+            .orElse(Long.MAX_VALUE);
     }
 
     public void setAttribute(String key, Object value) {
         // Simple key-value storage in string format
-        if (this.attributes == null || this.attributes.isEmpty()) {
-            this.attributes = key + "=" + value.toString();
-        } else {
-            this.attributes = this.attributes + ";" + key + "=" + value.toString();
-        }
+        this.attributes = Optional.ofNullable(this.attributes)
+            .filter(attrs -> !attrs.isEmpty())
+            .map(attrs -> attrs + ";" + key + "=" + value.toString())
+            .orElse(key + "=" + value.toString());
     }
 
     public Object getAttribute(String key) {
-        if (this.attributes == null || this.attributes.isEmpty()) {
-            return null;
-        }
-        String[] pairs = this.attributes.split(";");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split("=", 2);
-            if (keyValue.length == 2 && keyValue[0].equals(key)) {
-                return keyValue[1];
-            }
-        }
-        return null;
+        return Optional.ofNullable(this.attributes)
+            .filter(attrs -> !attrs.isEmpty())
+            .flatMap(attrs -> Arrays.stream(attrs.split(";"))
+                .map(pair -> pair.split("=", 2))
+                .filter(keyValue -> keyValue.length == 2 && keyValue[0].equals(key))
+                .map(keyValue -> keyValue[1])
+                .findFirst())
+            .orElse(null);
     }
 
     public boolean hasAttribute(String key) {

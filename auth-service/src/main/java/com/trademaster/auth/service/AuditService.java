@@ -169,18 +169,17 @@ public class AuditService {
      * Generate blockchain hash using functional approach
      */
     private Function<Result<AuditLogData, String>, Result<BlockchainHashedData, String>> generateBlockchainHash() {
-        return result -> result.flatMap(data -> 
+        return result -> result.flatMap(data ->
             SafeOperations.safelyToResult(() -> {
                 try {
                     return generateBlockchainHashSafely(data.auditLog(), data.auditLog().getPreviousHash());
                 } catch (Exception e) {
-                    throw new RuntimeException("Failed to generate blockchain hash", e);
+                    throw new RuntimeException("Failed to generate blockchain hash: " + e.getMessage(), e);
                 }
+            }).map(hash -> {
+                data.auditLog().setBlockchainHash(hash);
+                return new BlockchainHashedData(data, hash);
             })
-                .map(hash -> {
-                    data.auditLog().setBlockchainHash(hash);
-                    return new BlockchainHashedData(data, hash);
-                })
         );
     }
     
@@ -296,12 +295,12 @@ public class AuditService {
     }
     
     private String parseIpAddressSafely(String ipAddress) {
-        return SafeOperations.safely(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return "127.0.0.1";
-            }
-            return ipAddress.trim();
-        }).orElse("127.0.0.1");
+        return SafeOperations.safely(() ->
+            Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElse("127.0.0.1")
+        ).orElse("127.0.0.1");
     }
     
     private String generateBlockchainHashSafely(AuthAuditLog auditLog, String previousHash) throws Exception {

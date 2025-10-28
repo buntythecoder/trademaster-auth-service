@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -157,12 +158,13 @@ public class RiskAssessmentService {
     }
 
     /**
-     * Timing risk calculation using pattern matching - Rule #14
+     * Timing risk calculation using functional pattern
      */
     private int calculateTimingRiskScore(long minutesAgo) {
-        if (minutesAgo > TIMING_RISK_THRESHOLD_MINUTES) return 15;
-        if (minutesAgo < 0) return 15;
-        return 0;
+        return Optional.of(minutesAgo)
+            .filter(minutes -> minutes >= 0 && minutes <= TIMING_RISK_THRESHOLD_MINUTES)
+            .map(minutes -> 0)
+            .orElse(15);
     }
 
     /**
@@ -180,13 +182,18 @@ public class RiskAssessmentService {
     }
 
     /**
-     * Risk level classification using functional approach
+     * Risk level classification using functional approach with Map-based threshold lookup
      */
     private RiskLevel classifyRiskLevel(int riskScore) {
-        if (riskScore >= MAX_RISK_SCORE) return RiskLevel.RATE_LIMITED;
-        if (riskScore >= HIGH_RISK_THRESHOLD) return RiskLevel.HIGH;
-        if (riskScore >= MEDIUM_RISK_THRESHOLD) return RiskLevel.MEDIUM;
-        return RiskLevel.LOW;
+        return java.util.stream.Stream.of(
+                Map.entry(MAX_RISK_SCORE, RiskLevel.RATE_LIMITED),
+                Map.entry(HIGH_RISK_THRESHOLD, RiskLevel.HIGH),
+                Map.entry(MEDIUM_RISK_THRESHOLD, RiskLevel.MEDIUM)
+            )
+            .filter(entry -> riskScore >= entry.getKey())
+            .map(Map.Entry::getValue)
+            .findFirst()
+            .orElse(RiskLevel.LOW);
     }
 
     /**

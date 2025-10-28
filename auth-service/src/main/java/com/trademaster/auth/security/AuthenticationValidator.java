@@ -5,7 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /**
  * Authentication Validator - Validates authentication credentials
@@ -83,14 +86,24 @@ public class AuthenticationValidator {
     }
 
     /**
-     * Authentication status evaluation using pattern matching - Rule #14
+     * Authentication status evaluation using functional pattern
      */
     private AuthenticationStatus evaluateAuthenticationStatus(SecurityContext context) {
-        if (!context.isAuthenticated()) return AuthenticationStatus.MISSING_USER_ID;
-        if (context.userId().length() < MIN_USER_ID_LENGTH) return AuthenticationStatus.INVALID_USER_ID;
-        if (!context.hasValidSession()) return AuthenticationStatus.NO_SESSION;
-        return AuthenticationStatus.VALID;
+        return Stream.of(
+                new ValidationRule(() -> !context.isAuthenticated(), AuthenticationStatus.MISSING_USER_ID),
+                new ValidationRule(() -> context.userId().length() < MIN_USER_ID_LENGTH, AuthenticationStatus.INVALID_USER_ID),
+                new ValidationRule(() -> !context.hasValidSession(), AuthenticationStatus.NO_SESSION)
+            )
+            .filter(rule -> rule.condition().get())
+            .map(ValidationRule::status)
+            .findFirst()
+            .orElse(AuthenticationStatus.VALID);
     }
+
+    /**
+     * Validation rule record for functional validation chains
+     */
+    private record ValidationRule(Supplier<Boolean> condition, AuthenticationStatus status) {}
 
     /**
      * Authentication status enumeration for pattern matching

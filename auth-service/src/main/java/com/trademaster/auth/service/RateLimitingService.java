@@ -52,7 +52,21 @@ public class RateLimitingService {
     @Value("${trademaster.rate-limit.email-verification.window-minutes:60}")
     private int emailVerificationWindowMinutes;
 
-    // In-memory bucket storage (for production, consider Redis-backed storage)
+    /**
+     * In-memory bucket storage using ConcurrentHashMap for thread-safe rate limiting.
+     *
+     * Design Decision: In-memory storage is appropriate for rate limiting because:
+     * 1. Rate limits are short-lived (minutes to hours) - loss of state on restart is acceptable
+     * 2. ConcurrentHashMap provides thread-safe operations without external dependencies
+     * 3. Performance is optimal with local memory access vs network calls to Redis
+     * 4. Simplifies deployment and reduces operational complexity
+     * 5. Bucket4j automatically handles token refill and expiration
+     *
+     * Note: If horizontal scaling across multiple instances is required, consider:
+     * - Bucket4j Redis integration with spring-data-redis
+     * - Sticky sessions at load balancer to route users to same instance
+     * - Distributed rate limiting with bucket4j-redis module
+     */
     private final ConcurrentHashMap<String, Bucket> loginBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> registrationBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> passwordResetBuckets = new ConcurrentHashMap<>();

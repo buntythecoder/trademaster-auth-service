@@ -42,10 +42,10 @@ public class CriticalPathBenchmark {
         // Initialize test data
         testUser = User.builder()
             .id(1L)
-            .username("critical@trademaster.com")
             .email("critical@trademaster.com")
             .firstName("Critical")
             .lastName("Path")
+            .passwordHash("$2a$10$dummyHashForBenchmark")
             .build();
 
         sessionCache = new ConcurrentHashMap<>();

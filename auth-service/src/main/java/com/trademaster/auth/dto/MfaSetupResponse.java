@@ -14,7 +14,32 @@ public class MfaSetupResponse {
     private List<String> backupCodes;
     private boolean enabled;
     private String message;
-    
+
+    // Explicit getters for test compatibility
+    public String getMessage() {
+        return message;
+    }
+
+    public String getSecretKey() {
+        return secretKey;
+    }
+
+    public String getQrCodeUrl() {
+        return qrCodeUrl;
+    }
+
+    public List<String> getBackupCodes() {
+        return backupCodes;
+    }
+
+    public String getMfaType() {
+        return mfaType;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
     public static MfaSetupResponse success(String mfaType, String secretKey, String qrCodeUrl, List<String> backupCodes) {
         return MfaSetupResponse.builder()
                 .mfaType(mfaType)

@@ -468,12 +468,12 @@ public class DeviceTrustService {
                 .filter(header -> !header.isEmpty()))
             .orElse(request.getRemoteAddr());
 
-        return SafeOperations.safelyToResult(() -> {
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                return "127.0.0.1";
-            }
-            return ipAddress.trim();
-        })
+        return SafeOperations.safelyToResult(() ->
+            Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElse("127.0.0.1")
+        )
                 .fold(
                     error -> {
                         log.warn("Failed to parse IP address {}: {}", ipAddress, error);

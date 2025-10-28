@@ -44,4 +44,19 @@ public class AuthenticationRequest {
     private boolean mfaBypass = false;
 
     private String deviceInfo;
+
+    /**
+     * Convenience constructor for basic authentication
+     *
+     * @param email User email
+     * @param password User password
+     * @param deviceInfo Device fingerprint or info
+     */
+    public AuthenticationRequest(String email, String password, String deviceInfo) {
+        this.email = email;
+        this.password = password;
+        this.deviceInfo = deviceInfo;
+        this.rememberMe = false;
+        this.mfaBypass = false;
+    }
 }

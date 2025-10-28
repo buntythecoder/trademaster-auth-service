@@ -1,0 +1,349 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :bootBuildInfo
+
+> Task :compileJava
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/C:/Users/bunty/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
+WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+
+> Task :compileJava
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\MfaService.java:287: error: unreported exception NoSuchAlgorithmException; must be caught or declared to be thrown
+                Mac instance = Mac.getInstance("HmacSHA1");
+                                              ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\MfaService.java:288: error: unreported exception InvalidKeyException; must be caught or declared to be thrown
+                instance.init(new SecretKeySpec(secretBytes, "HmacSHA1"));
+                             ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\CircuitBreakerService.java:114: error: cannot find symbol
+            SafeOperations.safelyToResult(() ->
+            ^
+  symbol:   variable SafeOperations
+  location: class CircuitBreakerService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\CircuitBreakerService.java:116: error: cannot find symbol
+                    SafeOperations.safelyToResult(() -> {
+                    ^
+  symbol:   variable SafeOperations
+  location: class CircuitBreakerService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\EmailService.java:198: error: incompatible types: String cannot be converted to Throwable
+                }).orElseThrow(error -> new RuntimeException("Failed to prepare email message: " + error, error));
+                                                                                                          ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\agentos\AuthMCPController.java:55: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class AuthMCPController
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\agentos\AuthMCPController.java:89: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class AuthMCPController
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\agentos\AuthMCPController.java:125: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class AuthMCPController
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\agentos\AuthMCPController.java:260: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class AuthMCPController
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\PasswordManagementService.java:143: error: invalid method reference
+            .flatMap(userRepository::findByEmail)
+                     ^
+  cannot find symbol
+    symbol:   method findByEmail()
+    location: interface UserRepository
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\command\VerifyEmailCommand.java:37: error: cannot find symbol
+                verificationService.verifyEmail(verificationToken, ipAddress);
+                                   ^
+  symbol:   method verifyEmail(String,String)
+  location: variable verificationService of type VerificationTokenService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\AuthController.java:361: error: incompatible types: String cannot be converted to Long
+                        validEmail, mfaToken, mfaCode, httpRequest)
+                        ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthenticationFacade.java:102: error: incompatible types: Long cannot be converted to String
+        return authenticationService.completeMfaVerification(userId, mfaCode, ipAddress, userAgent);
+                                                             ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthenticationFacade.java:217: error: incompatible types: CompletableFuture<Result<String,String>> cannot be converted to String
+        return passwordManagementService.resetPassword(token, newPassword, ipAddress, userAgent);
+                                                      ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthenticationFacade.java:263: error: cannot find symbol
+            .thenCompose(result -> result.match(
+                                         ^
+  symbol:   method match((user)->to[...]user),(error)->C[...]ror)))
+  location: variable result of type Result<User,String>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\TokenManagementService.java:123: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class TokenManagementService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\TokenManagementService.java:124: error: no suitable method found for generateToken(User)
+            String accessToken = jwtTokenProvider.generateToken(user);
+                                                 ^
+    method JwtTokenProvider.generateToken(Authentication,String,String) is not applicable
+      (actual and formal argument lists differ in length)
+    method JwtTokenProvider.generateToken(String,Long,String,boolean) is not applicable
+      (actual and formal argument lists differ in length)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\TokenManagementService.java:125: error: method generateRefreshToken in class JwtTokenProvider cannot be applied to given types;
+            String refreshToken = jwtTokenProvider.generateRefreshToken(user);
+                                                  ^
+  required: User,String
+  found:    User
+  reason: actual and formal argument lists differ in length
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\TokenManagementService.java:132: error: cannot find symbol
+                .userId(user.getId())
+                ^
+  symbol:   method userId(Long)
+  location: class AuthenticationResponseBuilder
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\TokenManagementService.java:134: error: cannot find symbol
+                .roles(user.getRoles().stream()
+                           ^
+  symbol:   method getRoles()
+  location: variable user of type User
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\UserRegistrationService.java:114: error: cannot find symbol
+        return AuthenticationValidators.validateRegistrationRequest::validate;
+                                       ^
+  symbol:   variable validateRegistrationRequest
+  location: class AuthenticationValidators
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\DeviceController.java:103: error: incompatible types: inference variable U has incompatible bounds
+        }).fold(
+               ^
+    upper bounds: ResponseEntity<Map<String,Object>>,Object
+    lower bounds: ResponseEntity<Map<String,String>>,ResponseEntity<T#2>,ResponseEntity<T#2>
+  where U,E,T#1,T#2 are type-variables:
+    U extends Object declared in method <U>fold(Function<E,U>,Function<T#1,U>)
+    E extends Object declared in interface Result
+    T#1 extends Object declared in interface Result
+    T#2 extends Object declared in method <T#2>body(T#2)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\DeviceController.java:129: error: incompatible types: inference variable U has incompatible bounds
+        }).fold(
+               ^
+    upper bounds: ResponseEntity<Map<String,Object>>,Object
+    lower bounds: ResponseEntity<Map<String,String>>,ResponseEntity<T#2>,ResponseEntity<T#2>
+  where U,E,T#1,T#2 are type-variables:
+    U extends Object declared in method <U>fold(Function<E,U>,Function<T#1,U>)
+    E extends Object declared in interface Result
+    T#1 extends Object declared in interface Result
+    T#2 extends Object declared in method <T#2>body(T#2)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\InternalAuthController.java:229: error: cannot find symbol
+                    "JWT", determineServiceHealth(authenticationService != null),
+                                                  ^
+  symbol:   variable authenticationService
+  location: class InternalAuthController
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\controller\MfaController.java:186: error: incompatible types: inference variable T has incompatible bounds
+        }).fold(
+               ^
+    equality constraints: Map<String,Object>
+    lower bounds: Map<String,String>
+  where T is a type-variable:
+    T extends Object declared in method <T>ok(T)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\observer\NotificationObserver.java:242: error: cannot find symbol
+        emailService.sendEmail(userEmail, subject, body)
+                    ^
+  symbol:   method sendEmail(String,String,String)
+  location: variable emailService of type EmailService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\security\SecurityMediator.java:160: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> operation.apply(context))
+               ^
+  symbol:   variable SafeOperations
+  location: class SecurityMediator
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthEventPublisher.java:59: error: incompatible types: bad return type in lambda expression
+            log.debug("Observer registered for event type: {}", eventType.getSimpleName());
+                                                                                       ^
+    missing return value
+  where T is a type-variable:
+    T extends Object declared in method <T>safely(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthEventPublisher.java:78: error: incompatible types: bad return type in lambda expression
+            log.debug("Observer unregistered for event type: {}", eventType.getSimpleName());
+                                                                                         ^
+    missing return value
+  where T is a type-variable:
+    T extends Object declared in method <T>safely(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\AuthEventPublisher.java:188: error: incompatible types: bad return type in lambda expression
+        SafeOperations.safely(() -> {
+                              ^
+    missing return value
+  where T is a type-variable:
+    T extends Object declared in method <T>safely(Supplier<T>)
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:278: error: cannot find symbol
+                    SafeOperations.safelyToResult(() -> {
+                    ^
+  symbol:   variable SafeOperations
+  location: class RetryCommand<T>
+  where T is a type-variable:
+    T extends Object declared in class RetryCommand
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:361: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:364: error: cannot find symbol
+                SafeOperations.safelyToResult(() -> {
+                ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:412: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:430: error: cannot find symbol
+        return SafeOperations.safelyToResult(() ->
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:474: error: cannot find symbol
+        return SafeOperations.safelyToResult(() ->
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:530: error: cannot find symbol
+        return SafeOperations.safelyToResult(() ->
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:559: error: cannot find symbol
+        return SafeOperations.safelyToResult(() ->
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:577: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:626: error: cannot find symbol
+        return SafeOperations.safelyToResult(() ->
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:642: error: cannot find symbol
+        return SafeOperations.safelyToResult(() -> {
+               ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:698: error: cannot find symbol
+            SafeOperations.safelyToResult(() -> {
+            ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\FunctionalAuthenticationService.java:721: error: cannot find symbol
+            SafeOperations.safelyToResult(() -> {
+            ^
+  symbol:   variable SafeOperations
+  location: class FunctionalAuthenticationService
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\ApiKeyAuthenticationStrategy.java:119: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+            .flatMap(validateApiKeyFormat())
+            ^
+  required: Function<ApiKeyContext,Result<U,String>>
+  found:    Function<Result<ApiKeyContext,String>,Result<ApiKeyContext,String>>
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; Function<Result<ApiKeyContext,String>,Result<ApiKeyContext,String>> cannot be converted to Function<ApiKeyContext,Result<U,String>>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\ApiKeyAuthenticationStrategy.java:143: error: cannot find symbol
+            .filter(Objects::nonNull)
+                    ^
+  symbol:   variable Objects
+  location: class ApiKeyAuthenticationStrategy
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\MfaAuthenticationStrategy.java:121: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+            .flatMap(findUserForMfa())
+            ^
+  required: Function<AuthenticationContext,Result<U,String>>
+  found:    Function<Result<AuthenticationContext,String>,Result<MfaAuthContext,String>>
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; Function<Result<AuthenticationContext,String>,Result<MfaAuthContext,String>> cannot be converted to Function<AuthenticationContext,Result<U,String>>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\PasswordAuthenticationStrategy.java:121: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+            .flatMap(findUserByEmail())
+            ^
+  required: Function<AuthenticationContext,Result<U,String>>
+  found:    Function<Result<AuthenticationContext,String>,Result<AuthenticatedUserContext,String>>
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; Function<Result<AuthenticationContext,String>,Result<AuthenticatedUserContext,String>> cannot be converted to Function<AuthenticationContext,Result<U,String>>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\PasswordAuthenticationStrategy.java:132: error: cannot find symbol
+        return context -> AuthenticationValidators.validateAuthenticationRequest
+                                                  ^
+  symbol:   variable validateAuthenticationRequest
+  location: class AuthenticationValidators
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\strategy\SocialAuthenticationStrategy.java:124: error: method flatMap in interface Result<T,E> cannot be applied to given types;
+            .flatMap(validateSocialToken())
+            ^
+  required: Function<SocialAuthData,Result<U,String>>
+  found:    Function<Result<SocialAuthData,String>,Result<SocialUserInfo,String>>
+  reason: cannot infer type-variable(s) U
+    (argument mismatch; Function<Result<SocialAuthData,String>,Result<SocialUserInfo,String>> cannot be converted to Function<SocialAuthData,Result<U,String>>)
+  where U,T,E are type-variables:
+    U extends Object declared in method <U>flatMap(Function<T,Result<U,E>>)
+    T extends Object declared in interface Result
+    E extends Object declared in interface Result
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:63: error: incompatible types: Result<RegistrationRequest,Object> cannot be converted to Result<RegistrationRequest,String>
+                .orElse(Result.failure("Invalid email format"));
+                       ^
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:67: error: cannot find symbol
+            return Optional.ofNullable(request.username())
+                                              ^
+  symbol:   method username()
+  location: variable request of type RegistrationRequest
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:75: error: cannot find symbol
+            return Optional.ofNullable(request.password())
+                                              ^
+  symbol:   method password()
+  location: variable request of type RegistrationRequest
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:93: error: incompatible types: bad return type in lambda expression
+            .orElse(Result.failure("Password does not meet strength requirements"));
+                   ^
+    Result<String,Object> cannot be converted to Result<String,String>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:103: error: incompatible types: bad return type in lambda expression
+            .orElse(Result.failure("Invalid email format"));
+                   ^
+    Result<String,Object> cannot be converted to Result<String,String>
+E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\validator\AuthenticationValidators.java:114: error: incompatible types: bad return type in lambda expression
+            .orElse(Result.failure("Username must be between 3 and 50 characters"));
+                   ^
+    Result<String,Object> cannot be converted to Result<String,String>
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\SessionManagementService.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+Note: Some input files use preview features of Java SE 24.
+Note: Recompile with -Xlint:preview for details.
+Note: Some messages have been simplified; recompile with -Xdiags:verbose to get full output
+55 errors
+
+> Task :compileJava FAILED
+
+[Incubating] Problems report is available at: file:///E:/workspace/claude/trademaster/auth-service/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler output below.
+  E:\workspace\claude\trademaster\auth-service\src\main\java\com\trademaster\auth\service\MfaService.java:287: error: unreported exception NoSuchAlgorithmException; must be caught or declared to be thrown
+                  Mac instance = Mac.getInstance("HmacSHA1");
+                                                ^
+  55 errors
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to get full insights.
+
+BUILD FAILED in 48s
+2 actionable tasks: 2 executed

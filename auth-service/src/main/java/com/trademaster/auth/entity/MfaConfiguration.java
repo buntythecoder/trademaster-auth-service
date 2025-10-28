@@ -34,6 +34,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(exclude = "user")  // ✅ Prevent circular reference with User entity
 public class MfaConfiguration {
 
     @Id

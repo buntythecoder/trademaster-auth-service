@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 /**
  * Verification Token Entity
@@ -106,8 +107,7 @@ public class VerificationToken {
 
     @PrePersist
     protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
+        createdAt = Optional.ofNullable(createdAt)
+            .orElse(LocalDateTime.now());
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,93 +57,97 @@ public class AuthCapabilityRegistry {
      * Records successful execution of a capability
      */
     public void recordSuccessfulExecution(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordSuccess();
-            log.debug("Recorded successful execution for capability: {}", capability);
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordSuccess();
+                log.debug("Recorded successful execution for capability: {}", capability);
+            });
     }
     
     /**
      * Records failed execution of a capability
      */
     public void recordFailedExecution(String capability, Exception error) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordFailure(error);
-            log.warn("Recorded failed execution for capability: {} - Error: {}", 
-                    capability, error.getMessage());
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordFailure(error);
+                log.warn("Recorded failed execution for capability: {} - Error: {}",
+                        capability, error);
+            });
     }
     
     /**
      * Records execution time for performance tracking
      */
     public void recordExecutionTime(String capability, Duration executionTime) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.recordExecutionTime(executionTime);
-            log.debug("Recorded execution time for capability: {} - Duration: {}ms", 
-                    capability, executionTime.toMillis());
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.recordExecutionTime(executionTime);
+                log.debug("Recorded execution time for capability: {} - Duration: {}ms",
+                        capability, executionTime.toMillis());
+            });
     }
     
     /**
      * Gets current health score for a specific capability
      */
     public Double getCapabilityHealthScore(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getHealthScore() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getHealthScore)
+            .orElse(0.0);
     }
     
     /**
      * Gets success rate for a specific capability
      */
     public Double getCapabilitySuccessRate(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getSuccessRate() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getSuccessRate)
+            .orElse(0.0);
     }
-    
+
     /**
      * Gets average execution time for a specific capability
      */
     public Double getCapabilityAverageExecutionTime(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getAverageExecutionTime() : 0.0;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getAverageExecutionTime)
+            .orElse(0.0);
     }
-    
+
     /**
      * Gets the last error message for a specific capability
      */
     public String getCapabilityLastError(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getLastError() : null;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getLastError)
+            .orElse(null);
     }
-    
+
     /**
      * Gets the last execution time for a specific capability
      */
     public LocalDateTime getCapabilityLastExecution(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        return metrics != null ? metrics.getLastExecution() : null;
+        return Optional.ofNullable(capabilityMetrics.get(capability))
+            .map(CapabilityMetrics::getLastExecution)
+            .orElse(null);
     }
     
     /**
      * Calculates overall agent health score across all capabilities
      */
     public Double calculateOverallHealthScore() {
-        if (capabilityMetrics.isEmpty()) {
-            return 0.0;
-        }
-        
-        double totalHealth = capabilityMetrics.values().stream()
-                .mapToDouble(CapabilityMetrics::getHealthScore)
-                .sum();
-        
-        double overallHealth = totalHealth / capabilityMetrics.size();
-        
-        log.debug("Calculated overall health score: {}", overallHealth);
-        return overallHealth;
+        return Optional.of(capabilityMetrics)
+            .filter(metrics -> !metrics.isEmpty())
+            .map(metrics -> {
+                double totalHealth = metrics.values().stream()
+                    .mapToDouble(CapabilityMetrics::getHealthScore)
+                    .sum();
+                double overallHealth = totalHealth / metrics.size();
+                log.debug("Calculated overall health score: {}", overallHealth);
+                return overallHealth;
+            })
+            .orElse(0.0);
     }
     
     /**
@@ -167,11 +172,11 @@ public class AuthCapabilityRegistry {
      * Resets metrics for a specific capability
      */
     public void resetCapabilityMetrics(String capability) {
-        CapabilityMetrics metrics = capabilityMetrics.get(capability);
-        if (metrics != null) {
-            metrics.reset();
-            log.info("Reset metrics for capability: {}", capability);
-        }
+        Optional.ofNullable(capabilityMetrics.get(capability))
+            .ifPresent(metrics -> {
+                metrics.reset();
+                log.info("Reset metrics for capability: {}", capability);
+            });
     }
     
     /**
@@ -239,22 +244,32 @@ public class AuthCapabilityRegistry {
         private Double getRecencyScore() {
             Duration timeSinceLastExecution = Duration.between(lastExecution, LocalDateTime.now());
             long minutesSinceExecution = timeSinceLastExecution.toMinutes();
-            
+
             // Score decreases over time, 1.0 if executed within 5 minutes
-            if (minutesSinceExecution <= 5) return 1.0;
-            if (minutesSinceExecution <= 30) return 0.8;
-            if (minutesSinceExecution <= 120) return 0.6;
-            if (minutesSinceExecution <= 360) return 0.4;
-            return 0.2;
+            return java.util.stream.Stream.of(
+                    Map.entry(5L, 1.0),
+                    Map.entry(30L, 0.8),
+                    Map.entry(120L, 0.6),
+                    Map.entry(360L, 0.4)
+                )
+                .filter(entry -> minutesSinceExecution <= entry.getKey())
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(0.2);
         }
         
         private Double getPerformanceScore(double avgTimeMs) {
             // Authentication-specific performance thresholds using constants
-            if (avgTimeMs <= AuthConstants.PERFORMANCE_EXCELLENT_MS) return 1.0;   // Excellent for authentication
-            if (avgTimeMs <= AuthConstants.PERFORMANCE_GOOD_MS) return 0.9;        // Good for security operations
-            if (avgTimeMs <= AuthConstants.PERFORMANCE_AVERAGE_MS) return 0.7;     // Average for MFA operations
-            if (avgTimeMs <= AuthConstants.PERFORMANCE_POOR_MS) return 0.5;        // Poor for session management
-            return 0.2;  // Very poor
+            return java.util.stream.Stream.of(
+                    Map.entry((double) AuthConstants.PERFORMANCE_EXCELLENT_MS, 1.0),  // Excellent for authentication
+                    Map.entry((double) AuthConstants.PERFORMANCE_GOOD_MS, 0.9),       // Good for security operations
+                    Map.entry((double) AuthConstants.PERFORMANCE_AVERAGE_MS, 0.7),    // Average for MFA operations
+                    Map.entry((double) AuthConstants.PERFORMANCE_POOR_MS, 0.5)        // Poor for session management
+                )
+                .filter(entry -> avgTimeMs <= entry.getKey())
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(0.2);  // Very poor
         }
         
 

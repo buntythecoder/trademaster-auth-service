@@ -3,6 +3,7 @@ package com.trademaster.auth.agentos;
 import com.trademaster.auth.constants.AuthConstants;
 import com.trademaster.auth.dto.AuthenticationRequest;
 import com.trademaster.auth.dto.AuthenticationResponse;
+import com.trademaster.auth.pattern.SafeOperations;
 import com.trademaster.auth.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 /**
  * AgentOS Authentication Agent
@@ -74,10 +76,10 @@ public class AuthenticationAgent implements AgentOSComponent {
      */
     @AgentCapability(name = AuthConstants.CAPABILITY_USER_AUTHENTICATION, proficiency = AuthConstants.PROFICIENCY_EXPERT)
     public CompletableFuture<String> authenticateUser(String username, String password, String deviceId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 log.info("Authenticating user: {} from device: {}", username, deviceId);
-                
+
                 var authRequest = AuthenticationRequest.builder()
                     .email(username) // username parameter is actually email
                     .password(password)
@@ -102,13 +104,13 @@ public class AuthenticationAgent implements AgentOSComponent {
                 );
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_USER_AUTHENTICATION);
                 return result;
-                                   
-            } catch (Exception e) {
-                log.error("Failed to authenticate user: {}", username, e);
-                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_USER_AUTHENTICATION, e);
-                throw new RuntimeException("Authentication failed", e);
-            }
-        });
+            })
+            .onFailure(error -> {
+                log.error("Failed to authenticate user: {}", username);
+                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_USER_AUTHENTICATION, new RuntimeException(error));
+            })
+            .orElseThrow(error -> new RuntimeException("Authentication failed: " + error))
+        );
     }
     
     /**
@@ -116,23 +118,23 @@ public class AuthenticationAgent implements AgentOSComponent {
      */
     @AgentCapability(name = AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH, proficiency = AuthConstants.PROFICIENCY_EXPERT)
     public CompletableFuture<String> setupMFA(String userId, String mfaType) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 log.info("Setting up MFA for user: {} type: {}", userId, mfaType);
-                
+
                 var mfaSetup = mfaService.setupTotpMfa(userId, "session_" + userId);
-                securityAuditService.logSecurityEvent(Long.valueOf(userId), "MFA_SETUP", "LOW", 
+                securityAuditService.logSecurityEvent(Long.valueOf(userId), "MFA_SETUP", "LOW",
                     "127.0.0.1", "AuthenticationAgent", Map.of("action", "MFA setup completed"));
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH);
-                
-                return String.format("MFA setup completed for user %s: %s", userId, mfaSetup.getSecretKey());
-                                   
-            } catch (Exception e) {
-                log.error("Failed to setup MFA for user: {}", userId, e);
-                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH, e);
-                throw new RuntimeException("MFA setup failed", e);
-            }
-        });
+
+                return String.format("MFA setup completed for user %s: %s", userId, mfaSetup.secretKey());
+            })
+            .onFailure(error -> {
+                log.error("Failed to setup MFA for user: {}", userId);
+                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_MULTI_FACTOR_AUTH, new RuntimeException(error));
+            })
+            .orElseThrow(error -> new RuntimeException("MFA setup failed: " + error))
+        );
     }
     
     /**
@@ -140,26 +142,26 @@ public class AuthenticationAgent implements AgentOSComponent {
      */
     @AgentCapability(name = AuthConstants.CAPABILITY_SECURITY_AUDIT, proficiency = AuthConstants.PROFICIENCY_ADVANCED)
     public CompletableFuture<String> performSecurityAudit(String userId, String eventType, String details) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 log.info("Performing security audit for user: {} event: {}", userId, eventType);
-                
+
                 securityAuditService.logSecurityEvent(
                     Long.valueOf(userId), eventType, "LOW", "127.0.0.1", "AuthenticationAgent",
                     Map.of("details", details, "eventType", eventType)
                 );
                 var complianceCheck = securityAuditService.checkComplianceStatus(userId);
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_SECURITY_AUDIT);
-                
-                return String.format("Security audit completed for user %s: compliance status %s", 
+
+                return String.format("Security audit completed for user %s: compliance status %s",
                                    userId, complianceCheck.get("complianceLevel"));
-                                   
-            } catch (Exception e) {
-                log.error("Failed to perform security audit for user: {}", userId, e);
-                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_SECURITY_AUDIT, e);
-                throw new RuntimeException("Security audit failed", e);
-            }
-        });
+            })
+            .onFailure(error -> {
+                log.error("Failed to perform security audit for user: {}", userId);
+                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_SECURITY_AUDIT, new RuntimeException(error));
+            })
+            .orElseThrow(error -> new RuntimeException("Security audit failed: " + error))
+        );
     }
     
     /**
@@ -167,10 +169,10 @@ public class AuthenticationAgent implements AgentOSComponent {
      */
     @AgentCapability(name = AuthConstants.CAPABILITY_SESSION_MANAGEMENT, proficiency = AuthConstants.PROFICIENCY_ADVANCED)
     public CompletableFuture<String> manageUserSession(String sessionId, String action) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 log.info("Managing session: {} action: {}", sessionId, action);
-                
+
                 var sessionResult = sessionManagementService.manageSession(sessionId, action);
                 securityAuditService.logSecurityEvent(
                     Long.valueOf(sessionResult.getUserId()), "SESSION_" + action.toUpperCase(), "LOW",
@@ -178,15 +180,15 @@ public class AuthenticationAgent implements AgentOSComponent {
                     Map.of("action", action, "sessionId", sessionId)
                 );
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_SESSION_MANAGEMENT);
-                
+
                 return String.format("Session %s action %s completed successfully", sessionId, action);
-                                   
-            } catch (Exception e) {
-                log.error("Failed to manage session: {} action: {}", sessionId, action, e);
-                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_SESSION_MANAGEMENT, e);
-                throw new RuntimeException("Session management failed", e);
-            }
-        });
+            })
+            .onFailure(error -> {
+                log.error("Failed to manage session: {} action: {}", sessionId, action);
+                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_SESSION_MANAGEMENT, new RuntimeException(error));
+            })
+            .orElseThrow(error -> new RuntimeException("Session management failed: " + error))
+        );
     }
     
     /**
@@ -194,26 +196,26 @@ public class AuthenticationAgent implements AgentOSComponent {
      */
     @AgentCapability(name = AuthConstants.CAPABILITY_DEVICE_TRUST, proficiency = AuthConstants.PROFICIENCY_INTERMEDIATE)
     public CompletableFuture<String> validateDeviceTrust(String deviceId, String userId) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
                 log.info("Validating device trust for device: {} user: {}", deviceId, userId);
-                
+
                 var trustResult = deviceTrustService.validateDeviceTrust(deviceId, Long.valueOf(userId));
                 securityAuditService.logSecurityEvent(
                     Long.valueOf(userId), "DEVICE_TRUST_CHECK", "LOW", "127.0.0.1", "AuthenticationAgent",
                     Map.of("device_id", deviceId, "trust_level", trustResult.getTrustLevel().toString())
                 );
                 capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_DEVICE_TRUST);
-                
-                return String.format("Device trust validation completed: %s level for device %s", 
+
+                return String.format("Device trust validation completed: %s level for device %s",
                                    trustResult.getTrustLevel(), deviceId);
-                                   
-            } catch (Exception e) {
-                log.error("Failed to validate device trust for device: {}", deviceId, e);
-                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, e);
-                throw new RuntimeException("Device trust validation failed", e);
-            }
-        });
+            })
+            .onFailure(error -> {
+                log.error("Failed to validate device trust for device: {}", deviceId);
+                capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(error));
+            })
+            .orElseThrow(error -> new RuntimeException("Device trust validation failed: " + error))
+        );
     }
     
     /**
@@ -223,223 +225,243 @@ public class AuthenticationAgent implements AgentOSComponent {
             Long requestId,
             List<Supplier<String>> operations,
             Duration timeout) {
-        
-        return CompletableFuture.supplyAsync(() -> {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-                
-                // Fork all authentication operations
-                var subtasks = operations.stream()
-                    .map(operation -> scope.fork(operation::get))
-                    .toList();
-                
-                // Join with timeout and handle failures
-                scope.joinUntil(java.time.Instant.now().plus(timeout));
-                scope.throwIfFailed();
-                
-                // Collect results
-                var results = subtasks.stream()
-                    .map(StructuredTaskScope.Subtask::get)
-                    .toList();
-                
-                log.info("Coordinated authentication processing completed for request: {}", requestId);
-                
-                return AuthenticationResponse.builder()
-                    .requestId(requestId)
-                    .status("SUCCESS")
-                    .processingResults(results)
-                    .processingTimeMs(System.currentTimeMillis())
-                    .build();
-                    
-            } catch (Exception e) {
-                log.error("Coordinated authentication processing failed for request: {}", requestId, e);
-                
-                return AuthenticationResponse.builder()
-                    .requestId(requestId)
-                    .status("FAILED")
-                    .errorMessage(e.getMessage())
-                    .processingTimeMs(System.currentTimeMillis())
-                    .build();
-            }
-        });
+
+        return CompletableFuture.supplyAsync(() ->
+            SafeOperations.safelyToResult(() -> {
+                try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+
+                    // Fork all authentication operations
+                    var subtasks = operations.stream()
+                        .map(operation -> scope.fork(operation::get))
+                        .toList();
+
+                    // Join with timeout and handle failures
+                    try {
+                        scope.joinUntil(java.time.Instant.now().plus(timeout));
+                        scope.throwIfFailed();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Authentication processing interrupted", e);
+                    } catch (java.util.concurrent.TimeoutException e) {
+                        throw new RuntimeException("Authentication processing timeout exceeded", e);
+                    } catch (java.util.concurrent.ExecutionException e) {
+                        throw new RuntimeException("Authentication processing execution failed", e);
+                    }
+
+                    // Collect results
+                    var results = subtasks.stream()
+                        .map(StructuredTaskScope.Subtask::get)
+                        .toList();
+
+                    log.info("Coordinated authentication processing completed for request: {}", requestId);
+
+                    return AuthenticationResponse.builder()
+                        .requestId(requestId)
+                        .status("SUCCESS")
+                        .processingResults(results)
+                        .processingTimeMs(System.currentTimeMillis())
+                        .build();
+                }
+            }).fold(
+                error -> {
+                    log.error("Coordinated authentication processing failed for request: {}", requestId);
+                    return AuthenticationResponse.builder()
+                        .requestId(requestId)
+                        .status("FAILED")
+                        .errorMessage(error)
+                        .processingTimeMs(System.currentTimeMillis())
+                        .build();
+                },
+                response -> response
+            )
+        );
     }
     
     // Helper methods for authentication operations
     
     private String validateCredentials(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             var startTime = System.currentTimeMillis();
-            
+
             // Validate email format
-            if (request.getEmail() == null || !request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
-                throw new IllegalArgumentException("Invalid email format");
-            }
-            
+            Optional.ofNullable(request.getEmail())
+                .filter(email -> email.matches("^[A-Za-z0-9+_.-]+@(.+)$"))
+                .orElseThrow(() -> new IllegalArgumentException("Invalid email format"));
+
             // Validate password strength
-            if (request.getPassword() == null || request.getPassword().length() < 8) {
-                throw new IllegalArgumentException("Password must be at least 8 characters");
-            }
-            
+            Optional.ofNullable(request.getPassword())
+                .filter(password -> password.length() >= 8)
+                .orElseThrow(() -> new IllegalArgumentException("Password must be at least 8 characters"));
+
             // Use authentication service to validate credentials
             var authResult = authenticationService.login(request, null);
-            
+
             var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
             capabilityRegistry.recordExecutionTime("USER_AUTHENTICATION", executionTime);
-            
+
             return authResult.fold(
                 error -> {
                     throw new RuntimeException("Credential validation failed: " + error);
                 },
                 response -> "Credentials validated successfully for user: " + response.getUser().getEmail()
             );
-            
-        } catch (Exception e) {
-            log.warn("Credential validation failed: {}", e.getMessage());
-            capabilityRegistry.recordFailedExecution("USER_AUTHENTICATION", e);
-            return "Credential validation failed: " + e.getMessage();
-        }
+        }).fold(
+            error -> {
+                log.warn("Credential validation failed: {}", error);
+                capabilityRegistry.recordFailedExecution("USER_AUTHENTICATION", new RuntimeException(error));
+                return "Credential validation failed: " + error;
+            },
+            result -> result
+        );
     }
     
     private String checkAccountStatus(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             var startTime = System.currentTimeMillis();
-            
+
             // For agent context, we'll perform validation by attempting authentication
             // This gives us both user existence and account status information
             var authResult = authenticationService.login(request, null);
-            
+
             var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
             capabilityRegistry.recordExecutionTime("USER_AUTHENTICATION", executionTime);
-            
+
             return authResult.fold(
                 error -> {
-                    // Analyze error to determine specific account status issues
+                    // Analyze error to determine specific account status issues using functional pattern
                     String lowerError = error.toLowerCase();
-                    if (lowerError.contains("not found") || lowerError.contains("does not exist")) {
-                        throw new RuntimeException("Account not found: " + request.getEmail());
-                    } else if (lowerError.contains("disabled") || lowerError.contains("inactive")) {
-                        throw new RuntimeException("Account is disabled: " + request.getEmail());
-                    } else if (lowerError.contains("locked")) {
-                        throw new RuntimeException("Account is locked: " + request.getEmail());
-                    } else if (lowerError.contains("expired")) {
-                        throw new RuntimeException("Account is expired: " + request.getEmail());
-                    } else {
-                        // If it's just credential error, account exists and is active
-                        return String.format("Account exists and active but authentication failed for: %s", request.getEmail());
-                    }
+                    return Stream.of(
+                            Map.entry(List.of("not found", "does not exist"),
+                                    "Account not found: " + request.getEmail()),
+                            Map.entry(List.of("disabled", "inactive"),
+                                    "Account is disabled: " + request.getEmail()),
+                            Map.entry(List.of("locked"),
+                                    "Account is locked: " + request.getEmail()),
+                            Map.entry(List.of("expired"),
+                                    "Account is expired: " + request.getEmail())
+                        )
+                        .filter(entry -> entry.getKey().stream()
+                            .anyMatch(lowerError::contains))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(String.format("Account exists and active but authentication failed for: %s", request.getEmail()));
                 },
                 response -> String.format("Account status verified - User active: %s (ID: %d)",
                                         response.getUser().getEmail(), response.getUser().getId())
             );
-            
-        } catch (Exception e) {
-            log.warn("Account status check failed: {}", e.getMessage());
-            capabilityRegistry.recordFailedExecution("USER_AUTHENTICATION", e);
-            return "Account status check failed: " + e.getMessage();
-        }
+        }).fold(
+            error -> {
+                log.warn("Account status check failed: {}", error);
+                capabilityRegistry.recordFailedExecution("USER_AUTHENTICATION", new RuntimeException(error));
+                return "Account status check failed: " + error;
+            },
+            result -> result
+        );
     }
     
     private String validateDeviceTrust(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             var startTime = System.currentTimeMillis();
-            
+
             // First authenticate to get actual user information
             var authResult = authenticationService.login(request, null);
-            
+
             return authResult.fold(
                 error -> {
                     log.warn("Cannot validate device trust - authentication failed: {}", error);
-                    capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(error.toString()));
+                    capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(error));
                     return "Device trust validation failed - authentication required: " + error;
                 },
-                response -> {
-                    try {
-                        // Use functional approach to generate device ID
-                        final String deviceId = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
+                response -> SafeOperations.safelyToResult(() -> {
+                    // Use functional approach to generate device ID
+                    final String deviceId = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
 
-                        // Validate device trust with actual user ID
-                        var trustValidation = deviceTrustService.validateDeviceTrust(deviceId, response.getUser().getId());
+                    // Validate device trust with actual user ID
+                    var trustValidation = deviceTrustService.validateDeviceTrust(deviceId, response.getUser().getId());
 
-                        var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
-                        capabilityRegistry.recordExecutionTime("DEVICE_TRUST", executionTime);
-                        capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_DEVICE_TRUST);
+                    var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
+                    capabilityRegistry.recordExecutionTime("DEVICE_TRUST", executionTime);
+                    capabilityRegistry.recordSuccessfulExecution(AuthConstants.CAPABILITY_DEVICE_TRUST);
 
-                        return String.format("Device trust validated - Level: %s, Device: %s, Trusted: %s, User: %s (ID: %d)",
-                                           trustValidation.getTrustLevel(), deviceId, trustValidation.isTrusted(),
-                                           response.getUser().getEmail(), response.getUser().getId());
-
-                    } catch (Exception deviceEx) {
-                        log.error("Device trust validation failed for user {}: {}", response.getUser().getId(), deviceEx.getMessage());
-                        capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, deviceEx);
-                        return "Device trust validation failed: " + deviceEx.getMessage();
-                    }
-                }
+                    return String.format("Device trust validated - Level: %s, Device: %s, Trusted: %s, User: %s (ID: %d)",
+                                       trustValidation.getTrustLevel(), deviceId, trustValidation.isTrusted(),
+                                       response.getUser().getEmail(), response.getUser().getId());
+                }).fold(
+                    deviceError -> {
+                        log.error("Device trust validation failed for user {}: {}", response.getUser().getId(), deviceError);
+                        capabilityRegistry.recordFailedExecution(AuthConstants.CAPABILITY_DEVICE_TRUST, new RuntimeException(deviceError));
+                        return "Device trust validation failed: " + deviceError;
+                    },
+                    result -> result
+                )
             );
-            
-        } catch (Exception e) {
-            log.error("Device trust validation process failed: {}", e.getMessage(), e);
-            capabilityRegistry.recordFailedExecution("DEVICE_TRUST", e);
-            return "Device trust validation process failed: " + e.getMessage();
-        }
+        }).fold(
+            error -> {
+                log.error("Device trust validation process failed: {}", error);
+                capabilityRegistry.recordFailedExecution("DEVICE_TRUST", new RuntimeException(error));
+                return "Device trust validation process failed: " + error;
+            },
+            result -> result
+        );
     }
     
     private String createUserSession(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             var startTime = System.currentTimeMillis();
-            
+
             // First authenticate to get user ID
             var authResult = authenticationService.login(request, null);
-            
+
             return authResult.fold(
                 error -> {
                     throw new RuntimeException("Cannot create session - authentication failed: " + error);
                 },
-                response -> {
-                    try {
-                        // Use functional approach to generate device info
-                        final String deviceInfo = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
+                response -> SafeOperations.safelyToResult(() -> {
+                    // Use functional approach to generate device info
+                    final String deviceInfo = generateDeviceId(request.getDeviceInfo(), response.getUser().getId());
 
-                        // Create session with validated user and proper context
-                        String sessionId = sessionManagementService.createSession(
-                            response.getUser().getId(),
-                            deviceInfo,
-                            "AgentOS-" + response.getUser().getId(),
-                            "TradeMaster-AuthAgent/1.0 (User:" + response.getUser().getId() + ")",
-                            Map.of(
-                                "loginTime", System.currentTimeMillis(),
-                                "authMethod", "password",
-                                "agentRequested", true
-                            )
-                        );
+                    // Create session with validated user and proper context
+                    String sessionId = sessionManagementService.createSession(
+                        response.getUser().getId(),
+                        deviceInfo,
+                        "AgentOS-" + response.getUser().getId(),
+                        "TradeMaster-AuthAgent/1.0 (User:" + response.getUser().getId() + ")",
+                        Map.of(
+                            "loginTime", System.currentTimeMillis(),
+                            "authMethod", "password",
+                            "agentRequested", true
+                        )
+                    );
 
-                        var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
-                        capabilityRegistry.recordExecutionTime("SESSION_MANAGEMENT", executionTime);
+                    var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
+                    capabilityRegistry.recordExecutionTime("SESSION_MANAGEMENT", executionTime);
 
-                        return String.format("User session created successfully: %s for user %s",
-                                           sessionId, response.getUser().getEmail());
-
-                    } catch (Exception sessionEx) {
-                        capabilityRegistry.recordFailedExecution("SESSION_MANAGEMENT", sessionEx);
-                        throw new RuntimeException("Session creation failed: " + sessionEx.getMessage());
-                    }
-                }
+                    return String.format("User session created successfully: %s for user %s",
+                                       sessionId, response.getUser().getEmail());
+                }).orElseThrow(sessionError -> {
+                    capabilityRegistry.recordFailedExecution("SESSION_MANAGEMENT", new RuntimeException(sessionError));
+                    return new RuntimeException("Session creation failed: " + sessionError);
+                })
             );
-            
-        } catch (Exception e) {
-            log.warn("Session creation failed: {}", e.getMessage());
-            capabilityRegistry.recordFailedExecution("SESSION_MANAGEMENT", e);
-            return "Session creation failed: " + e.getMessage();
-        }
+        }).fold(
+            error -> {
+                log.warn("Session creation failed: {}", error);
+                capabilityRegistry.recordFailedExecution("SESSION_MANAGEMENT", new RuntimeException(error));
+                return "Session creation failed: " + error;
+            },
+            result -> result
+        );
     }
     
     private String auditAuthenticationAttempt(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             final var startTime = System.currentTimeMillis();
-            
+
             // Use functional approach to determine audit result
             final var auditResult = determineAuditResult(request);
             final var userId = auditResult.userId();
             final var auditStatus = auditResult.status();
-            
+
             // Log security event
             securityAuditService.logSecurityEvent(
                 userId != null ? userId : -1L, // Use -1 for unknown users
@@ -455,21 +477,23 @@ public class AuthenticationAgent implements AgentOSComponent {
                     "requestId", request.getRequestId() != null ? request.getRequestId().toString() : "unknown"
                 )
             );
-            
+
             var executionTime = Duration.ofMillis(System.currentTimeMillis() - startTime);
             capabilityRegistry.recordExecutionTime("SECURITY_AUDIT", executionTime);
             capabilityRegistry.recordSuccessfulExecution("SECURITY_AUDIT");
-            
-            return String.format("Authentication attempt audited: status=%s, email=%s, ip=%s, userId=%s", 
-                               auditStatus, request.getEmail(), 
+
+            return String.format("Authentication attempt audited: status=%s, email=%s, ip=%s, userId=%s",
+                               auditStatus, request.getEmail(),
                                "AgentOS-" + (userId != null ? userId : "unknown"),
                                userId != null ? userId : "unknown");
-            
-        } catch (Exception e) {
-            log.warn("Audit logging failed: {}", e.getMessage());
-            capabilityRegistry.recordFailedExecution("SECURITY_AUDIT", e);
-            return "Audit logging failed: " + e.getMessage();
-        }
+        }).fold(
+            error -> {
+                log.warn("Audit logging failed: {}", error);
+                capabilityRegistry.recordFailedExecution("SECURITY_AUDIT", new RuntimeException(error));
+                return "Audit logging failed: " + error;
+            },
+            result -> result
+        );
     }
     
     @Override
@@ -546,32 +570,34 @@ public class AuthenticationAgent implements AgentOSComponent {
     
     @Override
     public void performHealthCheck() {
-        try {
+        SafeOperations.safelyToResult(() -> {
             Double healthScore = capabilityRegistry.calculateOverallHealthScore();
             log.debug("Authentication Agent health check - Score: {}", healthScore);
-            
-            // Log health check if score is concerning
-            if (healthScore < 0.7) {
-                log.warn("Authentication Agent health score below threshold: {}", healthScore);
-                
-                securityAuditService.logSecurityEvent(
-                    -1L, // System event
-                    "AGENT_HEALTH_WARNING",
-                    "MEDIUM",
-                    "127.0.0.1",
-                    "AuthenticationAgent",
-                    Map.of(
-                        "agentId", getAgentId(),
-                        "healthScore", healthScore.toString(),
-                        "threshold", "0.7",
-                        "timestamp", System.currentTimeMillis()
-                    )
-                );
-            }
-            
-        } catch (Exception e) {
-            log.error("Authentication Agent health check failed", e);
-            
+
+            // Log health check if score is concerning using functional pattern
+            Optional.of(healthScore)
+                .filter(score -> score < 0.7)
+                .ifPresent(score -> {
+                    log.warn("Authentication Agent health score below threshold: {}", score);
+
+                    securityAuditService.logSecurityEvent(
+                        -1L, // System event
+                        "AGENT_HEALTH_WARNING",
+                        "MEDIUM",
+                        "127.0.0.1",
+                        "AuthenticationAgent",
+                        Map.of(
+                            "agentId", getAgentId(),
+                            "healthScore", score.toString(),
+                            "threshold", "0.7",
+                            "timestamp", System.currentTimeMillis()
+                        )
+                    );
+                });
+            return null;
+        }).onFailure(error -> {
+            log.error("Authentication Agent health check failed", error);
+
             securityAuditService.logSecurityEvent(
                 -1L, // System event
                 "AGENT_HEALTH_CHECK_FAILED",
@@ -580,11 +606,11 @@ public class AuthenticationAgent implements AgentOSComponent {
                 "AuthenticationAgent",
                 Map.of(
                     "agentId", getAgentId(),
-                    "error", e.getMessage(),
+                    "error", error,
                     "timestamp", System.currentTimeMillis()
                 )
             );
-        }
+        });
     }
     
     /**
@@ -625,17 +651,20 @@ public class AuthenticationAgent implements AgentOSComponent {
      * Functional method to determine audit result without mutable variables
      */
     private AuditResult determineAuditResult(AuthenticationRequest request) {
-        try {
+        return SafeOperations.safelyToResult(() -> {
             var authResult = authenticationService.login(request, null);
-            
+
             return authResult.fold(
                 error -> determineErrorStatus(error),
                 response -> new AuditResult(response.getUser().getId(), "SUCCESS")
             );
-        } catch (Exception e) {
-            log.debug("Could not resolve user ID for audit: {}", e.getMessage());
-            return new AuditResult(null, "FAILED_USER_LOOKUP");
-        }
+        }).fold(
+            error -> {
+                log.debug("Could not resolve user ID for audit: {}", error);
+                return new AuditResult(null, "FAILED_USER_LOOKUP");
+            },
+            result -> result
+        );
     }
 }
 

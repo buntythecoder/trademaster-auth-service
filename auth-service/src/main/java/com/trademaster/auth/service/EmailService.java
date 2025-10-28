@@ -109,6 +109,26 @@ public class EmailService {
         );
     }
 
+    /**
+     * Send generic notification email
+     *
+     * Generic email sending for notification purposes.
+     *
+     * MANDATORY: Circuit Breaker - Rule #25
+     * MANDATORY: Functional Programming - Rule #3
+     */
+    public CompletableFuture<Result<String, String>> sendEmail(String email, String subject, String body) {
+        log.info("Sending notification email to: {} with subject: {}", email, subject);
+
+        return circuitBreakerService.executeEmailOperation(
+            "notificationEmail",
+            () -> {
+                sendEmailInternal(email, subject, body, null);
+                return "Notification email sent successfully";
+            }
+        );
+    }
+
     private String buildEmailVerificationBody(String verificationUrl) {
         return String.format("""
             <html>
@@ -187,18 +207,20 @@ public class EmailService {
         VirtualThreadFactory.INSTANCE.runAsync(() -> 
             SafeOperations.safelyToResult(() -> {
                 MimeMessage message = mailSender.createMimeMessage();
-                MimeMessageHelper helper;
-                
-                try {
-                    helper = new MimeMessageHelper(message, true, "UTF-8");
-                    helper.setFrom(fromAddress);
-                    helper.setTo(recipient);
-                    helper.setSubject(subject);
-                    helper.setText(htmlBody, true);
-                } catch (MessagingException e) {
-                    throw new RuntimeException("Failed to prepare email message: " + e.getMessage(), e);
-                }
-                
+
+                MimeMessageHelper helper = SafeOperations.safelyToResult(() -> {
+                    try {
+                        MimeMessageHelper h = new MimeMessageHelper(message, true, "UTF-8");
+                        h.setFrom(fromAddress);
+                        h.setTo(recipient);
+                        h.setSubject(subject);
+                        h.setText(htmlBody, true);
+                        return h;
+                    } catch (jakarta.mail.MessagingException e) {
+                        throw new RuntimeException("MessagingException in email preparation: " + e.getMessage(), e);
+                    }
+                }).orElseThrow(error -> new RuntimeException("Failed to prepare email message: " + error));
+
                 mailSender.send(message);
                 return "Email sent successfully";
             })

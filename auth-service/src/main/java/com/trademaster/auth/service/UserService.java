@@ -7,6 +7,7 @@ import com.trademaster.auth.projection.UserStatisticsProjection;
 import com.trademaster.auth.repository.UserRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -30,6 +31,7 @@ import java.util.*;
  * @version 1.0.0
  */
 @Service
+@Primary  // ✅ PRIMARY UserDetailsService bean - resolves ambiguity with UserDataService
 @RequiredArgsConstructor
 @Slf4j
 @Transactional(readOnly = true)
@@ -102,11 +104,13 @@ public class UserService implements UserDetailsService {
     public void updateLastActivity(Long userId, String ipAddress, String deviceFingerprint) {
         SafeOperations.safelyToResult(() -> {
             // Validate IP address format (basic validation)
-            String validatedIp = ipAddress;
-            if (ipAddress == null || ipAddress.trim().isEmpty()) {
-                log.warn("Invalid IP address provided: {}", ipAddress);
-                validatedIp = "127.0.0.1";
-            }
+            String validatedIp = Optional.ofNullable(ipAddress)
+                .map(String::trim)
+                .filter(ip -> !ip.isEmpty())
+                .orElseGet(() -> {
+                    log.warn("Invalid IP address provided: {}", ipAddress);
+                    return "127.0.0.1";
+                });
 
             userRepository.updateLastLogin(userId, LocalDateTime.now(), validatedIp, deviceFingerprint, LocalDateTime.now());
             
@@ -390,11 +394,11 @@ public class UserService implements UserDetailsService {
     }
 
     private Result<User, String> validateApprovalDocuments(User user, User.KycStatus newStatus, Map<String, Object> kycDocuments) {
-        if (newStatus == User.KycStatus.APPROVED) {
-            return validateDocumentsForApproval(kycDocuments)
-                .map(valid -> user);
-        }
-        return Result.success(user);
+        return Optional.of(newStatus)
+            .filter(status -> status == User.KycStatus.APPROVED)
+            .map(status -> validateDocumentsForApproval(kycDocuments)
+                .map(valid -> user))
+            .orElse(Result.success(user));
     }
 
     private Result<Boolean, String> validateDocumentsForApproval(Map<String, Object> kycDocuments) {
