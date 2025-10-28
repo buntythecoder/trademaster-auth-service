@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: trademaster_main
       POSTGRES_USER: trademaster_admin
       POSTGRES_PASSWORD: trademaster_secure_pass
-      POSTGRES_MULTIPLE_DATABASES: trademaster_trading,trademaster_eventbus,trademaster_users,trademaster_auth,trademaster_broker_auth,trademaster_agents,trademaster_notifications,trademaster_subscriptions,kong
+      POSTGRES_MULTIPLE_DATABASES: trademaster_trading,trademaster_eventbus,trademaster_users,trademaster_auth,trademaster_broker_auth,trademaster_agents,trademaster_notifications,trademaster_subscriptions,trademaster_portfolio,kong
     ports:
       - "5432:5432"
     volumes:
@@ -606,6 +606,95 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9086/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Portfolio Service
+  portfolio-service:
+    build:
+      context: ./portfolio-service
+      dockerfile: Dockerfile.runtime
+    ports:
+      - "8087:8087"
+      - "9087:9087"  # Management port
+    environment:
+      - SPRING_PROFILES_ACTIVE=consul,docker
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - SPRING_CLOUD_CONSUL_HOST=consul
+      - SPRING_CLOUD_CONSUL_PORT=8500
+      - SPRING_CLOUD_CONSUL_DISCOVERY_HOSTNAME=portfolio-service
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/trademaster_portfolio
+      - SPRING_DATASOURCE_USERNAME=trademaster_admin
+      - SPRING_DATASOURCE_PASSWORD=trademaster_secure_pass
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/trademaster_portfolio
+      - DATABASE_USERNAME=trademaster_admin
+      - DATABASE_PASSWORD=trademaster_secure_pass
+      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - HOST_IP=portfolio-service
+      - HOSTNAME=portfolio-service
+      - CONSUL_INSTANCE_HOSTNAME=portfolio-service
+      - JAVA_TOOL_OPTIONS=--enable-preview -Dorg.gradle.jvmargs="--enable-preview"
+      - SERVER_PORT=8087
+      - MANAGEMENT_SERVER_PORT=9087
+      - SPRING_THREADS_VIRTUAL_ENABLED=true
+      - MANAGEMENT_TRACING_ENABLED=true
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info,prometheus,circuitbreakers,portfolio
+      - MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always
+      - MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Service-to-Service Authentication (Kong Dynamic API Keys)
+      - SERVICE_AUTH_ENABLED=true
+      - KONG_API_GATEWAY_URL=http://kong:8000
+      - KONG_ADMIN_URL=http://kong:8001
+      - KONG_SECRETS_DIR=/kong/secrets
+      - SERVICE_NAME=portfolio
+      - SERVICE_KEY_DISCOVERY_ENABLED=true
+      - SERVICE_TO_SERVICE_AUTH_HEADER=X-API-Key
+      - TRADEMASTER_SECURITY_SERVICE_API_KEY=pTB9KkzqJWNkFDUJHIFyDv5b1tSUpP4q
+      # Internal Service URLs (via Kong Gateway)
+      - EVENT_BUS_INTERNAL_URL=http://kong:8000/internal/events
+      - TRADING_SERVICE_INTERNAL_URL=http://kong:8000/internal/trading
+      - MARKET_DATA_INTERNAL_URL=http://kong:8000/internal/market-data
+      - RISK_SERVICE_INTERNAL_URL=http://kong:8000/internal/risk
+      - NOTIFICATION_SERVICE_INTERNAL_URL=http://kong:8000/internal/notification
+      - AUDIT_SERVICE_INTERNAL_URL=http://kong:8000/internal/audit
+      # JWT Configuration
+      - JWT_SECRET=your-256-bit-secret-key-here-change-in-production-must-be-at-least-32-characters
+      - JWT_EXPIRATION=900000
+      - JWT_REFRESH_EXPIRATION=86400000
+      - JWT_ISSUER=trademaster-portfolio-service
+    volumes:
+      - kong_secrets:/kong/secrets:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9087/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -1,163 +1,165 @@
-# AlertManager configuration for TradeMaster
-global:
-  smtp_smarthost: 'smtp.gmail.com:587'
-  smtp_from: 'alerts@trademaster.com'
-  smtp_auth_username: 'alerts@trademaster.com'
-  smtp_auth_password: 'your_app_password'
+# Alertmanager Configuration for TradeMaster Trading Service
+# Integrates with PagerDuty and Slack for alert notifications
+# @version 1.0.0
 
-# Route configuration
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Alert routing tree
 route:
+  receiver: 'default'
   group_by: ['alertname', 'cluster', 'service']
-  group_wait: 30s
-  group_interval: 5m
+  group_wait: 10s
+  group_interval: 10s
   repeat_interval: 12h
-  receiver: 'default-receiver'
+  
   routes:
+    # Critical alerts - PagerDuty + Slack
     - match:
         severity: critical
-      receiver: 'critical-alerts'
-      group_wait: 10s
-      repeat_interval: 5m
-    
+      receiver: 'pagerduty-critical'
+      continue: true
+      routes:
+        - match:
+            component: application
+          receiver: 'slack-critical-app'
+        - match:
+            component: database
+          receiver: 'slack-critical-db'
+        - match:
+            component: trading
+          receiver: 'slack-critical-trading'
+
+    # Warning alerts - Slack only
     - match:
-        team: security
-      receiver: 'security-team'
-      group_wait: 10s
-      repeat_interval: 30m
-    
-    - match:
-        team: trading
-      receiver: 'trading-team'
+        severity: warning
+      receiver: 'slack-warnings'
       group_wait: 30s
-      repeat_interval: 1h
-    
-    - match:
-        team: compliance
-      receiver: 'compliance-team'
-      group_wait: 1m
-      repeat_interval: 2h
-    
+      group_interval: 5m
+      repeat_interval: 4h
+
+    # Info alerts - Slack only
     - match:
         severity: info
-      receiver: 'info-alerts'
-      group_wait: 5m
+      receiver: 'slack-info'
+      group_wait: 1m
+      group_interval: 10m
       repeat_interval: 24h
 
-# Inhibition rules
+# Alert receivers
+receivers:
+  # Default receiver (fallback)
+  - name: 'default'
+    slack_configs:
+      - channel: '#trademaster-alerts'
+        title: 'TradeMaster Alert'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  # PagerDuty for critical alerts
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        severity: 'critical'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          alertname: '{{ .GroupLabels.alertname }}'
+          cluster: '{{ .GroupLabels.cluster }}'
+          component: '{{ .GroupLabels.component }}'
+        client: 'TradeMaster Prometheus'
+        client_url: '{{ .ExternalURL }}'
+
+  # Slack for critical application alerts
+  - name: 'slack-critical-app'
+    slack_configs:
+      - channel: '#trademaster-critical'
+        username: 'TradeMaster Alerts'
+        icon_emoji: ':rotating_light:'
+        title: ':fire: CRITICAL: Application Issue'
+        title_link: '{{ .ExternalURL }}'
+        text: |-
+          *Alert*: {{ .GroupLabels.alertname }}
+          *Summary*: {{ .CommonAnnotations.summary }}
+          *Description*: {{ .CommonAnnotations.description }}
+          *Runbook*: {{ .CommonAnnotations.runbook_url }}
+          *Dashboard*: {{ .CommonAnnotations.dashboard }}
+          
+          *Status*: {{ .Status }}
+          *Severity*: {{ .CommonLabels.severity }}
+          *Component*: {{ .CommonLabels.component }}
+          *Instance*: {{ .CommonLabels.instance }}
+        color: 'danger'
+        send_resolved: true
+
+  # Slack for critical database alerts
+  - name: 'slack-critical-db'
+    slack_configs:
+      - channel: '#trademaster-database'
+        username: 'TradeMaster DB Alerts'
+        icon_emoji: ':database:'
+        title: ':fire: CRITICAL: Database Issue'
+        text: '{{ .CommonAnnotations.summary }}'
+        color: 'danger'
+        send_resolved: true
+
+  # Slack for critical trading alerts
+  - name: 'slack-critical-trading'
+    slack_configs:
+      - channel: '#trademaster-trading'
+        username: 'TradeMaster Trading Alerts'
+        icon_emoji: ':chart_with_upwards_trend:'
+        title: ':fire: CRITICAL: Trading Issue'
+        text: '{{ .CommonAnnotations.summary }}'
+        color: 'danger'
+        send_resolved: true
+
+  # Slack for warning alerts
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#trademaster-warnings'
+        username: 'TradeMaster Alerts'
+        icon_emoji: ':warning:'
+        title: ':warning: Warning: {{ .GroupLabels.alertname }}'
+        text: |-
+          *Summary*: {{ .CommonAnnotations.summary }}
+          *Description*: {{ .CommonAnnotations.description }}
+          *Runbook*: {{ .CommonAnnotations.runbook_url }}
+        color: 'warning'
+        send_resolved: true
+
+  # Slack for info alerts
+  - name: 'slack-info'
+    slack_configs:
+      - channel: '#trademaster-info'
+        username: 'TradeMaster Info'
+        icon_emoji: ':information_source:'
+        title: 'Info: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'
+        color: 'good'
+        send_resolved: true
+
+# Inhibition rules (suppress redundant alerts)
 inhibit_rules:
+  # Suppress warnings when critical alert is firing
   - source_match:
       severity: 'critical'
     target_match:
       severity: 'warning'
-    equal: ['alertname', 'cluster', 'service']
+    equal: ['alertname', 'instance']
 
-# Receiver configuration
-receivers:
-  - name: 'default-receiver'
-    email_configs:
-      - to: 'platform-team@trademaster.com'
-        subject: '[TradeMaster] {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
-          Starts At: {{ .StartsAt }}
-          {{ end }}
+  # Suppress info alerts when warning is firing
+  - source_match:
+      severity: 'warning'
+    target_match:
+      severity: 'info'
+    equal: ['alertname', 'instance']
 
-  - name: 'critical-alerts'
-    email_configs:
-      - to: 'oncall@trademaster.com,platform-lead@trademaster.com'
-        subject: '[CRITICAL] TradeMaster Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          🚨 CRITICAL ALERT 🚨
-          
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Severity: {{ .Labels.severity }}
-          Service: {{ .Labels.job }}
-          Instance: {{ .Labels.instance }}
-          Starts At: {{ .StartsAt }}
-          
-          {{ end }}
-          
-          Please investigate immediately!
-    webhook_configs:
-      - url: 'http://notification-service:8084/api/alerts/webhook'
-        send_resolved: true
-
-  - name: 'security-team'
-    email_configs:
-      - to: 'security-team@trademaster.com,ciso@trademaster.com'
-        subject: '[SECURITY] TradeMaster Security Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          🔒 SECURITY ALERT 🔒
-          
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Severity: {{ .Labels.severity }}
-          Service: {{ .Labels.job }}
-          Instance: {{ .Labels.instance }}
-          Starts At: {{ .StartsAt }}
-          
-          {{ end }}
-          
-          Security team attention required.
-
-  - name: 'trading-team'
-    email_configs:
-      - to: 'trading-team@trademaster.com,trading-lead@trademaster.com'
-        subject: '[TRADING] TradeMaster Trading Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          📈 TRADING ALERT 📈
-          
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Severity: {{ .Labels.severity }}
-          Service: {{ .Labels.job }}
-          Starts At: {{ .StartsAt }}
-          
-          {{ end }}
-          
-          Trading operations may be affected.
-
-  - name: 'compliance-team'
-    email_configs:
-      - to: 'compliance@trademaster.com,legal@trademaster.com'
-        subject: '[COMPLIANCE] TradeMaster Compliance Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          ⚖️ COMPLIANCE ALERT ⚖️
-          
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Service: {{ .Labels.job }}
-          Starts At: {{ .StartsAt }}
-          
-          {{ end }}
-          
-          Compliance review required.
-
-  - name: 'info-alerts'
-    email_configs:
-      - to: 'platform-team@trademaster.com'
-        subject: '[INFO] TradeMaster Information: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
-        body: |
-          ℹ️ INFORMATION ALERT ℹ️
-          
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          Service: {{ .Labels.job }}
-          Starts At: {{ .StartsAt }}
-          
-          {{ end }}
-          
-          This is for your information.
-
-# Templates for custom formatting
-templates:
-  - '/etc/alertmanager/templates/*.tmpl'
+  # Suppress component alerts when application is down
+  - source_match:
+      alertname: 'ApplicationDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['instance']
