@@ -41,6 +41,7 @@ import java.util.function.Consumer;
 public class NotificationObserver implements EventObserver<AuthEvent> {
 
     private final EmailService emailService;
+    private final com.trademaster.auth.service.UserService userService;
 
     @Override
     public CompletableFuture<Result<Void, String>> onEvent(AuthEvent event) {
@@ -233,22 +234,24 @@ public class NotificationObserver implements EventObserver<AuthEvent> {
 
     /**
      * Send email notification
-     * In production, this would look up the user's email address
+     * Integrates with UserService to fetch actual user email address
      */
     private void sendEmail(Long userId, String subject, String body) {
-        // TODO: Look up user email from user service
-        String userEmail = "user-" + userId + "@example.com"; // Placeholder
-
-        emailService.sendEmail(userEmail, subject, body)
-            .thenAccept(result -> result.fold(
-                error -> {
-                    log.error("Failed to send notification email: userId={}, error={}", userId, error);
-                    return null;
-                },
-                success -> {
-                    log.debug("Notification email sent successfully: userId={}", userId);
-                    return null;
-                }
-            ));
+        userService.findById(userId)
+            .map(user -> user.getEmail())
+            .ifPresentOrElse(
+                userEmail -> emailService.sendEmail(userEmail, subject, body)
+                    .thenAccept(result -> result.fold(
+                        error -> {
+                            log.error("Failed to send notification email: userId={}, email={}, error={}", userId, userEmail, error);
+                            return null;
+                        },
+                        success -> {
+                            log.debug("Notification email sent successfully: userId={}, email={}", userId, userEmail);
+                            return null;
+                        }
+                    )),
+                () -> log.warn("Cannot send notification email: user not found, userId={}", userId)
+            );
     }
 }

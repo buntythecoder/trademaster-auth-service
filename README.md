@@ -8,6 +8,7 @@ Enterprise authentication service with Java 24 Virtual Threads and Spring Boot 3
 - Zero Trust Architecture
 - High-performance role caching
 - Kong Gateway integration
+- Broker OAuth 2.0 integration (Zerodha, Upstox, Angel One, ICICI Direct)
 
 ## API Endpoints
 ### Authentication
@@ -27,6 +28,21 @@ Enterprise authentication service with Java 24 Virtual Threads and Spring Boot 3
 ### Internal (Kong headers required)
 - GET /internal/v1/auth/validate-token
 - GET /internal/v1/auth/user/{userId}
+
+## Broker Integration
+For detailed OAuth 2.0 integration with Indian stock brokers, see [BROKER_OAUTH_GUIDE.md](./BROKER_OAUTH_GUIDE.md)
+
+Supported brokers:
+- **Zerodha Kite Connect** - OAuth 2.0 with custom flow
+- **Upstox** - Standard OAuth 2.0
+- **Angel One** - OAuth 2.0 with PKCE
+- **ICICI Direct** - OAuth 2.0
+
+Features:
+- PKCE flow for enhanced security
+- Token encryption (AES-256)
+- Automatic token refresh
+- Vault integration for secure storage
 
 ## Setup
 ./gradlew build
