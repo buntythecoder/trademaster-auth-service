@@ -468,6 +468,15 @@ circuitBreaker.getEventPublisher()
 - **Async Processing**: Virtual threads with CompletableFuture
 - **Real-time Webhooks**: Functional webhook processing with signature verification
 
+### Advanced Payment Analytics
+- **Monthly Recurring Revenue (MRR)**: Track subscription revenue with automatic ARR calculation
+- **Churn Rate Analysis**: Monitor subscriber retention and cancellation patterns
+- **Gateway Success Rates**: Track payment success rates by gateway (Razorpay, Stripe)
+- **Payment Method Preferences**: Analyze payment method usage (CARD, UPI, NETBANKING, WALLET, BNPL)
+- **Failure Reason Tracking**: Identify and categorize failed payment patterns
+- **Comprehensive Revenue Analytics**: Total revenue, average transaction value, revenue by gateway
+- **Real-time Analytics Dashboard**: Quick 30-day summary with key metrics
+
 ### Security & Compliance
 - **PCI DSS Compliant**: Tokenized payment storage, no sensitive data
 - **Zero Trust Architecture**: Tiered security with facade patterns
@@ -489,6 +498,24 @@ circuitBreaker.getEventPublisher()
 - **Documentation**: OpenAPI 3 (Swagger)
 
 ## 📡 **API Endpoints**
+
+### Payment Analytics (New!)
+```
+GET /payments/analytics/gateway-success-rate
+GET /payments/analytics/payment-methods
+GET /payments/analytics/revenue/mrr
+GET /payments/analytics/churn-rate
+GET /payments/analytics/failures
+GET /payments/analytics/revenue/comprehensive
+GET /payments/analytics/summary
+```
+
+**Analytics Features**:
+- Virtual Thread async processing for high performance
+- Functional Stream API for all aggregations
+- Role-based access control (ADMIN, ANALYTICS_USER, FINANCE_USER)
+- Immutable record-based analytics DTOs
+- Time-range based queries with UTC timezone support
 
 ### Functional Payment Processing
 
